@@ -4,7 +4,7 @@ Read this first if you are an AI agent picking up the Mac owner's work. The full
 (sections 4, 5, 9, 11, 12 cover the Helper). Keep this file current: update the status table and "Next steps"
 whenever you finish or start something, and commit it.
 
-Last updated: 2026-11-14 19:10 UTC (paused: usage limit).
+Last updated 2026-11-14.
 
 ## Ground rules
 
@@ -37,13 +37,13 @@ key (`Input/HotkeyMonitor.swift`, Right Option by default), barge-in, `app.chang
 | Item | Status |
 | --- | --- |
 | Repo hygiene (`.gitattributes`, `.gitignore`, `.env.example`) | Done |
-| H1 Helper shell, server, `/health`, `/events`, `/debug/utterance` | Done, builds |
+| H1 Helper shell, server, `/health`, `/events`, `/debug/utterance` | Implemented on this branch. Debug build passed. |
 | Contracts v1 draft (`contracts/`) | Done; needs Emmet's approval via PR (C0) |
-| H6 HUD, ring, sounds | Done, 7 tests pass; not yet seen on a real screen |
-| H2/H3 accessibility + input | Done; live-tested in Mail/Safari/Notes/Finder (snapshots 100-400 ms) |
-| H4/H5 speech in/out + model downloads | Done; models in `models/` (tiny.en, large-v3-626MB, TTSKit 0.6B). Live mic capture not yet tested |
+| H6 HUD, ring, sounds | Unit tests passed, including the highlight test in the Mac desktop session. Live walkthrough pending. |
+| H2/H3 accessibility + input | Implemented. Mail Reply acceptance script added and mock-tested. Live acceptance pending. |
+| H4/H5 speech in/out + model downloads | Local speech benchmarks in [bench.md](bench.md). System speech met both timing targets. Live push-to-talk and audible barge-in pending. |
 | Scripts, app packaging, demo pages, Bonsai setup | Done. Signed app installed at `/Applications/Beacon Helper.app`; contract tests 24 pass / 2 fail (AX permission) / 4 skip |
-| Fixtures | `safari_form`, `safari_form_unlabeled` done. `mail_inbox` in progress (Mail body sometimes missing from snapshot: being fixed). `mail_reply_draft`, `notes_list` to do |
+| Fixtures | `safari_form` and `safari_form_unlabeled` validate. Remaining captures depend on Accessibility. |
 | P2 vision label repair (S2) | Not started |
 
 ## How to build, test, run
@@ -53,6 +53,7 @@ cd helper && swift build && swift test          # debug build + unit tests
 scripts/build_helper.sh --install                # signed "Beacon Helper.app" (stable identity keeps permissions)
 scripts/run_all.sh                               # Bonsai + Helper + Brain (Brain only if brain/ exists)
 scripts/contract_test.sh                         # endpoint shape checks; --live also clicks/types
+scripts/mail_reply_test.sh                       # select Sarah's seeded message, then verify typing into a reply draft
 scripts/dump_fixture.sh mail_inbox 3             # record a fixture after a 3 s delay
 curl -s localhost:8765/health
 curl -s -X POST localhost:8765/debug/utterance -d '{"text":"what is on my screen"}'
@@ -63,9 +64,9 @@ for fast debugging and `BEACON_TTS=system` if TTSKit is slow or memory is tight.
 
 ## Known issues and blockers
 
-- **Speech on the M1:** Whisper large-v3-626MB loads in 130-170 s and needs ~1.2 s per utterance, so the default is now
-  `tiny.en` (~80 ms). TTSKit generates at 0.6-0.9x real time, 0.7-2.8 s to first audio; it auto-falls back to the
-  system voice. `BEACON_TTS=system` is the safe demo setting.
+- **Speech on the M1:** `tiny.en` processed the test clip in 177–385 ms during a concurrent release build. System speech
+  reported start in 264 ms and interruption in 1 ms. TTSKit missed both targets under that load. Use `BEACON_TTS=system`
+  for the demo. See [bench.md](bench.md) for test conditions and the remaining live checks.
 - **Demo data:** fake Mail mailbox (On My Mac > Import > Beacon Demo, from `demo/seed/make_demo_mbox.py`) and a fake
   "Beacon Demo" Notes folder (iCloud). Record fixtures only from those, never from Justin's real mail/notes.
 
@@ -73,26 +74,22 @@ for fast debugging and `BEACON_TTS=system` if TTSKit is slow or memory is tight.
   2.2 s with prefix cache. 4,899-token screen: 32.7 s. `tool_choice: required`, `enable_thinking: false` and
   `cache_prompt` are all accepted and enforced. Needs the 2B and/or much smaller snapshots; Emmet decides via bench.py.
 - `start_bonsai.sh` skips the vision projector (memory); `BEACON_VISION=1` re-enables it.
-- Accessibility not yet granted to the app (asked Justin 18:25 UTC). Microphone is granted.
-
-- Accessibility, Microphone (and Screen Recording for screenshots/P2) must be granted by Justin in System Settings to
-  the signed app. Until then `Permissions.requestAtLaunch` brings System Settings to the front at each launch,
-  which also makes snapshots target System Settings.
-- The swift-built debug binary has a different signature from the .app; grant permissions to the .app and test with it.
-- HUD was verified only via rendered images (no Screen Recording permission for the shell).
+- macOS ties Accessibility, Microphone and Screen Recording permissions to the signed app. Launch the current signed
+  app through LaunchServices and verify `/health` before testing. Direct `dump` can also depend on the launching shell's
+  Accessibility permission. Screen Recording is only needed for screenshots and P2.
+- `brain/`, `mock_helper/` and `scripts/bench.py` were absent from the branches available at handoff. Emmet owns them.
 
 ## Next steps
 
-0. **Resume here.** Walker fix for Mail bodies (timeouts on fresh WebKit trees) is committed but `mail_inbox` is not
-   recorded: select Sarah Chen's "Lunch tomorrow?" in Mail's Beacon Demo list, then `scripts/dump_fixture.sh mail_inbox 3`
-   and check the body text appears. Then `mail_reply_draft` (click Reply, do not send), `notes_list` (Notes > Beacon Demo).
-   An uncommitted `contracts/fixtures/mail_inbox.json` from earlier may be stale; re-record it.
-   A debug Helper may still be running on 8765 (`pkill -f .build/debug/beacon-helper`).
-
-1. Merge the three in-progress agents' work, `swift build && swift test`, fix integration errors.
-2. Build the signed app, have Justin grant permissions, run `scripts/contract_test.sh`.
-3. Record the five fixtures (needs Mail with a seeded mailbox, Notes, Safari on `demo/form.html` / `demo/checkout.html`);
-   commit to `contracts/fixtures/`. Emmet needs `mail_inbox` and `safari_form` first.
-4. Verify the H3 acceptance: a curl script clicks Reply in Mail and types into the draft.
-5. Measure H4/H5 latency targets (spec 10.2) and record in `docs/bench.md` or `docs/decisions.md`.
-6. Open the PR (contracts change needs Emmet's approval).
+1. Enable Accessibility for Beacon Helper and verify it in `GET /health`. The copy installed before this session predates
+   the Mail WebKit walker fix. Capture with a signed build containing `8bdc880` or later.
+2. Select Sarah Chen's "Lunch tomorrow?" in the local Beacon Demo mailbox. Record `mail_inbox` and verify that the
+   message body contains `noodle place on College Ave` and `build_ms` is at most 300. The original untracked inbox
+   snapshot predates the walker fix, shows a different selected message, and must be re-recorded.
+3. Capture `mail_reply_draft` before entering the test text, and `notes_list` from the five-note Beacon Demo folder.
+   Review the captures for personal data, validate all fixtures with `scripts/contract_test.sh --fixtures-only`, and
+   commit them. Emmet needs `mail_inbox` and `safari_form` first.
+4. Run `scripts/contract_test.sh` and `scripts/mail_reply_test.sh` against the current signed Helper.
+5. Run the live push-to-talk, HUD and barge-in checks in `helper/TESTING.md`. The debug build and regular unit tests are
+   already verified (54 pass across two runs, four opt-in benchmarks skipped in the unit suite).
+6. Have Emmet review the v1 contracts and bring the Brain to the first offline integration. Start S2 after X2.

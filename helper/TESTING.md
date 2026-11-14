@@ -54,6 +54,7 @@ Reset first to test a clean machine: `tccutil reset Microphone dev.beacon.helper
 - [ ] Snapshot in Mail builds in 300 ms or less (`build_ms`).
 - [ ] Safari `demo/checkout.html`: the pay button appears as `button "unlabeled, near 'Order total'"` (inferred).
 - [ ] `scripts/contract_test.sh --live` passes (opens TextEdit, types, scrolls).
+- [ ] In Mail's local Beacon Demo mailbox, select Sarah Chen's "Lunch tomorrow?" and close any open drafts. Run `scripts/mail_reply_test.sh`, switch to Mail during the countdown, and keep Mail frontmost with the keyboard and mouse idle. The script verifies text in the open, unsent reply.
 
 ## 7. Offline checklist (spec 11.5)
 
