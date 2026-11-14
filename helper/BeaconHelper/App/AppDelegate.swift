@@ -45,8 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let s = services!
         Task.detached {
-            await s.speechIn.prewarm()
-            await s.speechOut.prewarm()
+            async let stt: Void = s.speechIn.prewarm()
+            async let tts: Void = s.speechOut.prewarm()
+            _ = await (stt, tts)
             Log.info("prewarm finished")
         }
     }

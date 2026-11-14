@@ -65,7 +65,7 @@ enum Config {
     }()
 
     static var tts: String { string("BEACON_TTS", "ttskit") }
-    static var sttModel: String { string("BEACON_STT_MODEL", "large-v3-v20240930_626MB") }
+    static var sttModel: String { string("BEACON_STT_MODEL", "tiny.en") }
     static var pttKey: String { string("BEACON_PTT_KEY", "right_option") }
     static var devLAN: Bool { bool("BEACON_DEV_LAN", false) }
     static var token: String { string("BEACON_TOKEN", "") }
