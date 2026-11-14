@@ -20,6 +20,12 @@ enum AX {
     }
 
     static func attributes(_ el: AXUIElement, _ names: [String]) -> ReadResult {
+        var errors: [String: AXError] = [:]
+        return attributes(el, names, errors: &errors)
+    }
+
+    /// Same, also reporting the per-attribute errors (an attribute that failed is absent from the result).
+    static func attributes(_ el: AXUIElement, _ names: [String], errors: inout [String: AXError]) -> ReadResult {
         var values: CFArray?
         let err = AXUIElementCopyMultipleAttributeValues(el, names as CFArray, AXCopyMultipleAttributeOptions(rawValue: 0), &values)
         guard err == .success, let values else { return .failed(err == .success ? .failure : err) }
@@ -28,10 +34,25 @@ enum AX {
         for i in 0..<min(count, names.count) {
             guard let raw = CFArrayGetValueAtIndex(values, i) else { continue }
             let v = Unmanaged<AnyObject>.fromOpaque(raw).takeUnretainedValue()
-            if CFGetTypeID(v) == AXValueGetTypeID(), AXValueGetType(v as! AXValue) == .axError { continue }
+            if CFGetTypeID(v) == AXValueGetTypeID(), AXValueGetType(v as! AXValue) == .axError {
+                var e = AXError.failure
+                if AXValueGetValue(v as! AXValue, .axError, &e) { errors[names[i]] = e } else { errors[names[i]] = .failure }
+                continue
+            }
             out[names[i]] = v
         }
         return .ok(out)
+    }
+
+    /// Errors that mean "the app did not answer in time / is busy", worth one retry.
+    static func isTransient(_ e: AXError?) -> Bool { e == .cannotComplete }
+
+    /// AXChildren read on its own (used to retry a failed or not-yet-populated child list).
+    static func children(_ el: AXUIElement) -> (refs: [AXUIElement], error: AXError?) {
+        var v: CFTypeRef?
+        let err = AXUIElementCopyAttributeValue(el, "AXChildren" as CFString, &v)
+        guard err == .success else { return ([], err) }
+        return (elements(v as AnyObject?), nil)
     }
 
     static func attribute(_ el: AXUIElement, _ name: String) -> AnyObject? {
@@ -103,7 +124,16 @@ enum AX {
 
     /// Reads one element into an AXNode (without children) plus its child references.
     static func readNode(_ el: AXUIElement, focused: AXUIElement?) -> (AXNode, [AXUIElement])? {
-        guard case .ok(let a) = attributes(el, nodeAttributes) else { return nil }
+        var error: AXError?
+        return readNode(el, focused: focused, error: &error)
+    }
+
+    /// Same, reporting why the read failed when it returns nil.
+    static func readNode(_ el: AXUIElement, focused: AXUIElement?, error: inout AXError?) -> (AXNode, [AXUIElement])? {
+        var errors: [String: AXError] = [:]
+        let result = attributes(el, nodeAttributes, errors: &errors)
+        if case .failed(let e) = result { error = e }
+        guard case .ok(let a) = result else { return nil }
         var n = AXNode(string(a["AXRole"]) ?? "AXUnknown")
         n.subrole = string(a["AXSubrole"])
         n.title = string(a["AXTitle"])
@@ -123,7 +153,11 @@ enum AX {
            case .ok(let ta) = attributes(t, ["AXValue", "AXTitle", "AXDescription"]) {
             n.titleElementText = string(ta["AXValue"]) ?? string(ta["AXTitle"]) ?? string(ta["AXDescription"])
         }
-        return (n, elements(a["AXChildren"]))
+        var childRefs = elements(a["AXChildren"])
+        // A web view that is still building its accessibility tree (Mail right after a message is selected) can
+        // time out on AXChildren inside the batched read; the batch then silently reports no children.
+        if a["AXChildren"] == nil, isTransient(errors["AXChildren"]) { childRefs = children(el).refs }
+        return (n, childRefs)
     }
 }
 
@@ -162,9 +196,23 @@ final class AXWalker {
             return nil
         }
         nodeCount += 1
-        guard let (read, childRefs) = AX.readNode(el, focused: focused) else { return nil }
+        var readError: AXError?
+        var result = AX.readNode(el, focused: focused, error: &readError)
+        if result == nil, AX.isTransient(readError) {
+            // The app did not answer in time (a web view building its tree, a busy main thread). Retry once if the
+            // deadline allows a full messaging timeout; otherwise report the snapshot as incomplete.
+            if Date().addingTimeInterval(Double(AX.messagingTimeout) + 0.05) < deadline {
+                result = AX.readNode(el, focused: focused, error: &readError)
+            }
+            if result == nil { truncated = true }
+        }
+        guard let (read, firstRefs) = result else { return nil }
         var node = read
         if prune, let f = node.frame, let c = clip, f.width > 0, f.height > 0, !f.intersects(c) { return nil }
+        var childRefs = firstRefs
+        if childRefs.isEmpty, node.axRole == "AXWebArea", !node.isZeroSize {
+            childRefs = waitForWebContent(el)
+        }
         node.ref = refs.count
         refs.append(el)
 
@@ -190,6 +238,23 @@ final class AXWalker {
             }
         }
         return node
+    }
+
+    /// Total time one walk may spend waiting for web areas to populate.
+    static let webWaitBudget: TimeInterval = 0.2
+    private var webWaited: TimeInterval = 0
+
+    /// A visible web area with no children is usually a page whose accessibility tree WebKit is still building
+    /// (it starts on the first AX request, e.g. right after Mail shows a new message). Re-ask a few times.
+    private func waitForWebContent(_ el: AXUIElement) -> [AXUIElement] {
+        let step: TimeInterval = 0.04
+        while webWaited + step <= Self.webWaitBudget, Date().addingTimeInterval(step + 0.1) < deadline {
+            Thread.sleep(forTimeInterval: step)
+            webWaited += step
+            let refs = AX.children(el).refs
+            if !refs.isEmpty { return refs }
+        }
+        return []
     }
 
     private func walkList(_ el: AXUIElement, _ node: inout AXNode, childRefs: [AXUIElement], depth: Int, clip: CGRect?) {
