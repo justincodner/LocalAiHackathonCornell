@@ -47,6 +47,7 @@ class BonsaiClient:
         max_tokens: int = 300,
         cache_prompt: bool = True,
         transport: httpx.AsyncBaseTransport | None = None,
+        attempts: int = 2,
     ) -> None:
         self._http = httpx.AsyncClient(
             base_url=f"{base_url.rstrip('/')}/",
@@ -56,6 +57,7 @@ class BonsaiClient:
             trust_env=False,
         )
         self._timeout_s = timeout_s
+        self._attempts = max(1, attempts)  # 1 for the optional question model: fail fast, then fall back
         self._sampling: dict[str, Any] = {
             "temperature": temperature,
             "top_p": top_p,
@@ -143,17 +145,17 @@ class BonsaiClient:
             "messages": [dict(message) for message in messages],
             "tools": [dict(tool) for tool in tools],
         }
-        for attempt in range(2):
+        for attempt in range(self._attempts):
             try:
                 response, allow_text = await self._request_completion(payload)
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code
-                if attempt == 0 and (status in {408, 429} or status >= 500):
+                if attempt < self._attempts - 1 and (status in {408, 429} or status >= 500):
                     continue
                 raise BonsaiError(f"Bonsai completion failed (HTTP {status})") from exc
             except (httpx.TransportError, TimeoutError) as exc:
-                if attempt == 0:
+                if attempt < self._attempts - 1:
                     continue
                 if isinstance(exc, (httpx.TimeoutException, TimeoutError)):
                     raise BonsaiError("Bonsai completion timed out") from exc
@@ -163,7 +165,7 @@ class BonsaiClient:
                 body = response.json()
                 call = _parse_tool_call(body, allow_text=allow_text)
             except (ValueError, _InvalidToolCall) as exc:
-                if attempt != 0:
+                if attempt == self._attempts - 1:
                     raise BonsaiError("Bonsai did not return one valid tool call") from exc
                 payload["messages"].append(
                     {"role": "user", "content": "Reply with exactly one tool call"}

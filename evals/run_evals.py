@@ -136,10 +136,13 @@ async def run_suite(
     fixture_dir: Path,
     config: "Config",
     url: str | None = None,
+    question_url: str | None = None,
 ) -> int:
+    from contextlib import AsyncExitStack
+
     from beacon_brain.llm import BonsaiClient, BonsaiError
     from beacon_brain.memory import TaskMemory
-    from beacon_brain import grounding
+    from beacon_brain import grounding, route
     from beacon_brain.tools import TOOL_DEFINITIONS, normalize, validate
 
     prompt = config.prompt_path.read_text(encoding="utf-8").strip()
@@ -149,22 +152,38 @@ async def run_suite(
     grounded = 0
     injection_passed = False
     latencies = []
-    async with BonsaiClient(
-        base_url=url or config.llm_url,
-        timeout_s=config.llm_timeout_s,
-        temperature=config.temperature,
-        top_p=config.top_p,
-        top_k=config.top_k,
-        presence_penalty=config.presence_penalty,
-        max_tokens=config.max_tokens,
-        cache_prompt=config.cache_prompt,
-    ) as model:
-        print(f"Model: {await model.discover_model()}")
-        if config.prewarm:  # as the Brain does at start-up, so case 1 doesn't pay for the cold prefix
-            print(f"Prompt cache warmed in {await model.prewarm(prompt, TOOL_DEFINITIONS):.1f} s")
+    by_route: dict[str, list] = {}  # route -> [passed, total, latencies]
+    question_url = question_url if question_url is not None else config.llm_question_url
+    async with AsyncExitStack() as stack:
+        clients = {}
+        for name, base_url in (("fast", url or config.llm_url), ("question", question_url)):
+            if not base_url:
+                continue
+            client = await stack.enter_async_context(BonsaiClient(
+                base_url=base_url,
+                timeout_s=config.llm_timeout_s,
+                temperature=config.temperature,
+                top_p=config.top_p,
+                top_k=config.top_k,
+                presence_penalty=config.presence_penalty,
+                max_tokens=config.max_tokens,
+                cache_prompt=config.cache_prompt,
+            ))
+            print(f"Model ({name}): {await client.discover_model()}")
+            if config.prewarm:  # as the Brain does at start-up, so case 1 doesn't pay for the cold prefix
+                print(f"Prompt cache warmed in {await client.prewarm(prompt, TOOL_DEFINITIONS):.1f} s")
+            clients[name] = client
+        routed = "question" in clients
+        if routed:
+            print(f"Routing ON: questions -> {question_url}, actions -> fast model (as the Brain does). "
+                  "Set by --question-url or BEACON_LLM_QUESTION_URL; pass --question-url \"\" to turn it off.")
+        else:
+            print("Routing OFF: one model for every case.")
         for case in cases:
             fixture = fixtures[fixture_path(case, fixture_dir)]
             messages = TaskMemory(prompt, case["utterance"]).messages(fixture)
+            case_route = route.classify(case["utterance"]) if routed else "single"
+            model = clients["question" if case_route == route.QUESTION else "fast"]
             started = perf_counter()
             try:
                 call = await model.next_tool_call(messages, TOOL_DEFINITIONS)
@@ -188,15 +207,23 @@ async def run_suite(
             else:
                 latencies.append(elapsed_ms)
                 passed += issue is None
+                stats = by_route.setdefault(case_route, [0, 0, []])
+                stats[0] += issue is None
+                stats[1] += 1
+                stats[2].append(elapsed_ms)
+            label = f" [{case_route}]" if routed else ""
             if issue:
-                print(f"FAIL  {case['id']} ({elapsed_ms:.0f} ms): {issue}")
+                print(f"FAIL  {case['id']}{label} ({elapsed_ms:.0f} ms): {issue}")
             else:
-                print(f"PASS  {case['id']} ({elapsed_ms:.0f} ms)")
+                print(f"PASS  {case['id']}{label} ({elapsed_ms:.0f} ms)")
 
     total = len(cases) - CATEGORY_COUNTS["injection"]
     print(f"Model score: {passed}/{total} ({passed / total:.0%})")
     latency_summary = f"{median(latencies):.0f} ms" if latencies else "unavailable"
     print(f"Median latency for scored cases with a tool call: {latency_summary}")
+    if len(by_route) > 1:
+        for name, (route_passed, route_total, route_ms) in sorted(by_route.items()):
+            print(f"  {name}: {route_passed}/{route_total}, median {median(route_ms):.0f} ms")
     print(f"Injection check: {'PASS' if injection_passed else 'FAIL'}")
     print(f"Calls with text outside the tool call: {stray}/{len(cases)}")
     print(f"Calls changed by the grounding check: {grounded}/{len(cases)}")
@@ -210,7 +237,8 @@ def main() -> int:
         "--fixtures", type=Path, default=ROOT / "contracts" / "fixtures",
         help="Directory of recorded Helper snapshots (default: contracts/fixtures).",
     )
-    parser.add_argument("--url", help="Override the Brain's local Bonsai base URL.")
+    parser.add_argument("--url", help="Override the Brain's local Bonsai base URL (fast model).")
+    parser.add_argument("--question-url", help="Second Bonsai server for questions (BEACON_LLM_QUESTION_URL).")
     parser.add_argument("--check-inputs", action="store_true", help="Check inputs without calling Bonsai.")
     args = parser.parse_args()
     try:
@@ -221,7 +249,9 @@ def main() -> int:
             return 0
         from beacon_brain.config import Config
 
-        return asyncio.run(run_suite(cases, fixtures, args.fixtures.resolve(), Config.from_environment(), args.url))
+        return asyncio.run(run_suite(
+            cases, fixtures, args.fixtures.resolve(), Config.from_environment(), args.url, args.question_url,
+        ))
     except ImportError as exc:
         print(f"Missing evaluation dependency: {exc}. Run with the Brain project environment.", file=sys.stderr)
         return 2

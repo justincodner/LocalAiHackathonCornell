@@ -70,6 +70,18 @@ def test_prewarm_failure_is_a_bonsai_error():
         asyncio.run(run())
 
 
+def test_a_single_attempt_client_does_not_retry():
+    transport, seen = server(lambda body, n: httpx.Response(500, text="busy"))
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8082/v1", transport=transport, attempts=1) as client:
+            await client.next_tool_call([{"role": "user", "content": "x"}], TOOL_DEFINITIONS)
+
+    with pytest.raises(BonsaiError):
+        asyncio.run(run())
+    assert len(seen) == 1
+
+
 def test_malformed_arguments_are_retried_once():
     def handler(body, n):
         if n == 1:

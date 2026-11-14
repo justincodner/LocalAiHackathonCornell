@@ -352,6 +352,84 @@ def test_model_confirm_covers_only_the_same_commitment(tmp_path, summary, label,
     asyncio.run(run())
 
 
+@pytest.mark.loop
+@pytest.mark.parametrize("utterance, expected_route, expected_model", [
+    ("What's on my screen?", "question", "question"),
+    ("Click reply", "action", "fast"),
+])
+def test_requests_are_routed_to_the_right_model(tmp_path, utterance, expected_route, expected_model):
+    async def run():
+        helper = ReplayHelper(fixture("mail_inbox"))
+        fast = ScriptedModel(ToolCall("f", "done", {"summary": "Done."}))
+        accurate = ScriptedModel(ToolCall("q", "say", {"text": "Mail inbox."}))
+        log = tmp_path / "s.jsonl"
+        brain = helper.brain = Brain(helper, fast, Config(log_path=log, settle_ms=0), "x", question_model=accurate)
+        await brain.on_event({"type": "stt.final", "text": utterance})
+        await brain.active
+        used, unused = (accurate, fast) if expected_model == "question" else (fast, accurate)
+        assert used.requests and not unused.requests
+        record = json.loads(log.read_text(encoding="utf-8").splitlines()[0])
+        assert (record["route"], record["model"]) == (expected_route, expected_model)
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_a_failing_question_model_falls_back_to_the_fast_one(tmp_path):
+    async def run():
+        helper = ReplayHelper(fixture("mail_inbox"))
+        fast = ScriptedModel(ToolCall("f", "say", {"text": "Mail inbox."}))
+        log = tmp_path / "s.jsonl"
+        brain = helper.brain = Brain(helper, fast, Config(log_path=log), "x", question_model=FailingModel())
+        await brain.on_event({"type": "stt.final", "text": "What's on my screen?"})
+        await brain.active
+        assert helper.spoken == ["Mail inbox."]
+        record = json.loads(log.read_text(encoding="utf-8"))
+        assert (record["route"], record["model"]) == ("question", "fast")
+
+    asyncio.run(run())
+
+
+class CountingFailure:
+    def __init__(self):
+        self.calls = 0
+
+    async def next_tool_call(self, messages, tools):
+        self.calls += 1
+        raise BonsaiError("timed out")
+
+
+@pytest.mark.loop
+def test_a_failed_question_model_is_paused_instead_of_retried_every_time(tmp_path):
+    async def run():
+        helper = ReplayHelper(fixture("mail_inbox"))
+        fast = ScriptedModel(ToolCall("a", "say", {"text": "One."}), ToolCall("b", "say", {"text": "Two."}))
+        broken = CountingFailure()
+        brain = helper.brain = Brain(helper, fast, Config(log_path=tmp_path / "s.jsonl"), "x", question_model=broken)
+        for question in ("What's on my screen?", "Where is reply?"):
+            await brain.on_event({"type": "stt.final", "text": question})
+            await brain.active
+        assert broken.calls == 1  # the second question skipped the paused 4B
+        assert helper.spoken == ["One.", "Two."]
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_without_a_question_model_everything_uses_the_one_model(tmp_path):
+    async def run():
+        helper = ReplayHelper(fixture("mail_inbox"))
+        model = ScriptedModel(ToolCall("f", "say", {"text": "Mail inbox."}))
+        log = tmp_path / "s.jsonl"
+        brain = helper.brain = Brain(helper, model, Config(log_path=log), "x")
+        await brain.on_event({"type": "stt.final", "text": "What's on my screen?"})
+        await brain.active
+        record = json.loads(log.read_text(encoding="utf-8"))
+        assert (record["route"], record["model"]) == ("single", "fast")
+
+    asyncio.run(run())
+
+
 class FailingModel:
     async def next_tool_call(self, messages, tools):
         raise BonsaiError("timed out twice")

@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[2]
 class Config:
     helper_url: str = "http://127.0.0.1:8765"
     llm_url: str = "http://127.0.0.1:8080/v1"
+    # Optional second, more accurate model for questions (route.py). Empty = one model for everything.
+    llm_question_url: str = ""
+    llm_question_timeout_s: float = 8  # one attempt, then the fast model answers instead
     token: str = ""
     max_steps: int = 8
     task_timeout_s: float = 45
@@ -50,6 +53,8 @@ class Config:
         return cls(
             helper_url=get("HELPER_URL", cls.helper_url),
             llm_url=get("LLM_URL", cls.llm_url),
+            llm_question_url=get("LLM_QUESTION_URL", cls.llm_question_url),
+            llm_question_timeout_s=float(get("LLM_QUESTION_TIMEOUT_S", str(cls.llm_question_timeout_s))),
             token=get("TOKEN", cls.token),
             max_steps=int(get("MAX_STEPS", str(cls.max_steps))),
             task_timeout_s=float(get("TASK_TIMEOUT_S", str(cls.task_timeout_s))),

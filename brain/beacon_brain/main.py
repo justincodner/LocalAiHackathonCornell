@@ -16,25 +16,46 @@ from .tools import TOOL_DEFINITIONS
 LOGGER = logging.getLogger(__name__)
 
 
+def make_client(config: Config, url: str, *, question: bool = False) -> BonsaiClient:
+    """The fast model retries once (spec 8.5). The optional question model gets one short attempt,
+    so a busy or hung 4B costs at most its timeout before the fast model answers instead."""
+    return BonsaiClient(
+        url, config.llm_question_timeout_s if question else config.llm_timeout_s,
+        temperature=config.temperature, top_p=config.top_p,
+        top_k=config.top_k, presence_penalty=config.presence_penalty, max_tokens=config.max_tokens,
+        cache_prompt=config.cache_prompt, attempts=1 if question else 2,
+    )
+
+
+async def prewarm(config: Config, model: BonsaiClient, prompt: str) -> None:
+    if not config.prewarm:
+        return
+    try:
+        seconds = await model.prewarm(prompt, TOOL_DEFINITIONS)
+        LOGGER.info("Prompt cache warmed in %.1f s", seconds)
+    except BonsaiError as error:  # an optimisation only; the first request will be slow
+        LOGGER.warning("Prompt cache not warmed: %s", error)
+
+
 async def run(config: Config) -> None:
     expected_version = int((ROOT / "contracts" / "VERSION").read_text(encoding="utf-8").strip())
     prompt = config.prompt_path.read_text(encoding="utf-8").strip()
     helper = HelperClient(config.helper_url, config.token, max_elements=config.snapshot_max_elements)
-    model = BonsaiClient(
-        config.llm_url, config.llm_timeout_s, temperature=config.temperature, top_p=config.top_p,
-        top_k=config.top_k, presence_penalty=config.presence_penalty, max_tokens=config.max_tokens,
-        cache_prompt=config.cache_prompt,
-    )
-    brain = Brain(helper, model, config, prompt)
+    model = make_client(config, config.llm_url)
+    question_model = make_client(config, config.llm_question_url, question=True) if config.llm_question_url else None
     try:
         model_name = await model.discover_model()
-        LOGGER.info("Bonsai model %s", model_name)
-        if config.prewarm:
+        LOGGER.info("Bonsai model %s (actions)", model_name)
+        await prewarm(config, model, prompt)
+        if question_model is not None:
             try:
-                seconds = await model.prewarm(prompt, TOOL_DEFINITIONS)
-                LOGGER.info("Prompt cache warmed in %.1f s", seconds)
-            except BonsaiError as error:  # an optimisation only; the first request will be slow
-                LOGGER.warning("Prompt cache not warmed: %s", error)
+                LOGGER.info("Bonsai model %s (questions)", await question_model.discover_model())
+                await prewarm(config, question_model, prompt)
+            except BonsaiError as error:  # optional: run on the fast model alone
+                LOGGER.warning("Question model unavailable (%s); using one model for everything", error)
+                await question_model.aclose()
+                question_model = None
+        brain = Brain(helper, model, config, prompt, question_model)
         while True:
             try:
                 health = await helper.health()
@@ -53,6 +74,8 @@ async def run(config: Config) -> None:
     finally:
         await helper.aclose()
         await model.aclose()
+        if question_model is not None:
+            await question_model.aclose()
 
 
 def main() -> int:
