@@ -81,6 +81,7 @@ final class LabelTests: XCTestCase {
         XCTAssertNil(LabelRepair.humanize(identifier: "_NS:123"))
         XCTAssertNil(LabelRepair.humanize(identifier: "12345"))
         XCTAssertNil(LabelRepair.humanize(identifier: "6F9619FF-8B86-D011-B42D-00C04FC964FF"))
+        XCTAssertNil(LabelRepair.humanize(identifier: "noteId-AC141637-4608-4550-98B1-51E2B3056EB"))
         XCTAssertNil(LabelRepair.humanize(identifier: ""))
         XCTAssertNil(LabelRepair.humanize(identifier: nil))
     }
@@ -216,6 +217,24 @@ final class SnapshotBuilderTests: XCTestCase {
         ])
         let b = SnapshotBuilder.build(root: w, includeRoot: false, maxElements: 250)
         XCTAssertEqual(b.elements.map { "\($0.role):\($0.label)" }, ["group:Form", "link:Sign up", "heading:Welcome"])
+    }
+
+    func testRowLabelFromCellTitlesAndCellsHidden() {
+        let row = AXNode("AXRow", frame: frame(0), children: [
+            AXNode("AXCell", desc: "report.pdf", frame: frame(0)),
+            AXNode("AXCell", desc: "2 KB", frame: frame(0)),
+        ])
+        let w = AXNode("AXWindow", children: [AXNode("AXTable", desc: "files", frame: frame(0), children: [row])])
+        let b = SnapshotBuilder.build(root: w, includeRoot: false, maxElements: 250)
+        XCTAssertEqual(b.elements.map(\.role), ["list", "row"])
+        XCTAssertEqual(b.elements[1].label, "report.pdf - 2 KB")
+    }
+
+    func testWindowButtons() {
+        var close = AXNode("AXButton", subrole: "AXCloseButton", frame: frame(0))
+        close.help = "this button also has an action"
+        let b = SnapshotBuilder.build(root: AXNode("AXWindow", children: [close]), includeRoot: false, maxElements: 250)
+        XCTAssertEqual(b.elements[0].label, "close window")
     }
 
     func testQuoteEscaping() {

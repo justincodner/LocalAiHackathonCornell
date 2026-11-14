@@ -12,6 +12,11 @@ enum LabelRepair {
         }
         if UUID(uuidString: raw) != nil { return nil }
         if raw.range(of: "0x[0-9a-fA-F]{4,}", options: .regularExpression) != nil { return nil }
+        // Embedded UUIDs or long hex/digit runs ("noteId-AC141637-4608-...") are data, not names.
+        if raw.range(of: "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}", options: .regularExpression) != nil { return nil }
+        if raw.range(of: "[0-9]{4,}", options: .regularExpression) != nil { return nil }
+        let digits = raw.filter(\.isNumber).count
+        if Double(digits) / Double(raw.count) > 0.3 { return nil }
 
         var words: [String] = []
         var current = ""
@@ -39,6 +44,7 @@ enum LabelRepair {
         guard !letterWords.isEmpty else { return nil }
         // Drop trailing numeric suffixes such as "button-3".
         let kept = words.reversed().drop(while: { $0.allSatisfy(\.isNumber) }).reversed()
+        guard kept.count <= 6 else { return nil }
         let phrase = kept.map { $0.lowercased() }.joined(separator: " ")
         return phrase.isEmpty ? nil : phrase
     }

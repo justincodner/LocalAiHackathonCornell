@@ -113,13 +113,38 @@ enum SnapshotBuilder {
                 if RoleMap.atomic.contains(role) {
                     // Text inside buttons, links, rows... is already in the label; keep only nested controls.
                     let keepFields = !(role == "row" || role == "cell")
-                    o.children = finishSiblings(interactiveOnly(n.children.flatMap(transform), keepFields: keepFields))
+                    let inner = n.children.flatMap(transform)
+                    if o.label.isEmpty, role == "row" || role == "cell" {
+                        // Cells labelled by their own title/description rather than static text.
+                        let parts = labels(of: inner)
+                        if !parts.isEmpty {
+                            let full = parts.joined(separator: role == "row" ? " - " : " ")
+                            let (short, cut) = Labels.trim(full)
+                            o.label = short
+                            o.fullLabel = full
+                            o.labelSource = "child"
+                            if cut { o.states.insert("truncated") }
+                        }
+                    }
+                    o.children = finishSiblings(interactiveOnly(inner, keepFields: keepFields))
                 } else {
                     o.children = transformChildren(n.children)
                 }
             }
             return [o]
         }
+    }
+
+    /// Non-empty labels of a list of outs and their descendants, in order (at most 12).
+    static func labels(of outs: [Out]) -> [String] {
+        var result: [String] = []
+        func visit(_ o: Out) {
+            guard result.count < 12 else { return }
+            if !o.fullLabel.isEmpty { result.append(o.fullLabel); return }
+            o.children.forEach(visit)
+        }
+        outs.forEach(visit)
+        return result
     }
 
     static func transformChildren(_ children: [AXNode]) -> [Out] {

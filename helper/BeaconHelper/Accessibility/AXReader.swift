@@ -115,8 +115,9 @@ enum AX {
         n.enabled = bool(a["AXEnabled"]) ?? true
         n.selected = bool(a["AXSelected"]) ?? false
         n.expanded = bool(a["AXExpanded"])
-        n.focused = bool(a["AXFocused"]) ?? false
-        if !n.focused, let focused, CFEqual(focused, el) { n.focused = true }
+        // Some apps (Finder, Notes) report AXFocused=true on every cell of a focused table, so the app's
+        // AXFocusedUIElement is the source of truth; the attribute is used only when that is unavailable.
+        if let focused { n.focused = CFEqual(focused, el) } else { n.focused = bool(a["AXFocused"]) ?? false }
         if let p = point(a["AXPosition"]), let s = size(a["AXSize"]) { n.frame = CGRect(origin: p, size: s) }
         if Labels.clean(n.title) == nil, Labels.clean(n.desc) == nil, let t = element(a["AXTitleUIElement"]),
            case .ok(let ta) = attributes(t, ["AXValue", "AXTitle", "AXDescription"]) {

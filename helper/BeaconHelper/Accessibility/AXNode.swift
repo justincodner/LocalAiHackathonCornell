@@ -134,6 +134,12 @@ enum RoleMap {
 enum Labels {
     static let maxLength = 80
 
+    /// Title-bar buttons carry no title or description, only a subrole.
+    static let windowButtonLabels: [String: String] = [
+        "AXCloseButton": "close window", "AXMinimizeButton": "minimize window", "AXZoomButton": "zoom window",
+        "AXFullScreenButton": "full screen", "AXToolbarButton": "toolbar",
+    ]
+
     /// Collapses whitespace and newlines to single spaces and trims.
     static func clean(_ s: String?) -> String? {
         guard let s else { return nil }
@@ -186,6 +192,7 @@ enum Labels {
         if let t = clean(node.title) { return (t, "title") }
         if let d = clean(node.desc) { return (d, "description") }
         if let t = clean(node.titleElementText) { return (t, "title") }
+        if let w = windowButtonLabels[node.subrole ?? ""] { return (w, "description") }
         if let h = clean(node.help) { return (h, "help") }
         if ["textfield", "textarea"].contains(role), let p = clean(node.placeholder) { return (p, "description") }
         guard RoleMap.atomic.contains(role) else { return nil }
