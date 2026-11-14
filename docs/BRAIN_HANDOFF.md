@@ -30,7 +30,7 @@ There's no `uv`, no `git` and no Python on PATH on this laptop. Anaconda 3.14 li
 A venv is in `brain\.venv` (git-ignored); it's the editable Brain plus pytest.
 
 ```powershell
-brain\.venv\Scripts\python.exe -m pytest brain/tests -q          # 198 tests, ~3 s, no model, no Mac
+brain\.venv\Scripts\python.exe -m pytest brain/tests -q          # 290 tests, ~5 s, no model, no Mac
 brain\.venv\Scripts\python.exe -m pytest brain/tests -m loop     # loop and end-to-end tests only
 brain\.venv\Scripts\python.exe -m mock_helper                    # terminal 1: mock on 127.0.0.1:8765
 brain\.venv\Scripts\python.exe -m beacon_brain                   # terminal 2: needs Bonsai on :8080
@@ -66,6 +66,49 @@ Start Bonsai on Windows without the PrismML setup script:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\start_bonsai.ps1 -Model 2B
 ```
+
+## Two-model routing (`brain/beacon_brain/route.py`)
+
+The 4B scored 29/30 against the 2B's typical 26, but is roughly 2× slower per step. So the Brain can run both:
+
+- **Questions → 4B.** "What's on my screen?", "Where is…", "Read the message…" take one model call, and answer
+  quality is what users and judges notice.
+- **Actions → 2B.** Clicks, typing and multi-step jobs take several calls, so speed adds up. The code checks
+  (confirmations, refusals, grounding, honest summaries) protect them whichever model runs.
+
+How it works:
+- `route.classify()` decides from the user's words alone, with no model call: wh-words, "is/are/does…", and
+  read/describe/summarize/list/find mean a question. A chained action ("read it **and reply**…") means an action.
+  The default is action.
+- The route is fixed per task, and the log records `route` and `model` for every step.
+- **Failure handling:** the question model gets one attempt with its own short timeout
+  (`BEACON_LLM_QUESTION_TIMEOUT_S`, default 8 s). If it fails, the fast model answers, and the Brain skips the
+  question model for the next 60 s, so a busy 4B never costs every later step its timeout.
+- **Clauses:** chained requests split by punctuation ("Where is the reply button? Click it") count as actions.
+- **Results:** routed evals scored 28/30 (questions 9/10 on the 4B, actions 19/20 on the 2B). See `docs/bench.md`.
+- **This laptop's CPU:** the 4B is too slow for real Mail screens here (~17 tok/s). For local testing, raise
+  `BEACON_LLM_QUESTION_TIMEOUT_S` and `BEACON_TASK_TIMEOUT_S`, or leave routing off.
+- **Built with subagents:** the router (`route.py`, 86 tests) and the launcher were written by subagents in
+  parallel, and a third reviewed the change. Its two findings (24 s stalls, chained requests sent to the 4B) are fixed.
+- **It's off unless `BEACON_LLM_QUESTION_URL` is set.** Empty means one model for everything, exactly as before, so
+  `run_all.sh` is unaffected until it opts in.
+- If the question server is set but unreachable at startup, the Brain warns and runs on the fast model alone.
+
+Start the pair on Windows (two consoles), then the Brain:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_bonsai.ps1                       # 2B on :8080 (actions)
+powershell -ExecutionPolicy Bypass -File scripts\start_bonsai.ps1 -Model 4B -Port 8082  # 4B on :8082 (questions)
+$env:BEACON_LLM_QUESTION_URL = "http://127.0.0.1:8082/v1"; brain\.venv\Scripts\python.exe -m beacon_brain
+```
+
+`scripts/start_bonsai.ps1` now starts `llama-server.exe` directly, because PrismML's launcher hard-codes port 8080
+and refuses to start when anything answers there. It binds to 127.0.0.1 only, uses one slot (`-np 1`), and refuses a
+busy port. The evals route the same way when `BEACON_LLM_QUESTION_URL` (or `--question-url`) is set, and print a
+score per route.
+
+For Justin (Mac): `run_all.sh` would start a second server, `BONSAI_MODEL=4B` on port 8082, and export
+`BEACON_LLM_QUESTION_URL`. Both models plus `tiny.en` and the system voice fit in 8 GB (~3.5 GB, estimate).
 
 ## Grounding check (`brain/beacon_brain/grounding.py`)
 

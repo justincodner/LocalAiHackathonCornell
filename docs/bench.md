@@ -81,6 +81,14 @@ the Brain asks for `max_elements` 120 by default and `BEACON_SNAPSHOT_MAX_ELEMEN
 | v3 | 0.2 | 22/30 | pass | 5/31 |
 | **v3 + grounding check (default)** | **0.2** | **26/30 typical** (four runs: 28, 26, 26, 26) | pass | 1–5/31 |
 | v3 + grounding check, **Bonsai 2 4B** | 0.2 | **29/30** (one run) | pass | 0/31 |
+| v3 + grounding, **routed: 4B questions, 2B actions** | 0.2 | **28/30** (one run): questions 9/10, actions 19/20 | pass | 0/31 |
+
+**Routed run (this laptop's CPU):** questions on the 4B took a median 7.5 s per call and actions on the 2B 2.9 s. The
+two misses are the unlabeled button (4B) and the event-updates checkbox (2B asks to confirm it). Live through the
+Brain and mock Helper, "What's on my screen?" went to the 4B and "Where is the reply button? Click it" went to the 2B.
+On Justin's recorded Mail inbox (~900 new tokens) the 4B is too slow on this CPU: it timed out and fell back to the 2B,
+then hit the 45 s task limit. On the M1 at 170 tok/s that screen is ~5 s (estimate), inside the default 8 s
+`BEACON_LLM_QUESTION_TIMEOUT_S`.
 
 **4B comparison (one run):**
 - The only miss was the unlabeled button (it called `what_changed`).

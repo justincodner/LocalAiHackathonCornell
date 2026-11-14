@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import httpx
 
-from . import fastpath, grounding, narrate, risk, tools
+from . import fastpath, grounding, narrate, risk, route, tools
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError
@@ -18,13 +18,16 @@ from .memory import TaskMemory
 
 LOGGER = logging.getLogger(__name__)
 TERMINALS = {"say", "done", "read_element"}
+QUESTION_PAUSE_S = 60
 CONNECTION_ERRORS = (HelperError, httpx.HTTPError, OSError, TimeoutError, ValueError, KeyError)
 
 
 class Brain:
-    def __init__(self, helper, model, config: Config, prompt: str):
+    def __init__(self, helper, model, config: Config, prompt: str, question_model=None):
         self.helper = helper
-        self.model = model
+        self.model = model  # fast model: actions and multi-step tasks
+        self.question_model = question_model  # optional accurate model for questions (route.py)
+        self.question_paused_until = 0.0  # after a question-model failure, skip it for a while
         self.config = config
         self.prompt = prompt
         self.state = "idle"
@@ -158,13 +161,16 @@ class Brain:
         actions_taken: list[str] = []  # spoken past tense, for honest done summaries
         committed = False  # a confirm-level action (send, delete, ...) actually ran
         fresh_request = True  # no action has run since the user last spoke (grounding.check)
+        # Route once per task from the user's own words: questions to the accurate model,
+        # actions to the fast one. Without a question model everything uses the one model.
+        task_route = route.classify(text) if self.question_model is not None else "single"
         for step in range(1, self.config.max_steps + 1):
             if generation != self.screen_generation:
                 generation = self.screen_generation
                 previous_snapshot, snapshot = snapshot, await self.helper.snapshot()
             await self.set_state("thinking", transcript=memory.latest_words)
             started = time.perf_counter()
-            call = await self.think(memory.messages(snapshot), filler=step == 1)
+            call, answered_by = await self.think(memory.messages(snapshot), filler=step == 1, task_route=task_route)
             llm_ms = round((time.perf_counter() - started) * 1000)
             if call.stray_text:
                 LOGGER.warning("Model wrote %d chars outside its tool call", len(call.stray_text))
@@ -268,7 +274,7 @@ class Brain:
                 task_id=task_id, step=step, utterance=text, snapshot_id=screen["snapshot_id"],
                 snapshot_tokens=(len(screen["text"]) + 3) // 4, tool=call.name, args=call.arguments,
                 valid=error is None, risk=verdict, ok=result["ok"], stray_chars=len(call.stray_text),
-                grounded=grounded or None,
+                grounded=grounded or None, route=task_route, model=answered_by,
                 ms={"stt": stt_ms, "snapshot": screen.get("build_ms", 0), "llm": llm_ms, "act": act_ms},
             )
             target = tools.element_for(call, screen) if "id" in call.arguments else None
@@ -289,10 +295,23 @@ class Brain:
             await self.say(task_summary)
         self.previous_result = memory.summarize(task_summary or "The previous task stopped.")
 
-    async def think(self, messages: list[dict], *, filler: bool):
+    async def ask_model(self, messages: list[dict], task_route: str):
+        """Return (tool call, which model answered). The question model falls back to the fast one."""
+        if (task_route == route.QUESTION and self.question_model is not None
+                and time.monotonic() >= self.question_paused_until):
+            try:
+                return await self.question_model.next_tool_call(messages, tools.TOOL_DEFINITIONS), "question"
+            except BonsaiError as error:
+                # A busy or hung 4B must not cost every later step its timeout again: pause it for
+                # longer than one task can run (45 s), then try it again.
+                self.question_paused_until = time.monotonic() + QUESTION_PAUSE_S
+                LOGGER.warning("Question model failed (%s); using the fast model for %d s", error, QUESTION_PAUSE_S)
+        return await self.model.next_tool_call(messages, tools.TOOL_DEFINITIONS), "fast"
+
+    async def think(self, messages: list[dict], *, filler: bool, task_route: str = "single"):
         """Ask the model, saying "One moment." if it takes longer than the filler delay (spec 10.2)."""
         if not filler or self.config.thinking_filler_ms <= 0:
-            return await self.model.next_tool_call(messages, tools.TOOL_DEFINITIONS)
+            return await self.ask_model(messages, task_route)
 
         async def say_filler():
             await asyncio.sleep(self.config.thinking_filler_ms / 1000)
@@ -303,7 +322,7 @@ class Brain:
 
         timer = asyncio.create_task(say_filler())
         try:
-            return await self.model.next_tool_call(messages, tools.TOOL_DEFINITIONS)
+            return await self.ask_model(messages, task_route)
         finally:
             timer.cancel()
             await asyncio.gather(timer, return_exceptions=True)
