@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "beacon/snapshot.schema.json",
+  "title": "Beacon screen snapshot (contract v1, spec section 5)",
+  "type": "object",
+  "required": [
+    "ok",
+    "snapshot_id",
+    "app",
+    "window",
+    "focused_id",
+    "truncated",
+    "total_elements",
+    "build_ms",
+    "elements",
+    "text"
+  ],
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^s_[0-9]{4,}$"
+    },
+    "app": {
+      "type": "string"
+    },
+    "window": {
+      "type": "string"
+    },
+    "focused_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "total_elements": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "build_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "elements": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/element"
+      }
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "element": {
+      "type": "object",
+      "required": [
+        "id",
+        "depth",
+        "role",
+        "label",
+        "value",
+        "states",
+        "bounds",
+        "label_source"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "snapshot_id": {
+          "type": "string",
+          "description": "Present on /ax/find matches only"
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 25
+        },
+        "role": {
+          "enum": [
+            "button",
+            "link",
+            "textfield",
+            "textarea",
+            "checkbox",
+            "radio",
+            "menu",
+            "menuitem",
+            "list",
+            "row",
+            "cell",
+            "tab",
+            "slider",
+            "image",
+            "heading",
+            "text",
+            "toolbar",
+            "group",
+            "popup",
+            "window"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 80
+        },
+        "states": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "disabled",
+              "focused",
+              "selected",
+              "checked",
+              "expanded",
+              "truncated",
+              "inferred"
+            ]
+          }
+        },
+        "bounds": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "number"
+          }
+        },
+        "label_source": {
+          "enum": [
+            "title",
+            "description",
+            "help",
+            "child",
+            "inferred",
+            "vision",
+            "none"
+          ]
+        }
+      }
+    }
+  }
+}
