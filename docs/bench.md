@@ -43,7 +43,15 @@ The 4B can't meet the budget on the M1 because prompt processing is too slow.
 | 4B | ~170 tok/s | ~17 s | 33 s | ~2.2 s |
 
 The PrismML server accepts `tool_choice: "required"`, `chat_template_kwargs.enable_thinking=false` and `cache_prompt`.
-The 2B hasn't been measured on the M1 yet; run `bench.py --model 2B` there.
+With Bonsai 2 2B and the Brain's v3 prompt, warm prompt processing reached about 394–405 tokens/s and generation
+reached 40–42 tokens/s. On the recorded Mail inbox, the 20-, 40-, and 41-element screen summary requests took
+6.48 s, 4.81 s, and 7.60 s. The button-location and heading requests returned tool calls in 2.15 s and 1.89 s on
+the full fixture. On the live Safari form, the model picked the Saturday control in 2.03 s and the Helper pressed
+it in 42 ms. These model timings exclude microphone capture and speech playback.
+
+```bash
+brain/.venv/bin/python scripts/bench.py --model 2B --prompt brain/prompts/system_v3.txt --sizes 20,40
+```
 
 ### Windows laptop (development only): i7-1260P, 16 GB, CPU build, 12 threads
 

@@ -38,12 +38,13 @@ key (`Input/HotkeyMonitor.swift`, Right Option by default), barge-in, `app.chang
 | --- | --- |
 | Repo hygiene (`.gitattributes`, `.gitignore`, `.env.example`) | Done |
 | H1 Helper shell, server, `/health`, `/events`, `/debug/utterance` | Debug and release builds passed. Verified `stt.final` delivery over WebSocket from the signed Helper. |
-| Contracts v1 draft (`contracts/`) | [PR #1](https://github.com/justincodner/LocalAiHackathonCornell/pull/1) awaits Emmet's review (C0). |
+| Contracts v1 (`contracts/`) | [PR #1](https://github.com/justincodner/LocalAiHackathonCornell/pull/1) merged. The Brain and signed Helper connected using v1 on the Mac. |
 | H6 HUD, ring, sounds | Monochrome overlay with drag, position menu, voice placement and expanding reply text. Drag, menu and replies verified on the signed app. Voice placement verified with a simulated transcript. |
 | H2/H3 accessibility + input | Live Reply opened the seeded Mail draft, typed test text and verified it via Accessibility. Mail inbox snapshot took 296 ms with the message body present. |
 | H4/H5 speech in/out + model downloads | Local speech benchmarks in [bench.md](bench.md). System speech met both timing targets. Live push-to-talk and audible barge-in pending. |
 | Scripts, app packaging, demo pages, Bonsai setup | Freshly signed workspace app verified. Live contract suite passed 49 checks and skipped P2 screen capture. |
 | Fixtures | All five captured and schema-validated. The inbox fixture omits the Mail account sidebar. |
+| Brain integration | [PR #2](https://github.com/justincodner/LocalAiHackathonCornell/pull/2) merged. Bonsai 2 2B, Brain, and signed Helper passed a live Safari screen summary and the Saturday radio-button action using debug transcripts. |
 | P2 vision label repair (S2) | Not started |
 
 ## How to build, test, run
@@ -51,7 +52,7 @@ key (`Input/HotkeyMonitor.swift`, Right Option by default), barge-in, `app.chang
 ```bash
 cd helper && swift build && swift test          # debug build + unit tests
 scripts/build_helper.sh --install                # signed "Beacon Helper.app" (stable identity keeps permissions)
-scripts/run_all.sh                               # Bonsai + Helper + Brain (Brain only if brain/ exists)
+BEACON_TTS=system scripts/run_all.sh              # Bonsai + Helper + Brain from the prepared local environment
 scripts/contract_test.sh                         # endpoint shape checks; --live also clicks/types
 scripts/mail_reply_test.sh                       # select Sarah's seeded message, then verify typing into a reply draft
 scripts/dump_fixture.sh mail_inbox 3             # record a fixture after a 3 s delay
@@ -70,19 +71,15 @@ for fast debugging and `BEACON_TTS=system` if TTSKit is slow or memory is tight.
 - **Demo data:** fake Mail mailbox (On My Mac > Import > Beacon Demo, from `demo/seed/make_demo_mbox.py`) and a fake
   "Beacon Demo" Notes folder (iCloud). Record fixtures only from those, never from Justin's real mail/notes.
 
-- **Bonsai latency (biggest risk):** 4B prompt processing is ~150-170 tok/s on this M1. 316-token prompt: 4.3 s cold,
-  2.2 s with prefix cache. 4,899-token screen: 32.7 s. `tool_choice: required`, `enable_thinking: false` and
-  `cache_prompt` are all accepted and enforced. Needs the 2B and/or much smaller snapshots; Emmet decides via bench.py.
+- **Bonsai latency:** The Mac launcher prefers the installed 2B model. See [bench.md](bench.md) for timings.
 - `start_bonsai.sh` skips the vision projector (memory); `BEACON_VISION=1` re-enables it.
 - macOS ties Accessibility, Microphone and Screen Recording permissions to the signed app. Launch the current signed
   app through LaunchServices and verify `/health` before testing. The workspace build reported Accessibility and Microphone
   granted, while direct `dump` from the Codex shell was denied. Use `POST /ax/snapshot` on the running signed app if the
   shell lacks access. The installed copy in `/Applications` predates the Mail walker fix. Screen Recording is only needed
   for screenshots and P2.
-- `brain/`, `mock_helper/` and `scripts/bench.py` were absent from the branches available at handoff. Emmet owns them.
 
 ## Next steps
 
-1. Have Emmet review v1 in PR #1 and use the five fixtures to bring up the Brain and mock Helper.
-2. Run the live push-to-talk and audible barge-in checks in `helper/TESTING.md`, including voice placement with the microphone.
-3. Run the model benchmark and first offline integration after Emmet's Brain branch is available. Rehearse X2 before S2.
+1. Run the live push-to-talk and audible barge-in checks in `helper/TESTING.md`, including voice placement with the microphone.
+2. Rehearse the full demo offline, including the seeded Mail reply and confirmation. Rehearse X2 before S2.

@@ -96,6 +96,18 @@ final class LabelTests: XCTestCase {
 final class SnapshotBuilderTests: XCTestCase {
     func frame(_ y: CGFloat) -> CGRect { CGRect(x: 10, y: y, width: 100, height: 20) }
 
+    func testChoiceDropsOverlappingDuplicateLabelOnly() {
+        let labelBounds = CGRect(x: 24, y: 0, width: 69, height: 20)
+        let root = AXNode("AXWindow", children: [
+            AXNode("AXRadioButton", title: "Saturday", frame: frame(0)),
+            AXNode("AXStaticText", value: .string("Saturday"), frame: labelBounds),
+            AXNode("AXStaticText", value: .string("Saturday"), frame: frame(80)),
+        ])
+        let snapshot = SnapshotBuilder.build(root: root, includeRoot: false, maxElements: 20)
+        XCTAssertEqual(snapshot.elements.map(\.role), ["radio", "text"])
+        XCTAssertEqual(snapshot.elements.last?.frame, frame(80))
+    }
+
     func testMailLikeWindow() {
         var reply = AXNode("AXButton", title: "Reply", frame: frame(0))
         reply.enabled = false

@@ -151,9 +151,18 @@ enum SnapshotBuilder {
         finishSiblings(children.flatMap(transform))
     }
 
-    /// Merges adjacent static text and repairs unlabelled controls from their siblings.
+    /// Removes duplicate control labels, merges static text, and repairs unlabelled controls.
     static func finishSiblings(_ outs: [Out]) -> [Out] {
-        repairFromSiblings(mergeTexts(outs))
+        let choices = outs.filter { $0.role == "radio" || $0.role == "checkbox" }
+        let distinct = outs.filter { item in
+            guard item.role == "text", item.states.isEmpty, let frame = item.frame, !frame.isEmpty else {
+                return true
+            }
+            return !choices.contains { choice in
+                choice.fullLabel == item.fullLabel && choice.frame?.contains(frame) == true
+            }
+        }
+        return repairFromSiblings(mergeTexts(distinct))
     }
 
     static func makeOut(_ n: AXNode, role: String) -> Out {
