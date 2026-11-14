@@ -4,7 +4,7 @@ Read this first if you are an AI agent picking up the Mac owner's work. The full
 (sections 4, 5, 9, 11, 12 cover the Helper). Keep this file current: update the status table and "Next steps"
 whenever you finish or start something, and commit it.
 
-Last updated: 2026-11-14 18:25 UTC.
+Last updated: 2026-11-14 18:55 UTC.
 
 ## Ground rules
 
@@ -40,10 +40,10 @@ key (`Input/HotkeyMonitor.swift`, Right Option by default), barge-in, `app.chang
 | H1 Helper shell, server, `/health`, `/events`, `/debug/utterance` | Done, builds |
 | Contracts v1 draft (`contracts/`) | Done; needs Emmet's approval via PR (C0) |
 | H6 HUD, ring, sounds | Done, 7 tests pass; not yet seen on a real screen |
-| H2/H3 accessibility + input | In progress (agent) |
-| H4/H5 speech in/out + model downloads | In progress (agent) |
+| H2/H3 accessibility + input | Done; live-tested in Mail/Safari/Notes/Finder (snapshots 100-400 ms) |
+| H4/H5 speech in/out + model downloads | Done; models in `models/` (tiny.en, large-v3-626MB, TTSKit 0.6B). Live mic capture not yet tested |
 | Scripts, app packaging, demo pages, Bonsai setup | Done. Signed app installed at `/Applications/Beacon Helper.app`; contract tests 24 pass / 2 fail (AX permission) / 4 skip |
-| Fixtures (`mail_inbox`, `mail_reply_draft`, `notes_list`, `safari_form`, `safari_form_unlabeled`) | Not started; needs permissions granted |
+| Fixtures | `safari_form`, `safari_form_unlabeled` done. `mail_inbox` in progress (Mail body sometimes missing from snapshot: being fixed). `mail_reply_draft`, `notes_list` to do |
 | P2 vision label repair (S2) | Not started |
 
 ## How to build, test, run
@@ -62,6 +62,12 @@ Models live in git-ignored `models/` (`models/whisperkit-coreml/<model>`, `model
 for fast debugging and `BEACON_TTS=system` if TTSKit is slow or memory is tight.
 
 ## Known issues and blockers
+
+- **Speech on the M1:** Whisper large-v3-626MB loads in 130-170 s and needs ~1.2 s per utterance, so the default is now
+  `tiny.en` (~80 ms). TTSKit generates at 0.6-0.9x real time, 0.7-2.8 s to first audio; it auto-falls back to the
+  system voice. `BEACON_TTS=system` is the safe demo setting.
+- **Demo data:** fake Mail mailbox (On My Mac > Import > Beacon Demo, from `demo/seed/make_demo_mbox.py`) and a fake
+  "Beacon Demo" Notes folder (iCloud). Record fixtures only from those, never from Justin's real mail/notes.
 
 - **Bonsai latency (biggest risk):** 4B prompt processing is ~150-170 tok/s on this M1. 316-token prompt: 4.3 s cold,
   2.2 s with prefix cache. 4,899-token screen: 32.7 s. `tool_choice: required`, `enable_thinking: false` and
