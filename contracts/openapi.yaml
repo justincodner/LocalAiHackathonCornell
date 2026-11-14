@@ -1,0 +1,351 @@
+openapi: 3.1.0
+info:
+  title: Beacon Helper API
+  version: "1"
+  description: |
+    Local HTTP API of the Beacon Helper (spec section 4.5). Contract version 1 (see contracts/VERSION).
+    Binds to 127.0.0.1:8765 only. All bodies are JSON. Every response is HTTP 200 with `ok: true|false`;
+    failures use `{"ok": false, "error": {"code": "...", "message": "..."}}` so the Brain can treat them as tool results.
+    When the Helper runs with BEACON_DEV_LAN=1, every request must carry the header `X-Beacon-Token: <BEACON_TOKEN>`.
+    WebSocket events on GET /events are documented in contracts/events.md.
+servers:
+  - url: http://127.0.0.1:8765
+paths:
+  /health:
+    get:
+      summary: Status, permissions and versions
+      responses:
+        "200":
+          description: Health
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - type: object
+                    required: [version, contract_version, permissions, stt_model, tts_engine, online]
+                    properties:
+                      version: {type: string}
+                      contract_version: {type: integer, description: "Brain refuses to start on mismatch"}
+                      permissions:
+                        type: object
+                        required: [accessibility, microphone, screen_recording]
+                        properties:
+                          accessibility: {type: boolean}
+                          microphone: {type: boolean}
+                          screen_recording: {type: boolean}
+                      stt_model: {type: string}
+                      tts_engine: {type: string, enum: [ttskit, system]}
+                      online: {type: boolean, description: "true if any network path is up; must be false for the demo"}
+                      ptt_key: {type: string}
+                      dev_lan: {type: boolean}
+  /events:
+    get:
+      summary: WebSocket upgrade; server-pushed events (contracts/events.md)
+      responses:
+        "101": {description: Switching protocols}
+  /ax/snapshot:
+    post:
+      summary: Snapshot the frontmost window (spec section 5)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scope: {type: string, enum: [window, focused, menu], default: window}
+                max_elements: {type: integer, default: 250, minimum: 1}
+      responses:
+        "200":
+          description: Snapshot object; see contracts/snapshot.schema.json
+          content:
+            application/json:
+              schema: {$ref: "./snapshot.schema.json"}
+  /ax/find:
+    post:
+      summary: Search the full unfiltered tree of the frontmost window
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: {type: string}
+                limit: {type: integer, default: 10}
+      responses:
+        "200":
+          description: Matches with snapshot-element fields plus `snapshot_id` (ids are actionable against that id)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - type: object
+                    required: [matches]
+                    properties:
+                      matches:
+                        type: array
+                        items: {$ref: "./snapshot.schema.json#/$defs/element"}
+  /ax/read:
+    post:
+      summary: Full untruncated text of an element and its descendants
+      requestBody:
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ElementRef"}
+      responses:
+        "200":
+          description: Text
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - type: object
+                    required: [text]
+                    properties:
+                      text: {type: string}
+  /ax/act:
+    post:
+      summary: Perform an action on a snapshot element
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: "#/components/schemas/ElementRef"
+                - type: object
+                  required: [action]
+                  properties:
+                    action: {type: string, enum: [press, focus, set_value, show_menu, increment, decrement]}
+                    value: {description: "Required for set_value", type: [string, number, boolean]}
+      responses:
+        "200":
+          description: Performed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - type: object
+                    required: [performed_via]
+                    properties:
+                      performed_via: {type: string, enum: [ax, click]}
+  /input/type:
+    post:
+      summary: Type text into the focused element
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string, minLength: 1, maxLength: 2000}
+      responses:
+        "200":
+          description: Typed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - type: object
+                    required: [chars]
+                    properties:
+                      chars: {type: integer}
+  /input/key:
+    post:
+      summary: Send a key chord such as cmd+return, escape, tab
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keys]
+              properties:
+                keys: {type: string}
+      responses:
+        "200": {$ref: "#/components/responses/Empty"}
+  /input/scroll:
+    post:
+      summary: Scroll the window or an element
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [direction]
+              properties:
+                direction: {type: string, enum: [up, down, left, right]}
+                amount: {description: "\"page\" (default) or a pixel count", type: [string, integer]}
+                snapshot_id: {type: string}
+                element_id: {type: integer}
+      responses:
+        "200": {$ref: "#/components/responses/Empty"}
+  /app/open:
+    post:
+      summary: Launch or focus an app by name (fuzzy)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+      responses:
+        "200":
+          description: "Opened. On app_not_found, error.close_matches lists similar names."
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - type: object
+                    required: [app, pid]
+                    properties:
+                      app: {type: string}
+                      pid: {type: integer}
+  /app/list:
+    get:
+      summary: Running and installed app names
+      responses:
+        "200":
+          description: Apps
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - type: object
+                    required: [running, installed]
+                    properties:
+                      running: {type: array, items: {type: string}}
+                      installed: {type: array, items: {type: string}}
+  /tts/speak:
+    post:
+      summary: Queue speech. interrupt flushes the queue first.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string}
+                priority: {type: string, enum: [normal, interrupt], default: normal}
+                rate: {type: number, minimum: 0.5, maximum: 1.5, description: "Clamped to 0.5..1.5"}
+      responses:
+        "200":
+          description: Queued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - type: object
+                    required: [speech_id]
+                    properties:
+                      speech_id: {type: string}
+  /tts/stop:
+    post:
+      summary: Silence audio within 100 ms and flush the queue
+      responses:
+        "200": {$ref: "#/components/responses/Empty"}
+  /stt/listen:
+    post:
+      summary: Open or close the microphone without the talk key (used after a confirmation prompt)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode]
+              properties:
+                mode: {type: string, enum: [start, stop]}
+      responses:
+        "200": {$ref: "#/components/responses/Empty"}
+  /hud:
+    post:
+      summary: Update the HUD pill and optionally draw the highlight ring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state]
+              properties:
+                state: {type: string, enum: [idle, listening, thinking, acting, speaking, confirm, error]}
+                transcript: {type: string}
+                caption: {type: string}
+                latency_ms: {type: integer}
+                highlight: {$ref: "#/components/schemas/ElementRef"}
+      responses:
+        "200": {$ref: "#/components/responses/Empty"}
+  /screen/capture:
+    post:
+      summary: "P2: screenshot of the main display, optionally cropped to an element (needs Screen Recording)"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                snapshot_id: {type: string}
+                element_id: {type: integer}
+      responses:
+        "200":
+          description: PNG
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - type: object
+                    required: [png_base64]
+                    properties:
+                      png_base64: {type: string}
+  /debug/utterance:
+    post:
+      summary: Emit an stt.final event as if spoken
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string}
+      responses:
+        "200": {$ref: "#/components/responses/Empty"}
+components:
+  responses:
+    Empty:
+      description: Success with no extra fields, or an error
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Ok"}
+  schemas:
+    Ok:
+      type: object
+      required: [ok]
+      properties:
+        ok: {type: boolean}
+        error: {$ref: "#/components/schemas/Error"}
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [stale_snapshot, element_not_found, action_unsupported, action_failed, permission_denied, timeout, app_not_found, bad_request]
+        message: {type: string}
+        close_matches: {type: array, items: {type: string}, description: "app_not_found only"}
+    ElementRef:
+      type: object
+      required: [snapshot_id, element_id]
+      properties:
+        snapshot_id: {type: string, example: s_0042}
+        element_id: {type: integer, example: 12}

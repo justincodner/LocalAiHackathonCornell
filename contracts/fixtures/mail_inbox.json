@@ -1,0 +1,651 @@
+{
+  "app": "Mail",
+  "build_ms": 296,
+  "elements": [
+    {
+      "bounds": [
+        415,
+        222,
+        202,
+        990
+      ],
+      "depth": 0,
+      "id": 1,
+      "label": "messages",
+      "label_source": "description",
+      "role": "list",
+      "states": [
+        "focused"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        416,
+        237,
+        200,
+        80
+      ],
+      "depth": 1,
+      "id": 2,
+      "label": "Sarah Chen - 7:00 AM - Lunch tomorrow? - Hi, are we still on for lunch tomorr...",
+      "label_source": "child",
+      "role": "row",
+      "states": [
+        "selected",
+        "truncated"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        416,
+        317,
+        200,
+        80
+      ],
+      "depth": 1,
+      "id": 3,
+      "label": "IT Desk - 12:00 AM - Password expiry - Your password will expire in 5 days. P...",
+      "label_source": "child",
+      "role": "row",
+      "states": [
+        "truncated"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        416,
+        397,
+        200,
+        80
+      ],
+      "depth": 1,
+      "id": 4,
+      "label": "Marcus Lee - Yesterday - Hackathon team dinner - We're getting pizza after th...",
+      "label_source": "child",
+      "role": "row",
+      "states": [
+        "truncated"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        416,
+        477,
+        200,
+        80
+      ],
+      "depth": 1,
+      "id": 5,
+      "label": "Cornell Library - Yesterday - Your hold is ready - The book you requested, A ...",
+      "label_source": "child",
+      "role": "row",
+      "states": [
+        "truncated"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        416,
+        557,
+        200,
+        80
+      ],
+      "depth": 1,
+      "id": 6,
+      "label": "Priya Patel - Yesterday - Notes from Thursday's meeting - Attached are my not...",
+      "label_source": "child",
+      "role": "row",
+      "states": [
+        "truncated"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        416,
+        637,
+        200,
+        80
+      ],
+      "depth": 1,
+      "id": 7,
+      "label": "Campus Shuttle - 11/12/26 - Weekend schedule change - Route 30 will run every...",
+      "label_source": "child",
+      "role": "row",
+      "states": [
+        "truncated"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        416,
+        717,
+        200,
+        80
+      ],
+      "depth": 1,
+      "id": 8,
+      "label": "Dana Ortiz - 11/12/26 - Re: Room booking - Room 225 is booked for you from 2 ...",
+      "label_source": "child",
+      "role": "row",
+      "states": [
+        "truncated"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        416,
+        797,
+        200,
+        80
+      ],
+      "depth": 1,
+      "id": 9,
+      "label": "Alex Kim",
+      "label_source": "child",
+      "role": "row",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        625,
+        223,
+        591,
+        226
+      ],
+      "depth": 0,
+      "id": 10,
+      "label": "message content",
+      "label_source": "description",
+      "role": "group",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        625,
+        264,
+        591,
+        89
+      ],
+      "depth": 1,
+      "id": 11,
+      "label": "message headers",
+      "label_source": "description",
+      "role": "group",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        682,
+        279,
+        454,
+        59
+      ],
+      "depth": 2,
+      "id": 12,
+      "label": "message header content",
+      "label_source": "inferred",
+      "role": "textarea",
+      "states": [
+        "inferred"
+      ],
+      "value": "￼ Lunch tomorrow? To: ￼￼"
+    },
+    {
+      "bounds": [
+        1153,
+        283,
+        44,
+        16
+      ],
+      "depth": 2,
+      "id": 13,
+      "label": "7:00 AM",
+      "label_source": "title",
+      "role": "text",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        645,
+        371,
+        540,
+        56
+      ],
+      "depth": 1,
+      "id": 14,
+      "label": "Hi, are we still on for lunch tomorrow at noon? I was thinking the noodle pla...",
+      "label_source": "title",
+      "role": "text",
+      "states": [
+        "truncated"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        864,
+        341,
+        32,
+        23
+      ],
+      "depth": 1,
+      "id": 15,
+      "label": "trash",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        895,
+        341,
+        31,
+        23
+      ],
+      "depth": 1,
+      "id": 16,
+      "label": "Reply",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        924,
+        341,
+        28,
+        23
+      ],
+      "depth": 1,
+      "id": 17,
+      "label": "Reply All",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        950,
+        341,
+        31,
+        23
+      ],
+      "depth": 1,
+      "id": 18,
+      "label": "Forward",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        644,
+        239,
+        62,
+        16
+      ],
+      "depth": 1,
+      "id": 19,
+      "label": "1 Message",
+      "label_source": "title",
+      "role": "text",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        1105,
+        238,
+        93,
+        17
+      ],
+      "depth": 1,
+      "id": 20,
+      "label": "Summarize",
+      "label_source": "title",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        216,
+        171,
+        1008,
+        52
+      ],
+      "depth": 0,
+      "id": 21,
+      "label": "",
+      "label_source": "none",
+      "role": "toolbar",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        372,
+        171,
+        40,
+        52
+      ],
+      "depth": 1,
+      "id": 22,
+      "label": "Sidebar",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        580,
+        171,
+        41,
+        52
+      ],
+      "depth": 1,
+      "id": 23,
+      "label": "Filter",
+      "label_source": "description",
+      "role": "checkbox",
+      "states": [],
+      "value": "off"
+    },
+    {
+      "bounds": [
+        621,
+        171,
+        41,
+        52
+      ],
+      "depth": 1,
+      "id": 24,
+      "label": "View Options",
+      "label_source": "description",
+      "role": "popup",
+      "states": [
+        "disabled"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        671,
+        171,
+        40,
+        52
+      ],
+      "depth": 1,
+      "id": 25,
+      "label": "New Message",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        759,
+        171,
+        38,
+        52
+      ],
+      "depth": 1,
+      "id": 26,
+      "label": "Reply",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        796,
+        171,
+        42,
+        52
+      ],
+      "depth": 1,
+      "id": 27,
+      "label": "Reply All",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        838,
+        171,
+        39,
+        52
+      ],
+      "depth": 1,
+      "id": 28,
+      "label": "Forward",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        883,
+        171,
+        37,
+        52
+      ],
+      "depth": 1,
+      "id": 29,
+      "label": "Archive",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        920,
+        171,
+        36,
+        52
+      ],
+      "depth": 1,
+      "id": 30,
+      "label": "Delete",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        956,
+        171,
+        42,
+        52
+      ],
+      "depth": 1,
+      "id": 31,
+      "label": "Junk",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        999,
+        171,
+        57,
+        52
+      ],
+      "depth": 1,
+      "id": 32,
+      "label": "Move",
+      "label_source": "description",
+      "role": "popup",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        1059,
+        178,
+        75,
+        38
+      ],
+      "depth": 1,
+      "id": 33,
+      "label": "Flag",
+      "label_source": "description",
+      "role": "group",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        1060,
+        180,
+        38,
+        36
+      ],
+      "depth": 2,
+      "id": 34,
+      "label": "Flag Orange",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        1098,
+        180,
+        37,
+        36
+      ],
+      "depth": 2,
+      "id": 35,
+      "label": "Flag menu",
+      "label_source": "description",
+      "role": "popup",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        1180,
+        171,
+        40,
+        52
+      ],
+      "depth": 1,
+      "id": 36,
+      "label": "Search mailbox",
+      "label_source": "help",
+      "role": "group",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        1179,
+        178,
+        38,
+        38
+      ],
+      "depth": 2,
+      "id": 37,
+      "label": "Search",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        234,
+        189,
+        16,
+        16
+      ],
+      "depth": 0,
+      "id": 38,
+      "label": "close window",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        280,
+        189,
+        16,
+        16
+      ],
+      "depth": 0,
+      "id": 39,
+      "label": "full screen",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        257,
+        189,
+        16,
+        16
+      ],
+      "depth": 0,
+      "id": 40,
+      "label": "minimize window",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        420,
+        171,
+        160,
+        52
+      ],
+      "depth": 0,
+      "id": 41,
+      "label": "Beacon Demo — On My Mac 12 messages, 9 unread",
+      "label_source": "title",
+      "role": "text",
+      "states": [],
+      "value": null
+    }
+  ],
+  "focused_id": 1,
+  "ok": true,
+  "snapshot_id": "s_0010",
+  "text": "APP Mail | WINDOW \"Beacon Demo — On My Mac – 12 messages, 9 unread\" | FOCUS [1]\n[1] list \"messages\" 12 rows (focused)\n  [2] row \"Sarah Chen - 7:00 AM - Lunch tomorrow? - Hi, are we still on for lunch tomorr...\" (selected, truncated)\n  [3] row \"IT Desk - 12:00 AM - Password expiry - Your password will expire in 5 days. P...\" (truncated)\n  [4] row \"Marcus Lee - Yesterday - Hackathon team dinner - We're getting pizza after th...\" (truncated)\n  [5] row \"Cornell Library - Yesterday - Your hold is ready - The book you requested, A ...\" (truncated)\n  [6] row \"Priya Patel - Yesterday - Notes from Thursday's meeting - Attached are my not...\" (truncated)\n  [7] row \"Campus Shuttle - 11/12/26 - Weekend schedule change - Route 30 will run every...\" (truncated)\n  [8] row \"Dana Ortiz - 11/12/26 - Re: Room booking - Room 225 is booked for you from 2 ...\" (truncated)\n  [9] row \"Alex Kim\"\n  ... 4 more rows (scroll or use find)\n[10] group \"message content\"\n  [11] group \"message headers\"\n    [12] textarea \"message header content\" value=\"￼ Lunch tomorrow? To: ￼￼\" (inferred)\n    [13] text \"7:00 AM\"\n  [14] text \"Hi, are we still on for lunch tomorrow at noon? I was thinking the noodle pla...\" (truncated)\n  [15] button \"trash\"\n  [16] button \"Reply\"\n  [17] button \"Reply All\"\n  [18] button \"Forward\"\n  [19] text \"1 Message\"\n  [20] button \"Summarize\"\n[21] toolbar\n  [22] button \"Sidebar\"\n  [23] checkbox \"Filter\" value=\"off\"\n  [24] popup \"View Options\" (disabled)\n  [25] button \"New Message\"\n  [26] button \"Reply\"\n  [27] button \"Reply All\"\n  [28] button \"Forward\"\n  [29] button \"Archive\"\n  [30] button \"Delete\"\n  [31] button \"Junk\"\n  [32] popup \"Move\"\n  [33] group \"Flag\"\n    [34] button \"Flag Orange\"\n    [35] popup \"Flag menu\"\n  [36] group \"Search mailbox\"\n    [37] button \"Search\"\n[38] button \"close window\"\n[39] button \"full screen\"\n[40] button \"minimize window\"\n[41] text \"Beacon Demo — On My Mac 12 messages, 9 unread\"",
+  "total_elements": 41,
+  "truncated": false,
+  "window": "Beacon Demo — On My Mac – 12 messages, 9 unread"
+}

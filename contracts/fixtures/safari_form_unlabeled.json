@@ -1,0 +1,795 @@
+{
+  "app" : "Safari",
+  "build_ms" : 223,
+  "elements" : [
+    {
+      "bounds" : [
+        0,
+        120,
+        1440,
+        1325
+      ],
+      "depth" : 0,
+      "id" : 1,
+      "label" : "Checkout - Lantern Books",
+      "label_source" : "description",
+      "role" : "group",
+      "states" : [
+        "focused"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        32,
+        134,
+        1376,
+        32
+      ],
+      "depth" : 1,
+      "id" : 2,
+      "label" : "Lantern Books — Checkout",
+      "label_source" : "title",
+      "role" : "heading",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        279,
+        231,
+        478,
+        29
+      ],
+      "depth" : 1,
+      "id" : 3,
+      "label" : "Contact",
+      "label_source" : "title",
+      "role" : "heading",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        279,
+        273,
+        478,
+        23
+      ],
+      "depth" : 1,
+      "id" : 4,
+      "label" : "Email address",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        279,
+        299,
+        478,
+        45
+      ],
+      "depth" : 1,
+      "id" : 5,
+      "label" : "Email address",
+      "label_source" : "title",
+      "role" : "textfield",
+      "states" : [
+
+      ],
+      "value" : "sam.rivera@example.com"
+    },
+    {
+      "bounds" : [
+        279,
+        357,
+        478,
+        23
+      ],
+      "depth" : 1,
+      "id" : 6,
+      "label" : "Phone number",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        279,
+        383,
+        478,
+        46
+      ],
+      "depth" : 1,
+      "id" : 7,
+      "label" : "Phone number",
+      "label_source" : "title",
+      "role" : "textfield",
+      "states" : [
+
+      ],
+      "value" : ""
+    },
+    {
+      "bounds" : [
+        279,
+        508,
+        478,
+        28
+      ],
+      "depth" : 1,
+      "id" : 8,
+      "label" : "Shipping address",
+      "label_source" : "title",
+      "role" : "heading",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        279,
+        549,
+        478,
+        23
+      ],
+      "depth" : 1,
+      "id" : 9,
+      "label" : "Full name",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        279,
+        575,
+        478,
+        46
+      ],
+      "depth" : 1,
+      "id" : 10,
+      "label" : "Full name",
+      "label_source" : "title",
+      "role" : "textfield",
+      "states" : [
+
+      ],
+      "value" : "Sam Rivera"
+    },
+    {
+      "bounds" : [
+        279,
+        634,
+        478,
+        23
+      ],
+      "depth" : 1,
+      "id" : 11,
+      "label" : "Street address",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        279,
+        659,
+        478,
+        46
+      ],
+      "depth" : 1,
+      "id" : 12,
+      "label" : "Street address",
+      "label_source" : "title",
+      "role" : "textfield",
+      "states" : [
+
+      ],
+      "value" : "12 College Avenue"
+    },
+    {
+      "bounds" : [
+        279,
+        718,
+        232,
+        23
+      ],
+      "depth" : 1,
+      "id" : 13,
+      "label" : "City",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        279,
+        744,
+        232,
+        45
+      ],
+      "depth" : 1,
+      "id" : 14,
+      "label" : "City",
+      "label_source" : "title",
+      "role" : "textfield",
+      "states" : [
+
+      ],
+      "value" : "Ithaca"
+    },
+    {
+      "bounds" : [
+        524,
+        718,
+        233,
+        23
+      ],
+      "depth" : 1,
+      "id" : 15,
+      "label" : "ZIP code",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        524,
+        744,
+        233,
+        45
+      ],
+      "depth" : 1,
+      "id" : 16,
+      "label" : "ZIP code",
+      "label_source" : "title",
+      "role" : "textfield",
+      "states" : [
+
+      ],
+      "value" : "14850"
+    },
+    {
+      "bounds" : [
+        279,
+        802,
+        478,
+        23
+      ],
+      "depth" : 1,
+      "id" : 17,
+      "label" : "Delivery speed",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        279,
+        829,
+        478,
+        25
+      ],
+      "depth" : 1,
+      "id" : 18,
+      "label" : "Delivery speed",
+      "label_source" : "title",
+      "role" : "popup",
+      "states" : [
+
+      ],
+      "value" : "Standard (5 to 7 days) - free"
+    },
+    {
+      "bounds" : [
+        834,
+        231,
+        327,
+        29
+      ],
+      "depth" : 1,
+      "id" : 19,
+      "label" : "Your order",
+      "label_source" : "title",
+      "role" : "heading",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        834,
+        273,
+        327,
+        159
+      ],
+      "depth" : 1,
+      "id" : 20,
+      "label" : "",
+      "label_source" : "none",
+      "role" : "list",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        834,
+        273,
+        327,
+        40
+      ],
+      "depth" : 2,
+      "id" : 21,
+      "label" : "The Left Hand of Darkness - $14.99",
+      "label_source" : "child",
+      "role" : "row",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        834,
+        312,
+        327,
+        41
+      ],
+      "depth" : 2,
+      "id" : 22,
+      "label" : "A Wizard of Earthsea - $11.50",
+      "label_source" : "child",
+      "role" : "row",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        834,
+        352,
+        327,
+        40
+      ],
+      "depth" : 2,
+      "id" : 23,
+      "label" : "Shipping - $0.00",
+      "label_source" : "child",
+      "role" : "row",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        834,
+        391,
+        327,
+        41
+      ],
+      "depth" : 2,
+      "id" : 24,
+      "label" : "Tax - $2.12",
+      "label_source" : "child",
+      "role" : "row",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        834,
+        447,
+        311,
+        38
+      ],
+      "depth" : 1,
+      "id" : 25,
+      "label" : "This is a local demo page for Beacon. Nothing is charged and nothing leaves t...",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+        "truncated"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        1151,
+        764,
+        170,
+        26
+      ],
+      "depth" : 1,
+      "id" : 26,
+      "label" : "Order total $28.61",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        1337,
+        751,
+        60,
+        52
+      ],
+      "depth" : 1,
+      "id" : 27,
+      "label" : "unlabeled, near 'Order total $28.61'",
+      "label_source" : "inferred",
+      "role" : "button",
+      "states" : [
+        "inferred"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        0,
+        30,
+        1440,
+        52
+      ],
+      "depth" : 0,
+      "id" : 28,
+      "label" : "",
+      "label_source" : "none",
+      "role" : "toolbar",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        95,
+        37,
+        38,
+        38
+      ],
+      "depth" : 1,
+      "id" : 29,
+      "label" : "show sidebar",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        131,
+        37,
+        20,
+        38
+      ],
+      "depth" : 1,
+      "id" : 30,
+      "label" : "Tab Group picker",
+      "label_source" : "description",
+      "role" : "popup",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        167,
+        39,
+        37,
+        36
+      ],
+      "depth" : 1,
+      "id" : 31,
+      "label" : "Go back",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+        "disabled"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        204,
+        39,
+        38,
+        36
+      ],
+      "depth" : 1,
+      "id" : 32,
+      "label" : "Go forward",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+        "disabled"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        425,
+        39,
+        35,
+        34
+      ],
+      "depth" : 1,
+      "id" : 33,
+      "label" : "Page Menu",
+      "label_source" : "title",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        451,
+        41,
+        24,
+        30
+      ],
+      "depth" : 1,
+      "id" : 34,
+      "label" : "Add page to Reading List",
+      "label_source" : "title",
+      "role" : "button",
+      "states" : [
+        "disabled"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        452,
+        48,
+        507,
+        31
+      ],
+      "depth" : 1,
+      "id" : 35,
+      "label" : "smart search field",
+      "label_source" : "description",
+      "role" : "textfield",
+      "states" : [
+
+      ],
+      "value" : "file:///Users/justin/AIHackathon/LocalAiHackathonCornell/demo/checkout.html"
+    },
+    {
+      "bounds" : [
+        965,
+        43,
+        24,
+        28
+      ],
+      "depth" : 1,
+      "id" : 36,
+      "label" : "Translation Available",
+      "label_source" : "title",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        987,
+        43,
+        24,
+        29
+      ],
+      "depth" : 1,
+      "id" : 37,
+      "label" : "Reload this page",
+      "label_source" : "title",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        1321,
+        30,
+        36,
+        52
+      ],
+      "depth" : 1,
+      "id" : 38,
+      "label" : "Share",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        1357,
+        30,
+        36,
+        52
+      ],
+      "depth" : 1,
+      "id" : 39,
+      "label" : "New Tab",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        1393,
+        30,
+        43,
+        52
+      ],
+      "depth" : 1,
+      "id" : 40,
+      "label" : "Tab Overview",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        8,
+        82,
+        474,
+        32
+      ],
+      "depth" : 0,
+      "id" : 41,
+      "label" : "Example Domain",
+      "label_source" : "title",
+      "role" : "tab",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        483,
+        82,
+        474,
+        32
+      ],
+      "depth" : 0,
+      "id" : 42,
+      "label" : "Volunteer sign-up",
+      "label_source" : "title",
+      "role" : "tab",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        958,
+        82,
+        474,
+        32
+      ],
+      "depth" : 0,
+      "id" : 43,
+      "label" : "Checkout - Lantern Books",
+      "label_source" : "title",
+      "role" : "tab",
+      "states" : [
+        "selected"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        18,
+        48,
+        16,
+        16
+      ],
+      "depth" : 0,
+      "id" : 44,
+      "label" : "close window",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        64,
+        48,
+        16,
+        16
+      ],
+      "depth" : 0,
+      "id" : 45,
+      "label" : "full screen",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        41,
+        48,
+        16,
+        16
+      ],
+      "depth" : 0,
+      "id" : 46,
+      "label" : "minimize window",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    }
+  ],
+  "focused_id" : 1,
+  "ok" : true,
+  "snapshot_id" : "s_0001",
+  "text" : "APP Safari | WINDOW \"Checkout - Lantern Books\" | FOCUS [1]\n[1] group \"Checkout - Lantern Books\" (focused)\n  [2] heading \"Lantern Books — Checkout\"\n  [3] heading \"Contact\"\n  [4] text \"Email address\"\n  [5] textfield \"Email address\" value=\"sam.rivera@example.com\"\n  [6] text \"Phone number\"\n  [7] textfield \"Phone number\" value=\"\"\n  [8] heading \"Shipping address\"\n  [9] text \"Full name\"\n  [10] textfield \"Full name\" value=\"Sam Rivera\"\n  [11] text \"Street address\"\n  [12] textfield \"Street address\" value=\"12 College Avenue\"\n  [13] text \"City\"\n  [14] textfield \"City\" value=\"Ithaca\"\n  [15] text \"ZIP code\"\n  [16] textfield \"ZIP code\" value=\"14850\"\n  [17] text \"Delivery speed\"\n  [18] popup \"Delivery speed\" value=\"Standard (5 to 7 days) - free\"\n  [19] heading \"Your order\"\n  [20] list 4 rows\n    [21] row \"The Left Hand of Darkness - $14.99\"\n    [22] row \"A Wizard of Earthsea - $11.50\"\n    [23] row \"Shipping - $0.00\"\n    [24] row \"Tax - $2.12\"\n  [25] text \"This is a local demo page for Beacon. Nothing is charged and nothing leaves t...\" (truncated)\n  [26] text \"Order total $28.61\"\n  [27] button \"unlabeled, near 'Order total $28.61'\" (inferred)\n[28] toolbar\n  [29] button \"show sidebar\"\n  [30] popup \"Tab Group picker\"\n  [31] button \"Go back\" (disabled)\n  [32] button \"Go forward\" (disabled)\n  [33] button \"Page Menu\"\n  [34] button \"Add page to Reading List\" (disabled)\n  [35] textfield \"smart search field\" value=\"file:///Users/justin/AIHackathon/LocalAiHackathonCornell/demo/checkout.html\"\n  [36] button \"Translation Available\"\n  [37] button \"Reload this page\"\n  [38] button \"Share\"\n  [39] button \"New Tab\"\n  [40] button \"Tab Overview\"\n[41] tab \"Example Domain\"\n[42] tab \"Volunteer sign-up\"\n[43] tab \"Checkout - Lantern Books\" (selected)\n[44] button \"close window\"\n[45] button \"full screen\"\n[46] button \"minimize window\"",
+  "total_elements" : 46,
+  "truncated" : false,
+  "window" : "Checkout - Lantern Books"
+}

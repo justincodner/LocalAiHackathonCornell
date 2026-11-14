@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Owner: Mac owner -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleIdentifier</key>
+	<string>dev.beacon.helper</string>
+	<key>CFBundleName</key>
+	<string>Beacon Helper</string>
+	<key>CFBundleDisplayName</key>
+	<string>Beacon Helper</string>
+	<key>CFBundleExecutable</key>
+	<string>beacon-helper</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>0.1.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>15.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Beacon listens to your voice while you hold the talk key, and transcribes it on this Mac. Audio never leaves the computer.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Beacon can open and control apps you ask it to use.</string>
+</dict>
+</plist>

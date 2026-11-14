@@ -1,0 +1,102 @@
+<!doctype html>
+<!-- Owner: Mac owner. Demo step 6 (spec 14.3/14.4): a checkout page with ONE deliberately unlabelled pay button.
+     The pay button is icon-only: no text, no aria-label, no title, no alt. Do not "fix" it. No network resources. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkout - Lantern Books</title>
+<style>
+  :root { --ink: #1d232b; --muted: #5b6573; --line: #d8dde3; --bg: #f4f5f7; --card: #fff; --accent: #1f6feb; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  header { background: var(--card); border-bottom: 1px solid var(--line); padding: 14px 32px; }
+  header h1 { margin: 0; font-size: 22px; }
+  main { max-width: 980px; margin: 28px auto; padding: 0 24px 140px; display: grid;
+         grid-template-columns: 1.4fr 1fr; gap: 28px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 22px 24px; }
+  h2 { font-size: 19px; margin: 0 0 14px; }
+  .field { margin-bottom: 14px; }
+  label { display: block; font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+  input, select { width: 100%; padding: 9px 11px; font: inherit; border: 1px solid #b9c1cb; border-radius: 6px; background: #fff; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+  .check input { width: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 7px 0; border-bottom: 1px solid var(--line); }
+  td.num { text-align: right; }
+  .note { color: var(--muted); font-size: 14px; }
+  /* Fixed bar at the bottom right: "Order total" with the unlabelled pay button next to it. */
+  .paybar { position: fixed; right: 28px; bottom: 24px; display: flex; align-items: center; gap: 16px;
+            background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 12px 20px;
+            box-shadow: 0 6px 24px rgba(0,0,0,.12); }
+  .paybar .total { font-size: 18px; }
+  .paybar .total strong { font-size: 22px; margin-left: 6px; }
+  .pay { width: 60px; height: 52px; border: 0; border-radius: 10px; background: var(--accent); cursor: pointer;
+         display: grid; place-items: center; }
+  .pay:hover { background: #1a5fcc; }
+  .pay svg { width: 30px; height: 30px; }
+  .done { display: none; margin-top: 12px; color: #1a7f37; font-weight: 600; }
+</style>
+</head>
+<body>
+<header><h1>Lantern Books &mdash; Checkout</h1></header>
+<main>
+  <form id="checkout" onsubmit="return false">
+    <section>
+      <h2>Contact</h2>
+      <div class="field"><label for="email">Email address</label><input id="email" name="email" type="email" autocomplete="off" value="sam.rivera@example.com"></div>
+      <div class="field"><label for="phone">Phone number</label><input id="phone" name="phone" type="tel" autocomplete="off"></div>
+    </section>
+    <section style="margin-top:20px">
+      <h2>Shipping address</h2>
+      <div class="field"><label for="name">Full name</label><input id="name" name="name" autocomplete="off" value="Sam Rivera"></div>
+      <div class="field"><label for="street">Street address</label><input id="street" name="street" autocomplete="off" value="12 College Avenue"></div>
+      <div class="row">
+        <div class="field"><label for="city">City</label><input id="city" name="city" autocomplete="off" value="Ithaca"></div>
+        <div class="field"><label for="zip">ZIP code</label><input id="zip" name="zip" autocomplete="off" value="14850"></div>
+      </div>
+      <div class="field"><label for="shipping">Delivery speed</label>
+        <select id="shipping" name="shipping">
+          <option>Standard (5 to 7 days) - free</option>
+          <option>Express (2 days) - $9.00</option>
+        </select>
+      </div>
+    </section>
+    <section style="margin-top:20px">
+      <h2>Payment</h2>
+      <div class="field"><label for="cardname">Name on card</label><input id="cardname" name="cardname" autocomplete="off" value="Sam Rivera"></div>
+      <div class="field"><label for="card">Card number</label><input id="card" name="card" autocomplete="off" inputmode="numeric" placeholder="Demo page: no real payment"></div>
+      <div class="row">
+        <div class="field"><label for="exp">Expiry (MM/YY)</label><input id="exp" name="exp" autocomplete="off"></div>
+        <div class="field"><label for="cvc">Security code</label><input id="cvc" name="cvc" autocomplete="off"></div>
+      </div>
+      <label class="check"><input id="gift" type="checkbox"> This order is a gift</label>
+    </section>
+  </form>
+  <aside>
+    <section>
+      <h2>Your order</h2>
+      <table>
+        <tr><td>The Left Hand of Darkness</td><td class="num">$14.99</td></tr>
+        <tr><td>A Wizard of Earthsea</td><td class="num">$11.50</td></tr>
+        <tr><td>Shipping</td><td class="num">$0.00</td></tr>
+        <tr><td>Tax</td><td class="num">$2.12</td></tr>
+      </table>
+      <p class="note">This is a local demo page for Beacon. Nothing is charged and nothing leaves this Mac.</p>
+      <p class="done" id="done">Order placed (demo only).</p>
+    </section>
+  </aside>
+</main>
+
+<div class="paybar">
+  <div class="total">Order total <strong>$28.61</strong></div>
+  <button class="pay" type="button" onclick="document.getElementById('done').style.display='block'">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+      <rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line><line x1="6" y1="15" x2="10" y2="15"></line>
+    </svg>
+  </button>
+</div>
+</body>
+</html>
