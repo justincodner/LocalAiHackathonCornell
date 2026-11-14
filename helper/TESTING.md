@@ -30,6 +30,10 @@ Reset first to test a clean machine: `tccutil reset Microphone dev.beacon.helper
 - [ ] The highlight ring (`/hud` with `highlight`) draws around the right element and does not intercept clicks.
 - [ ] HUD shows the Offline badge when Wi-Fi is off and hides it when online.
 - [ ] HUD is readable on the demo display scaling; it stays on the screen with the target window.
+- [ ] Drag the Beacon header. The HUD follows the pointer and the frontmost app retains focus.
+- [ ] Hold Right Option and say "Move Beacon to the top right", then release. Repeat with "Move Beacon to the bottom left".
+- [ ] Send a multiline caption to `/hud` or speak it with `/tts/speak`. The reply grows from the header, wraps, and scrolls
+  when it reaches its maximum height. Check white text over light and dark windows, then exercise Reduce Transparency.
 
 ## 4. Talk key and speech in
 

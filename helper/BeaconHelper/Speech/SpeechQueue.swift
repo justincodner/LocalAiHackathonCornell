@@ -9,6 +9,7 @@ import Foundation
 final class SpeechQueue: @unchecked Sendable {
     struct Item {
         let id: String
+        let text: String
         let sentences: [String]
         let rate: Double
         let token = SpeechCancelToken()
@@ -24,6 +25,7 @@ final class SpeechQueue: @unchecked Sendable {
     private let engineProvider: @Sendable () -> SpeechEngine
     private let fallback: @Sendable (SpeechEngine, Error) -> SpeechEngine?
     private let emit: Emit
+    private let emitStarted: @Sendable (String, String) -> Void
 
     /// - Parameters:
     ///   - engineProvider: the engine to use for the next sentence (asked per sentence, so fallbacks apply at once).
@@ -31,11 +33,13 @@ final class SpeechQueue: @unchecked Sendable {
     init(ids: SequentialID = SequentialID(prefix: "sp"),
          engineProvider: @escaping @Sendable () -> SpeechEngine,
          fallback: @escaping @Sendable (SpeechEngine, Error) -> SpeechEngine? = { _, _ in nil },
+         emitStarted: (@Sendable (String, String) -> Void)? = nil,
          emit: @escaping Emit) {
         self.ids = ids
         self.engineProvider = engineProvider
         self.fallback = fallback
         self.emit = emit
+        self.emitStarted = emitStarted ?? { id, _ in emit("tts.started", ["speech_id": id]) }
     }
 
     /// True while an item is being synthesised or played, or items are waiting.
@@ -46,7 +50,7 @@ final class SpeechQueue: @unchecked Sendable {
 
     @discardableResult
     func enqueue(text: String, interrupt: Bool, rate: Double?) -> String {
-        let item = Item(id: ids.next(), sentences: SentenceSplitter.split(text), rate: SpeechRate.clamp(rate))
+        let item = Item(id: ids.next(), text: text, sentences: SentenceSplitter.split(text), rate: SpeechRate.clamp(rate))
         var flushed: [Item] = []
         var toCancel: Item?
         let startWorker = lock.withLock { () -> Bool in
@@ -102,9 +106,9 @@ final class SpeechQueue: @unchecked Sendable {
 
     private func play(_ item: Item) async {
         let started = StartedFlag()
-        let emit = self.emit
+        let emitStarted = self.emitStarted
         let onFirstAudio: @Sendable () -> Void = {
-            if started.setOnce() { emit("tts.started", ["speech_id": item.id]) }
+            if started.setOnce() { emitStarted(item.id, item.text) }
         }
         for sentence in item.sentences {
             if item.token.isCancelled { break }

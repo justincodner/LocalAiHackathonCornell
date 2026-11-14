@@ -19,11 +19,11 @@ final class RingView: NSView {
         let inset = Self.outline + Self.ringWidth / 2
         let rect = bounds.insetBy(dx: inset, dy: inset)
         let path = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
-        // Black outline under the yellow ring keeps it visible on light and dark content.
+        // The black outline keeps the white ring visible on light and dark content.
         NSColor.black.setStroke()
         path.lineWidth = Self.ringWidth + Self.outline * 2
         path.stroke()
-        NSColor(srgbRed: 1.0, green: 0.86, blue: 0.0, alpha: 1).setStroke()
+        NSColor.white.setStroke()
         path.lineWidth = Self.ringWidth
         path.stroke()
     }

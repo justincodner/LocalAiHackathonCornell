@@ -12,13 +12,39 @@ final class HUDTests: XCTestCase {
         for panel in [hud.pillPanel as NSPanel, hud.ringPanel] {
             XCTAssertFalse(panel.canBecomeKey)
             XCTAssertFalse(panel.canBecomeMain)
-            XCTAssertTrue(panel.ignoresMouseEvents)
             XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
             XCTAssertFalse(panel.hidesOnDeactivate)
             XCTAssertTrue(panel.collectionBehavior.contains(.canJoinAllSpaces))
         }
+        XCTAssertFalse(hud.pillPanel.ignoresMouseEvents)
+        XCTAssertTrue(hud.ringPanel.ignoresMouseEvents)
         XCTAssertEqual(hud.pillPanel.frame.size, PillPanel.size)
         XCTAssertFalse(hud.pillPanel.isKeyWindow)
+    }
+
+    func testVoicePlacementIsLocalAndOrdinaryUtterancesArePublished() {
+        let placements = LockedValue<[HUDPlacement]>([])
+        let hub = EventHub { placements.set(placements.get() + [$0]) }
+        hub.emit("stt.final", ["text": "Move Beacon to the top-right corner."])
+        hub.emit("stt.final", ["text": "Put the overlay in the centre."])
+        hub.emit("stt.final", ["text": "Move the meeting to the left of lunch."])
+        XCTAssertEqual(placements.get(), [.topRight, .center])
+        XCTAssertEqual(hub.recent.compactMap { $0["text"] as? String }, ["Move the meeting to the left of lunch."])
+    }
+
+    func testReplyExpandsWithinTheScreenAndCollapsesWhenCleared() throws {
+        let screen = try XCTUnwrap(NSScreen.main)
+        let preferences = try XCTUnwrap(UserDefaults(suiteName: "BeaconTests.\(UUID())"))
+        let panel = PillPanel(preferences: preferences)
+        panel.layout(reply: "")
+        let initialFrame = panel.frame
+        panel.layout(reply: String(repeating: "Beacon reply with several lines.\n", count: 60))
+        XCTAssertTrue(screen.visibleFrame.contains(panel.frame))
+        XCTAssertEqual(panel.frame.minY, initialFrame.minY)
+        XCTAssertGreaterThan(panel.frame.height, initialFrame.height)
+        XCTAssertLessThanOrEqual(panel.frame.height, initialFrame.height + 280)
+        panel.layout(reply: "")
+        XCTAssertEqual(panel.frame, initialFrame)
     }
 
     func testAXRectConversion() {
@@ -87,11 +113,16 @@ final class HUDTests: XCTestCase {
             }
             model.latencyMS = state == .idle ? nil : 1630
             model.offline = state != .listening
-            let renderer = ImageRenderer(content: PillView(model: model).frame(width: 520, height: 72))
-            renderer.scale = 2
-            let image = try XCTUnwrap(renderer.nsImage)
-            let tiff = try XCTUnwrap(image.tiffRepresentation)
-            let png = try XCTUnwrap(NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]))
+            let size = PillPanel.size
+            let replyHeight = PillPanel.replyHeight(for: model.caption, width: size.width, available: 300)
+            let bounds = NSRect(x: 0, y: 0, width: size.width, height: size.height + replyHeight)
+            let host = NSHostingView(rootView: PillView(model: model).frame(width: bounds.width, height: bounds.height))
+            let window = OverlayPanel(contentRect: bounds)
+            window.contentView = host
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             try png.write(to: URL(fileURLWithPath: dir).appendingPathComponent("pill_\(state.rawValue).png"))
         }
         let ring = RingView(frame: NSRect(x: 0, y: 0, width: 160, height: 60))

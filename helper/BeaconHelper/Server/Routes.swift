@@ -162,7 +162,6 @@ final class HelperServer: @unchecked Sendable {
         await route(server, "POST /debug/utterance") { a in
             let text = try a.string("text")
             s.events.emit("stt.final", ["utterance_id": self.nextUtteranceID(), "text": text, "audio_ms": 0, "stt_ms": 0])
-            await MainActor.run { s.hud.update(state: .thinking, transcript: text, caption: nil, latencyMS: nil) }
             return [:]
         }
     }

@@ -38,8 +38,8 @@ key (`Input/HotkeyMonitor.swift`, Right Option by default), barge-in, `app.chang
 | --- | --- |
 | Repo hygiene (`.gitattributes`, `.gitignore`, `.env.example`) | Done |
 | H1 Helper shell, server, `/health`, `/events`, `/debug/utterance` | Debug and release builds passed. Verified `stt.final` delivery over WebSocket from the signed Helper. |
-| Contracts v1 draft (`contracts/`) | [Draft PR #1](https://github.com/justincodner/LocalAiHackathonCornell/pull/1) awaits Emmet's review (C0). |
-| H6 HUD, ring, sounds | Unit tests passed, including the highlight test in the Mac desktop session. Live walkthrough pending. |
+| Contracts v1 draft (`contracts/`) | [PR #1](https://github.com/justincodner/LocalAiHackathonCornell/pull/1) awaits Emmet's review (C0). |
+| H6 HUD, ring, sounds | Monochrome overlay with drag, position menu, voice placement and expanding reply text. Drag, menu and replies verified on the signed app. Voice placement verified with a simulated transcript. |
 | H2/H3 accessibility + input | Live Reply opened the seeded Mail draft, typed test text and verified it via Accessibility. Mail inbox snapshot took 296 ms with the message body present. |
 | H4/H5 speech in/out + model downloads | Local speech benchmarks in [bench.md](bench.md). System speech met both timing targets. Live push-to-talk and audible barge-in pending. |
 | Scripts, app packaging, demo pages, Bonsai setup | Freshly signed workspace app verified. Live contract suite passed 49 checks and skipped P2 screen capture. |
@@ -83,7 +83,6 @@ for fast debugging and `BEACON_TTS=system` if TTSKit is slow or memory is tight.
 
 ## Next steps
 
-1. Have Emmet review v1 in draft PR #1 and use the five fixtures to bring up the Brain and mock Helper.
-2. Run the live push-to-talk, HUD and barge-in checks in `helper/TESTING.md`. The debug build and regular unit tests are
-   already verified (54 pass across two runs, four opt-in benchmarks skipped in the unit suite).
+1. Have Emmet review v1 in PR #1 and use the five fixtures to bring up the Brain and mock Helper.
+2. Run the live push-to-talk and audible barge-in checks in `helper/TESTING.md`, including voice placement with the microphone.
 3. Run the model benchmark and first offline integration after Emmet's Brain branch is available. Rehearse X2 before S2.

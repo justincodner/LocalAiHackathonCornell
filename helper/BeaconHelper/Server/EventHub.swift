@@ -9,6 +9,11 @@ final class EventHub: @unchecked Sendable {
     private(set) var recent: [JSONObject] = []
 
     private var observers: [@Sendable (JSONObject) -> Void] = []
+    private let moveHUD: (@Sendable (HUDPlacement) -> Void)?
+
+    init(moveHUD: (@Sendable (HUDPlacement) -> Void)? = nil) {
+        self.moveHUD = moveHUD
+    }
 
     var clientCount: Int { lock.withLock { clients.count } }
 
@@ -18,7 +23,12 @@ final class EventHub: @unchecked Sendable {
     }
 
     /// Emits `{"type": type, "ts": <unix ms>, ...fields}` to every client.
-    func emit(_ type: String, _ fields: JSONObject = [:]) {
+    func emit(_ type: String, _ fields: JSONObject = [:], localFields: JSONObject = [:]) {
+        if type == "stt.final", let moveHUD, let text = fields["text"] as? String,
+           let placement = HUDPlacement(utterance: text) {
+            moveHUD(placement)
+            return
+        }
         var event = fields
         event["type"] = type
         event["ts"] = Int(Date().timeIntervalSince1970 * 1000)
@@ -29,7 +39,8 @@ final class EventHub: @unchecked Sendable {
             return (Array(clients.values), observers)
         }
         for c in targets { c.yield(.text(text)) }
-        for o in obs { o(event) }
+        let localEvent = event.merging(localFields) { original, _ in original }
+        for o in obs { o(localEvent) }
         Log.info("event \(text)")
     }
 

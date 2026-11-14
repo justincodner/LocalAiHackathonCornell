@@ -30,6 +30,7 @@ final class SpeechOutputService: SpeechOutputProviding, @unchecked Sendable {
                 self.fallBack("ttskit failed while speaking: \(error)")
                 return self.system
             },
+            emitStarted: { id, text in events.emit("tts.started", ["speech_id": id], localFields: ["text": text]) },
             emit: { type, fields in events.emit(type, fields) })
         ttskit?.onTimeToFirstAudio = { [weak self] seconds in self?.recordTimeToFirstAudio(seconds) }
     }

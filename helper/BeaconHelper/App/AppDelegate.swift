@@ -13,8 +13,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)   // LSUIElement: no Dock icon, never frontmost
         Permissions.requestAtLaunch()
 
-        let events = EventHub()
         let hud = HUDController()
+        let events = EventHub { placement in
+            Task { @MainActor in hud.move(to: placement) }
+        }
         services = Services(accessibility: AccessibilityService(),
                             input: InputService(),
                             speechIn: SpeechInputService(events: events),
@@ -30,7 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Connectivity.shared.start()
         hud.setOffline(!Connectivity.shared.isOnline)
 
-        wireEventsToHUD()
+        wireEventsToHUD(hud)
         observeFrontmostApp()
         startHotkey()
         buildMenu()
@@ -75,11 +77,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Mirrors speech events onto the HUD so captions work even before the Brain posts /hud.
-    private func wireEventsToHUD() {
-        let hud = services.hud
+    private func wireEventsToHUD(_ hud: HUDController) {
         services.events.observe { event in
             let type = event["type"] as? String ?? ""
             let text = event["text"] as? String
+            let speechID = event["speech_id"] as? String
+            let interrupted = event["interrupted"] as? Bool ?? false
             Task { @MainActor in
                 switch type {
                 case "stt.partial":
@@ -91,7 +94,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     hud.play(.error)
                     hud.update(state: .idle, transcript: nil, caption: nil, latencyMS: nil)
                 case "tts.started":
-                    hud.update(state: .speaking, transcript: nil, caption: nil, latencyMS: nil)
+                    if let speechID, let text { hud.speechStarted(id: speechID, text: text) }
+                case "tts.finished":
+                    if let speechID { hud.speechFinished(id: speechID, interrupted: interrupted) }
                 default: break
                 }
             }
