@@ -70,4 +70,4 @@ Reset first to test a clean machine: `tccutil reset Microphone dev.beacon.helper
 
 | Date | Build | Tester | Result / notes |
 | --- | --- | --- | --- |
-| | | | |
+| 2026-11-14 | `cb4a253` | Codex | Signed workspace build reported Accessibility and Microphone granted. Live contract suite passed 49 checks after TextEdit finished launching. P2 capture skipped. Mail Reply verified typed text in the unsent seed draft. Mail inbox snapshot took 296 ms, and `/ax/read` returned the full body. |

@@ -32,19 +32,30 @@ headers=(-H 'Content-Type: application/json')
 if [[ -n "${BEACON_TOKEN:-}" ]]; then headers+=(-H "X-Beacon-Token: $BEACON_TOKEN"); fi
 
 post() {
-  local path="$1" response
+  local path="$1" response code
   response="$(curl -q --noproxy '*' --silent --show-error --fail --max-time 5 \
     "${headers[@]}" --data "$2" "$url$path")" || fail "$path request failed."
   if ! jq -e '.ok == true' <<< "$response" >/dev/null; then
-    local code
     code="$(jq -r '.error.code // "invalid response"' <<< "$response")" || code='invalid response'
+    if [[ "$path" == /ax/snapshot && "$code" == timeout ]]; then return 75; fi
     fail "$path returned $code."
   fi
   printf '%s\n' "$response"
 }
 
 snapshot() {
-  post /ax/snapshot '{"scope":"window","max_elements":250}'
+  local response status
+  for _ in {1..5}; do
+    if response="$(post /ax/snapshot '{"scope":"window","max_elements":250}')"; then
+      printf '%s\n' "$response"
+      return 0
+    else
+      status=$?
+      if (( status != 75 )); then return "$status"; fi
+    fi
+    sleep 0.25
+  done
+  fail 'Mail did not return a snapshot in time.'
 }
 
 element_ref() {
@@ -74,7 +85,7 @@ reply_id="$(jq -er '
   def selected: (.states | index("selected")) != null;
   select(.app == "Mail" and (.window | startswith("Beacon Demo — On My Mac")) and .truncated == false)
   | .elements as $elements
-  | select(any($elements[]; .role == "row" and .label == "Beacon Demo" and selected))
+  | select(all($elements[] | select(.role == "row" and .label == "Beacon Demo"); selected))
   | select([$elements[] | select(.role == "row" and .label != "Beacon Demo" and selected)]
       | length == 1 and (.[0].label | test("^Sarah Chen - .* - Lunch tomorrow[?]( - |$)")))
   | [$elements[]

@@ -37,13 +37,13 @@ key (`Input/HotkeyMonitor.swift`, Right Option by default), barge-in, `app.chang
 | Item | Status |
 | --- | --- |
 | Repo hygiene (`.gitattributes`, `.gitignore`, `.env.example`) | Done |
-| H1 Helper shell, server, `/health`, `/events`, `/debug/utterance` | Implemented on this branch. Debug build passed. |
-| Contracts v1 draft (`contracts/`) | Done; needs Emmet's approval via PR (C0) |
+| H1 Helper shell, server, `/health`, `/events`, `/debug/utterance` | Debug and release builds passed. Verified `stt.final` delivery over WebSocket from the signed Helper. |
+| Contracts v1 draft (`contracts/`) | [Draft PR #1](https://github.com/justincodner/LocalAiHackathonCornell/pull/1) awaits Emmet's review (C0). |
 | H6 HUD, ring, sounds | Unit tests passed, including the highlight test in the Mac desktop session. Live walkthrough pending. |
-| H2/H3 accessibility + input | Implemented. Mail Reply acceptance script added and mock-tested. Live acceptance pending. |
+| H2/H3 accessibility + input | Live Reply opened the seeded Mail draft, typed test text and verified it via Accessibility. Mail inbox snapshot took 296 ms with the message body present. |
 | H4/H5 speech in/out + model downloads | Local speech benchmarks in [bench.md](bench.md). System speech met both timing targets. Live push-to-talk and audible barge-in pending. |
-| Scripts, app packaging, demo pages, Bonsai setup | Done. Signed app installed at `/Applications/Beacon Helper.app`; contract tests 24 pass / 2 fail (AX permission) / 4 skip |
-| Fixtures | `safari_form` and `safari_form_unlabeled` validate. Remaining captures depend on Accessibility. |
+| Scripts, app packaging, demo pages, Bonsai setup | Freshly signed workspace app verified. Live contract suite passed 49 checks and skipped P2 screen capture. |
+| Fixtures | All five captured and schema-validated. The inbox fixture omits the Mail account sidebar. |
 | P2 vision label repair (S2) | Not started |
 
 ## How to build, test, run
@@ -75,21 +75,15 @@ for fast debugging and `BEACON_TTS=system` if TTSKit is slow or memory is tight.
   `cache_prompt` are all accepted and enforced. Needs the 2B and/or much smaller snapshots; Emmet decides via bench.py.
 - `start_bonsai.sh` skips the vision projector (memory); `BEACON_VISION=1` re-enables it.
 - macOS ties Accessibility, Microphone and Screen Recording permissions to the signed app. Launch the current signed
-  app through LaunchServices and verify `/health` before testing. Direct `dump` can also depend on the launching shell's
-  Accessibility permission. Screen Recording is only needed for screenshots and P2.
+  app through LaunchServices and verify `/health` before testing. The workspace build reported Accessibility and Microphone
+  granted, while direct `dump` from the Codex shell was denied. Use `POST /ax/snapshot` on the running signed app if the
+  shell lacks access. The installed copy in `/Applications` predates the Mail walker fix. Screen Recording is only needed
+  for screenshots and P2.
 - `brain/`, `mock_helper/` and `scripts/bench.py` were absent from the branches available at handoff. Emmet owns them.
 
 ## Next steps
 
-1. Enable Accessibility for Beacon Helper and verify it in `GET /health`. The copy installed before this session predates
-   the Mail WebKit walker fix. Capture with a signed build containing `8bdc880` or later.
-2. Select Sarah Chen's "Lunch tomorrow?" in the local Beacon Demo mailbox. Record `mail_inbox` and verify that the
-   message body contains `noodle place on College Ave` and `build_ms` is at most 300. The original untracked inbox
-   snapshot predates the walker fix, shows a different selected message, and must be re-recorded.
-3. Capture `mail_reply_draft` before entering the test text, and `notes_list` from the five-note Beacon Demo folder.
-   Review the captures for personal data, validate all fixtures with `scripts/contract_test.sh --fixtures-only`, and
-   commit them. Emmet needs `mail_inbox` and `safari_form` first.
-4. Run `scripts/contract_test.sh` and `scripts/mail_reply_test.sh` against the current signed Helper.
-5. Run the live push-to-talk, HUD and barge-in checks in `helper/TESTING.md`. The debug build and regular unit tests are
+1. Have Emmet review v1 in draft PR #1 and use the five fixtures to bring up the Brain and mock Helper.
+2. Run the live push-to-talk, HUD and barge-in checks in `helper/TESTING.md`. The debug build and regular unit tests are
    already verified (54 pass across two runs, four opt-in benchmarks skipped in the unit suite).
-6. Have Emmet review the v1 contracts and bring the Brain to the first offline integration. Start S2 after X2.
+3. Run the model benchmark and first offline integration after Emmet's Brain branch is available. Rehearse X2 before S2.

@@ -1,0 +1,561 @@
+{
+  "app": "Mail",
+  "build_ms": 37,
+  "elements": [
+    {
+      "bounds": [
+        192,
+        121,
+        21,
+        18
+      ],
+      "depth": 0,
+      "id": 1,
+      "label": "To:",
+      "label_source": "title",
+      "role": "text",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        216,
+        121,
+        751,
+        21
+      ],
+      "depth": 0,
+      "id": 2,
+      "label": "To:",
+      "label_source": "title",
+      "role": "textfield",
+      "states": [],
+      "value": "￼"
+    },
+    {
+      "bounds": [
+        962,
+        124,
+        20,
+        13
+      ],
+      "depth": 0,
+      "id": 3,
+      "label": "add contacts",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        192,
+        161,
+        23,
+        18
+      ],
+      "depth": 0,
+      "id": 4,
+      "label": "Cc:",
+      "label_source": "title",
+      "role": "text",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        218,
+        161,
+        749,
+        21
+      ],
+      "depth": 0,
+      "id": 5,
+      "label": "Cc:",
+      "label_source": "title",
+      "role": "textfield",
+      "states": [],
+      "value": ""
+    },
+    {
+      "bounds": [
+        962,
+        164,
+        20,
+        13
+      ],
+      "depth": 0,
+      "id": 6,
+      "label": "add contacts",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        192,
+        201,
+        52,
+        18
+      ],
+      "depth": 0,
+      "id": 7,
+      "label": "Subject:",
+      "label_source": "title",
+      "role": "text",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        248,
+        201,
+        734,
+        18
+      ],
+      "depth": 0,
+      "id": 8,
+      "label": "Subject:",
+      "label_source": "title",
+      "role": "textfield",
+      "states": [],
+      "value": "Re: Lunch tomorrow?"
+    },
+    {
+      "bounds": [
+        169,
+        275,
+        836,
+        563
+      ],
+      "depth": 0,
+      "id": 9,
+      "label": "message body",
+      "label_source": "description",
+      "role": "group",
+      "states": [
+        "focused"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        203,
+        315,
+        703,
+        70
+      ],
+      "depth": 1,
+      "id": 10,
+      "label": "On Nov 14, 2026, at 7:00 AM, Sarah Chen <sarah.chen@example.com> wrote: Hi, a...",
+      "label_source": "title",
+      "role": "text",
+      "states": [
+        "truncated"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        169,
+        231,
+        836,
+        44
+      ],
+      "depth": 0,
+      "id": 11,
+      "label": "Formatting",
+      "label_source": "description",
+      "role": "group",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        192,
+        240,
+        122,
+        26
+      ],
+      "depth": 1,
+      "id": 12,
+      "label": "paragraph style",
+      "label_source": "description",
+      "role": "popup",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        320,
+        240,
+        122,
+        26
+      ],
+      "depth": 1,
+      "id": 13,
+      "label": "typeface",
+      "label_source": "description",
+      "role": "popup",
+      "states": [],
+      "value": "Helvetica"
+    },
+    {
+      "bounds": [
+        448,
+        240,
+        122,
+        26
+      ],
+      "depth": 1,
+      "id": 14,
+      "label": "style",
+      "label_source": "description",
+      "role": "popup",
+      "states": [],
+      "value": "Regular"
+    },
+    {
+      "bounds": [
+        576,
+        240,
+        62,
+        26
+      ],
+      "depth": 1,
+      "id": 15,
+      "label": "font size",
+      "label_source": "description",
+      "role": "popup",
+      "states": [],
+      "value": "12"
+    },
+    {
+      "bounds": [
+        644,
+        240,
+        26,
+        26
+      ],
+      "depth": 1,
+      "id": 16,
+      "label": "text color",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        676,
+        240,
+        26,
+        26
+      ],
+      "depth": 1,
+      "id": 17,
+      "label": "text background color",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        709,
+        242,
+        25,
+        24
+      ],
+      "depth": 1,
+      "id": 18,
+      "label": "bold",
+      "label_source": "description",
+      "role": "checkbox",
+      "states": [],
+      "value": "off"
+    },
+    {
+      "bounds": [
+        734,
+        242,
+        25,
+        24
+      ],
+      "depth": 1,
+      "id": 19,
+      "label": "italic",
+      "label_source": "description",
+      "role": "checkbox",
+      "states": [],
+      "value": "off"
+    },
+    {
+      "bounds": [
+        758,
+        242,
+        25,
+        24
+      ],
+      "depth": 1,
+      "id": 20,
+      "label": "underline",
+      "label_source": "description",
+      "role": "checkbox",
+      "states": [],
+      "value": "off"
+    },
+    {
+      "bounds": [
+        783,
+        242,
+        25,
+        24
+      ],
+      "depth": 1,
+      "id": 21,
+      "label": "strikethrough",
+      "label_source": "description",
+      "role": "checkbox",
+      "states": [],
+      "value": "off"
+    },
+    {
+      "bounds": [
+        812,
+        240,
+        57,
+        26
+      ],
+      "depth": 1,
+      "id": 22,
+      "label": "unlabeled, near 'strikethrough'",
+      "label_source": "inferred",
+      "role": "popup",
+      "states": [
+        "inferred"
+      ],
+      "value": null
+    },
+    {
+      "bounds": [
+        876,
+        242,
+        29,
+        24
+      ],
+      "depth": 1,
+      "id": 23,
+      "label": "Increase Indent",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        905,
+        242,
+        29,
+        24
+      ],
+      "depth": 1,
+      "id": 24,
+      "label": "Decrease Indent",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        169,
+        59,
+        836,
+        52
+      ],
+      "depth": 0,
+      "id": 25,
+      "label": "",
+      "label_source": "none",
+      "role": "toolbar",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        451,
+        59,
+        42,
+        52
+      ],
+      "depth": 1,
+      "id": 26,
+      "label": "Reply All",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        493,
+        59,
+        39,
+        52
+      ],
+      "depth": 1,
+      "id": 27,
+      "label": "Format",
+      "label_source": "description",
+      "role": "radio",
+      "states": [
+        "checked"
+      ],
+      "value": "on"
+    },
+    {
+      "bounds": [
+        532,
+        59,
+        36,
+        52
+      ],
+      "depth": 1,
+      "id": 28,
+      "label": "Emoji & Symbols",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        568,
+        59,
+        41,
+        52
+      ],
+      "depth": 1,
+      "id": 29,
+      "label": "Write with Siri",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        609,
+        59,
+        58,
+        52
+      ],
+      "depth": 1,
+      "id": 30,
+      "label": "Header Fields",
+      "label_source": "description",
+      "role": "popup",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        667,
+        59,
+        54,
+        52
+      ],
+      "depth": 1,
+      "id": 31,
+      "label": "Attach",
+      "label_source": "description",
+      "role": "popup",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        721,
+        59,
+        50,
+        52
+      ],
+      "depth": 1,
+      "id": 32,
+      "label": "Send Later",
+      "label_source": "description",
+      "role": "popup",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        961,
+        59,
+        40,
+        52
+      ],
+      "depth": 1,
+      "id": 33,
+      "label": "Send",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        187,
+        77,
+        16,
+        16
+      ],
+      "depth": 0,
+      "id": 34,
+      "label": "close window",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        233,
+        77,
+        16,
+        16
+      ],
+      "depth": 0,
+      "id": 35,
+      "label": "full screen",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    },
+    {
+      "bounds": [
+        210,
+        77,
+        16,
+        16
+      ],
+      "depth": 0,
+      "id": 36,
+      "label": "minimize window",
+      "label_source": "description",
+      "role": "button",
+      "states": [],
+      "value": null
+    }
+  ],
+  "focused_id": 9,
+  "ok": true,
+  "snapshot_id": "s_0006",
+  "text": "APP Mail | WINDOW \"Re: Lunch tomorrow?\" | FOCUS [9]\n[1] text \"To:\"\n[2] textfield \"To:\" value=\"￼\"\n[3] button \"add contacts\"\n[4] text \"Cc:\"\n[5] textfield \"Cc:\" value=\"\"\n[6] button \"add contacts\"\n[7] text \"Subject:\"\n[8] textfield \"Subject:\" value=\"Re: Lunch tomorrow?\"\n[9] group \"message body\" (focused)\n  [10] text \"On Nov 14, 2026, at 7:00 AM, Sarah Chen <sarah.chen@example.com> wrote: Hi, a...\" (truncated)\n[11] group \"Formatting\"\n  [12] popup \"paragraph style\"\n  [13] popup \"typeface\" value=\"Helvetica\"\n  [14] popup \"style\" value=\"Regular\"\n  [15] popup \"font size\" value=\"12\"\n  [16] button \"text color\"\n  [17] button \"text background color\"\n  [18] checkbox \"bold\" value=\"off\"\n  [19] checkbox \"italic\" value=\"off\"\n  [20] checkbox \"underline\" value=\"off\"\n  [21] checkbox \"strikethrough\" value=\"off\"\n  [22] popup \"unlabeled, near 'strikethrough'\" (inferred)\n  [23] button \"Increase Indent\"\n  [24] button \"Decrease Indent\"\n[25] toolbar\n  [26] button \"Reply All\"\n  [27] radio \"Format\" value=\"on\" (checked)\n  [28] button \"Emoji & Symbols\"\n  [29] button \"Write with Siri\"\n  [30] popup \"Header Fields\"\n  [31] popup \"Attach\"\n  [32] popup \"Send Later\"\n  [33] button \"Send\"\n[34] button \"close window\"\n[35] button \"full screen\"\n[36] button \"minimize window\"",
+  "total_elements": 36,
+  "truncated": false,
+  "window": "Re: Lunch tomorrow?"
+}
