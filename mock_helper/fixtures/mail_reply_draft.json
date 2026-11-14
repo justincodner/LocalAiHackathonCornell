@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "snapshot_id": "s_0001",
+  "app": "Mail",
+  "window": "Re: Lunch tomorrow?",
+  "focused_id": 4,
+  "truncated": false,
+  "total_elements": 6,
+  "build_ms": 0,
+  "elements": [
+    {"id": 1,"depth": 0,"role": "heading","label": "Reply to Sarah Chen","value": null,"states": [],"bounds": [40,60,250,24],"label_source": "title"},
+    {"id": 2,"depth": 0,"role": "textfield","label": "To","value": "Sarah Chen","states": [],"bounds": [40,90,250,24],"label_source": "title"},
+    {"id": 3,"depth": 0,"role": "textfield","label": "Subject","value": "Re: Lunch tomorrow?","states": [],"bounds": [40,120,250,24],"label_source": "title"},
+    {"id": 4,"depth": 0,"role": "textarea","label": "Message","value": "","states": ["focused"],"bounds": [40,150,250,24],"label_source": "title"},
+    {"id": 5,"depth": 0,"role": "button","label": "Send","value": null,"states": [],"bounds": [40,180,250,24],"label_source": "title"},
+    {"id": 6,"depth": 0,"role": "button","label": "Cancel","value": null,"states": [],"bounds": [40,210,250,24],"label_source": "title"}
+  ],
+  "text": "APP Mail | WINDOW \"Re: Lunch tomorrow?\" | FOCUS [4]\n[1] heading \"Reply to Sarah Chen\"\n[2] textfield \"To\" value=\"Sarah Chen\"\n[3] textfield \"Subject\" value=\"Re: Lunch tomorrow?\"\n[4] textarea \"Message\" value=\"\" (focused)\n[5] button \"Send\"\n[6] button \"Cancel\""
+}

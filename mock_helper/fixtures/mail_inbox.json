@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "snapshot_id": "s_0001",
+  "app": "Mail",
+  "window": "Inbox - 3 unread",
+  "focused_id": 14,
+  "truncated": false,
+  "total_elements": 9,
+  "build_ms": 0,
+  "elements": [
+    {"id": 1,"depth": 0,"role": "toolbar","label": "","value": null,"states": [],"bounds": [40,60,250,24],"label_source": "title"},
+    {"id": 2,"depth": 1,"role": "button","label": "New Message","value": null,"states": [],"bounds": [60,90,250,24],"label_source": "title"},
+    {"id": 3,"depth": 1,"role": "button","label": "Reply","value": null,"states": [],"bounds": [60,120,250,24],"label_source": "title"},
+    {"id": 4,"depth": 1,"role": "button","label": "unlabeled, near 'Reply'","value": null,"states": ["inferred"],"bounds": [60,150,250,24],"label_source": "inferred"},
+    {"id": 7,"depth": 0,"role": "list","label": "Messages","value": null,"states": [],"bounds": [40,180,250,24],"label_source": "title"},
+    {"id": 8,"depth": 1,"role": "row","label": "Sarah Chen - Lunch tomorrow? - 11:42","value": null,"states": ["selected"],"bounds": [60,210,250,24],"label_source": "title"},
+    {"id": 9,"depth": 1,"role": "row","label": "IT Desk - Password expiry - 09:15","value": null,"states": [],"bounds": [60,240,250,24],"label_source": "title"},
+    {"id": 14,"depth": 0,"role": "textfield","label": "Search","value": "","states": ["focused"],"bounds": [40,270,250,24],"label_source": "title"},
+    {"id": 15,"depth": 0,"role": "text","label": "Hi, are we still on for lunch tomorrow at noon? I...","value": null,"states": ["truncated"],"bounds": [40,300,250,24],"label_source": "title"}
+  ],
+  "text": "APP Mail | WINDOW \"Inbox - 3 unread\" | FOCUS [14]\n[1] toolbar \"\"\n  [2] button \"New Message\"\n  [3] button \"Reply\"\n  [4] button \"unlabeled, near 'Reply'\" (inferred)\n[7] list \"Messages\"\n  [8] row \"Sarah Chen - Lunch tomorrow? - 11:42\" (selected)\n  [9] row \"IT Desk - Password expiry - 09:15\"\n[14] textfield \"Search\" value=\"\" (focused)\n[15] text \"Hi, are we still on for lunch tomorrow at noon? I...\" (truncated)"
+}

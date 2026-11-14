@@ -1,0 +1,103 @@
+{
+  "ok": true,
+  "snapshot_id": "s_0001",
+  "app": "Safari",
+  "window": "Contact us",
+  "focused_id": null,
+  "truncated": false,
+  "total_elements": 6,
+  "build_ms": 0,
+  "elements": [
+    {
+      "id": 1,
+      "depth": 0,
+      "role": "heading",
+      "label": "Contact us",
+      "value": null,
+      "states": [],
+      "bounds": [
+        40,
+        60,
+        250,
+        24
+      ],
+      "label_source": "title"
+    },
+    {
+      "id": 2,
+      "depth": 0,
+      "role": "textfield",
+      "label": "First name",
+      "value": "",
+      "states": [],
+      "bounds": [
+        40,
+        90,
+        250,
+        24
+      ],
+      "label_source": "title"
+    },
+    {
+      "id": 3,
+      "depth": 0,
+      "role": "textfield",
+      "label": "Email",
+      "value": "",
+      "states": [],
+      "bounds": [
+        40,
+        120,
+        250,
+        24
+      ],
+      "label_source": "title"
+    },
+    {
+      "id": 4,
+      "depth": 0,
+      "role": "textarea",
+      "label": "Message",
+      "value": "",
+      "states": [],
+      "bounds": [
+        40,
+        150,
+        250,
+        24
+      ],
+      "label_source": "title"
+    },
+    {
+      "id": 5,
+      "depth": 0,
+      "role": "button",
+      "label": "Submit",
+      "value": null,
+      "states": [],
+      "bounds": [
+        40,
+        180,
+        250,
+        24
+      ],
+      "label_source": "title"
+    },
+    {
+      "id": 6,
+      "depth": 0,
+      "role": "checkbox",
+      "label": "Send me event updates",
+      "value": null,
+      "states": [],
+      "bounds": [
+        40,
+        210,
+        250,
+        24
+      ],
+      "label_source": "title"
+    }
+  ],
+  "text": "APP Safari | WINDOW \"Contact us\"\n[1] heading \"Contact us\"\n[2] textfield \"First name\" value=\"\"\n[3] textfield \"Email\" value=\"\"\n[4] textarea \"Message\" value=\"\"\n[5] button \"Submit\"\n[6] checkbox \"Send me event updates\""
+}
