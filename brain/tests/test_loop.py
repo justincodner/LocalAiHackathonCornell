@@ -14,9 +14,11 @@ class ScriptedModel:
     def __init__(self, *calls):
         self.calls = iter(calls)
         self.requests = []
+        self.tools = []
 
     async def next_tool_call(self, messages, tools):
         self.requests.append(messages[-1]["content"])
+        self.tools.append([tool["function"]["name"] for tool in tools])
         return next(self.calls)
 
 
@@ -28,8 +30,11 @@ class ReplayHelper:
         self.actions = []
         self.brain = None
         self.listening = asyncio.Event()
+        self.clarifying = asyncio.Event()
+        self.snapshot_calls = 0
 
     async def snapshot(self):
+        self.snapshot_calls += 1
         return self.screen
 
     async def hud(self, state, **fields):
@@ -37,6 +42,8 @@ class ReplayHelper:
 
     async def speak(self, text, rate):
         self.spoken.append(text)
+        if text.endswith("Hold the talk key to answer."):
+            self.clarifying.set()
         speech_id = f"sp_{len(self.spoken)}"
         await self.brain.on_event({"type": "tts.finished", "speech_id": speech_id, "interrupted": False})
         return speech_id
@@ -69,10 +76,71 @@ def test_screen_summary_speaks_and_logs(tmp_path):
         assert helper.spoken == ["Mail inbox. Sarah wrote about lunch."]
         assert helper.hud_states == ["thinking", "speaking", "idle"]
         assert helper.screen["text"] in model.requests[0]
+        assert model.tools[0] == ["say"]
         record = json.loads(path.read_text(encoding="utf-8"))
         assert record["tool"] == "say"
         assert record["valid"] and record["ok"]
         assert record["ms"]["stt"] == 100
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+@pytest.mark.parametrize("echo_first", [False, True])
+def test_general_question_answers_without_taking_a_snapshot(tmp_path, echo_first):
+    async def run():
+        helper = ReplayHelper(fixture("safari_form"))
+        question = "What is the capital of Germany?"
+        answer = "The capital of Germany is Berlin."
+        calls = [ToolCall("echo", "say", {"text": question})] if echo_first else []
+        model = ScriptedModel(*calls, ToolCall("a", "say", {"text": answer}))
+        path = tmp_path / "s.jsonl"
+        brain = helper.brain = Brain(helper, model, Config(log_path=path), "Test instruction")
+
+        await brain.on_event({"type": "stt.final", "text": question})
+        await brain.active
+
+        assert helper.snapshot_calls == 0
+        assert model.requests == [question] * (2 if echo_first else 1)
+        assert helper.spoken == [answer]
+        assert json.loads(path.read_text())["snapshot_id"] is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+@pytest.mark.parametrize("score_visible, returned_score, expected_answer", [
+    (True, 742, "Your Krillion score is 742."),
+    (True, 900, "I couldn't find that on the current screen."),
+    (False, 742, "I couldn't find that on the current screen."),
+])
+def test_personal_score_uses_fresh_screen_and_checks_the_label(tmp_path, score_visible, returned_score, expected_answer):
+    async def run():
+        helper = ReplayHelper(fixture("safari_form"))
+        content = [
+            {"id": 1, "depth": 0, "role": "heading", "label": "Your Krillion score"},
+            {"id": 2, "depth": 0, "role": "slider", "label": "Score", "value": "742"},
+            {"id": 3, "depth": 0, "role": "text", "label": "Monthly goal: 900"},
+        ]
+        helper.screen = dict(helper.screen, window="Krillion dashboard", elements=[
+            *(content if score_visible else []),
+            {"id": 4, "depth": 0, "role": "tab", "label": "Inactive tab 900"},
+        ])
+        model = ScriptedModel(ToolCall("a", "say", {"text": f"Your Krillion score is {returned_score}."}))
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl"), "Test instruction")
+
+        await brain.on_event({"type": "stt.final", "text": "What is my Krillion score?"})
+        await brain.active
+
+        assert helper.snapshot_calls == 1
+        if score_visible:
+            assert 'slider "Score 742"' in model.requests[0]
+            assert "Inactive tab" not in model.requests[0]
+            assert model.tools == [["say"]]
+        else:
+            assert not model.requests
+        assert helper.spoken == [expected_answer]
+        assert not helper.actions
 
     asyncio.run(run())
 
@@ -160,7 +228,9 @@ def test_ambiguous_click_asks_then_presses_what_the_user_chose(tmp_path):
         config = Config(log_path=tmp_path / "s.jsonl", settle_ms=0)
         brain = helper.brain = Brain(helper, model, config, "x")
         await brain.on_event({"type": "stt.final", "text": "click the button"})
-        await asyncio.wait_for(helper.listening.wait(), timeout=2)
+        await asyncio.wait_for(helper.clarifying.wait(), timeout=2)
+        await asyncio.sleep(0)
+        assert not helper.listening.is_set()
         assert helper.actions == []
         assert helper.spoken[0].startswith("Which button: New Message, Reply")
         await brain.on_event({"type": "stt.final", "text": "the reply one"})
@@ -248,7 +318,7 @@ def test_model_failure_is_spoken(tmp_path):
     async def run():
         helper = ReplayHelper(fixture("mail_inbox"))
         brain = helper.brain = Brain(helper, FailingModel(), Config(log_path=tmp_path / "s.jsonl"), "x")
-        await brain.on_event({"type": "stt.final", "text": "what is on my screen"})
+        await brain.on_event({"type": "stt.final", "text": "read the latest message"})
         await brain.active
         assert helper.spoken == ["I'm having trouble thinking. Please try again."]
         assert helper.hud_states[-1] == "idle"
@@ -278,9 +348,61 @@ def test_barge_in_cancels_the_running_task(tmp_path):
         model = ScriptedModel(ToolCall("a", "ask_user", {"question": "Which message?"}))
         brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl"), "x")
         await brain.on_event({"type": "stt.final", "text": "open it"})
-        await asyncio.wait_for(helper.listening.wait(), timeout=2)
+        await asyncio.wait_for(helper.clarifying.wait(), timeout=2)
         await brain.on_event({"type": "barge_in"})
         assert brain.active.done() and brain.state == "idle"
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_new_screen_question_replaces_pending_clarification(tmp_path):
+    async def run():
+        helper = ReplayHelper(fixture("mail_inbox"))
+        model = ScriptedModel(
+            ToolCall("a", "ask_user", {"question": "Which message?"}),
+            ToolCall("b", "ask_user", {"question": "Which tab?"}),
+        )
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl"), "x")
+        await brain.on_event({"type": "stt.final", "text": "open it"})
+        await asyncio.wait_for(helper.clarifying.wait(), timeout=2)
+        await asyncio.sleep(0)
+        assert brain.reply is not None
+        prior_task = brain.active
+        helper.screen = fixture("safari_form")
+        await brain.on_event({"type": "stt.final", "text": "Do you see the website that I'm on right now?"})
+        await asyncio.wait_for(brain.active, timeout=2)
+        assert prior_task.cancelled()
+        assert 'PAGE TITLE: "Contact us"' in model.requests[1]
+        assert 'textfield "Email"' in model.requests[1]
+        assert model.tools[1] == ["say"]
+        assert "Contact us" in helper.spoken[-1]
+        assert "Email" in helper.spoken[-1]
+        assert not helper.actions
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_browser_summary_uses_page_content_when_model_repeats_title(tmp_path):
+    async def run():
+        root = Path(__file__).resolve().parents[2]
+        snapshot = json.loads((root / "contracts/fixtures/safari_form_unlabeled.json").read_text(encoding="utf-8"))
+        helper = ReplayHelper(snapshot)
+        model = ScriptedModel(ToolCall("a", "say", {"text": "You are on the Checkout - Lantern Books tab."}))
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl"), "x")
+
+        await brain.on_event({"type": "stt.final", "text": "What's on this website?"})
+        await asyncio.wait_for(brain.active, timeout=2)
+
+        prompt = model.requests[0]
+        assert "Order total $28.61" in prompt
+        assert "The Left Hand of Darkness" in prompt
+        assert "Volunteer sign-up" not in prompt
+        assert "New Tab" not in prompt
+        assert "sam.rivera@example.com" not in prompt
+        assert "Shipping address" in helper.spoken[-1]
+        assert not helper.actions
 
     asyncio.run(run())
 

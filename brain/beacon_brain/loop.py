@@ -8,10 +8,10 @@ from dataclasses import replace
 
 import httpx
 
-from . import fastpath, grounding, narrate, risk, tools
+from . import fastpath, grounding, narrate, page_summary, questions, risk, tools
 from .config import Config
 from .helper_client import HelperError
-from .llm import BonsaiError
+from .llm import BonsaiError, ToolCall
 from .log import append_step
 from .memory import TaskMemory
 
@@ -19,6 +19,14 @@ from .memory import TaskMemory
 LOGGER = logging.getLogger(__name__)
 TERMINALS = {"say", "done", "read_element"}
 CONNECTION_ERRORS = (HelperError, httpx.HTTPError, OSError, TimeoutError, ValueError, KeyError)
+SCREEN_SUMMARY_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
+
+
+def snapshot_summary(snapshot: dict) -> ToolCall:
+    app = snapshot["app"]
+    title = snapshot["window"].strip()
+    answer = f'The active window in {app} is titled "{title}".' if title else f"{app} is open."
+    return ToolCall("screen-summary", "say", {"text": answer})
 
 
 class Brain:
@@ -73,7 +81,8 @@ class Brain:
             await self.set_state("idle")
         elif kind == "stt.final" and isinstance(event.get("text"), str) and event["text"].strip():
             text = event["text"].strip()
-            if self.reply is not None and not self.reply.done():
+            new_question = self.state != "confirm" and fastpath.is_question(text)
+            if self.reply is not None and not self.reply.done() and not new_question:
                 self.reply.set_result(text)
                 return
             await self.cancel_active()
@@ -99,17 +108,21 @@ class Brain:
         await self.speak(text)
 
     async def ask(self, question: str, *, confirm: bool = False) -> str | None:
+        if not confirm:
+            question += " Hold the talk key to answer."
         await self.set_state("confirm" if confirm else "speaking", caption=question)
         if not await self.speak(question):
             return None
         reply = asyncio.get_running_loop().create_future()
         self.reply = reply
         try:
-            await self.helper.listen("start")
+            if confirm:
+                await self.helper.listen("start")
             try:
                 return await asyncio.wait_for(reply, self.config.reply_timeout_s)
             except TimeoutError:
-                await self.helper.listen("stop")
+                if confirm:
+                    await self.helper.listen("stop")
                 await self.say("I didn't hear a reply, so I stopped.")
                 return None
         finally:
@@ -128,7 +141,7 @@ class Brain:
                     self.rate = max(0.5, min(1.5, round(self.rate + delta, 1)))
                     await self.say(f"Speaking {command}.")
                 else:
-                    await self.run_task(text, stt_ms)
+                    await self.route_request(text, stt_ms)
         except (TimeoutError, BonsaiError) as error:
             LOGGER.warning("Task ended: %s", error)
             apology = (
@@ -145,11 +158,57 @@ class Brain:
         finally:
             await self.set_state("idle")
 
-    async def run_task(self, text: str, stt_ms: int) -> None:
-        memory = TaskMemory(self.prompt, text, self.previous_result)
+    async def route_request(self, text: str, stt_ms: int) -> None:
+        if fastpath.wants_screen_summary(text) or fastpath.asks_for_action(text) or not fastpath.is_question(text):
+            await self.run_task(text, stt_ms)
+            return
+        if fastpath.needs_screen(text):
+            await self.run_task(text, stt_ms, screen_question=True)
+            return
+
+        await self.set_state("thinking", transcript=text)
+        started = time.perf_counter()
+        messages = [
+            {"role": "system", "content": questions.ROUTING_PROMPT},
+            {"role": "user", "content": text},
+        ]
+        route = await self.think(messages, SCREEN_SUMMARY_TOOLS + questions.ROUTE_TOOLS, filler=True)
+        if route.name in {"use_screen", "act_on_screen"} and not route.arguments:
+            await self.run_task(text, stt_ms, screen_question=route.name == "use_screen")
+            return
+
+        def clean_answer(call: ToolCall) -> str:
+            if call.name != "say" or tools.validate(call, {}):
+                return ""
+            answer = narrate.clean_speech(call.arguments["text"])
+            return answer if fastpath.normalize(answer) != fastpath.normalize(text) else ""
+
+        answer = clean_answer(route)
+        if route.name == "say" and not answer:
+            messages[0]["content"] = questions.GENERAL_PROMPT
+            answer = clean_answer(await self.think(messages, SCREEN_SUMMARY_TOOLS, filler=False))
+        model_ms = round((time.perf_counter() - started) * 1000)
+        started_speaking = time.perf_counter()
+        reply = answer or "I couldn't answer that. Try asking another way."
+        await self.say(reply)
+        append_step(self.config.log_path, task_id=f"t_{self.task_number}", step=1,
+                    utterance=text, route="general", snapshot_id=None, snapshot_tokens=0,
+                    tool="say", args={"text": reply}, valid=bool(answer), risk="allow", ok=bool(answer),
+                    ms={"stt": stt_ms, "snapshot": 0, "llm": model_ms,
+                        "act": round((time.perf_counter() - started_speaking) * 1000)})
+
+    async def run_task(self, text: str, stt_ms: int, *, screen_question: bool = False) -> None:
+        screen_summary = fastpath.wants_screen_summary(text)
+        memory = TaskMemory(self.prompt, text, "" if screen_summary or screen_question else self.previous_result)
+        available_tools = SCREEN_SUMMARY_TOOLS if screen_summary else tools.TOOL_DEFINITIONS
         task_id = f"t_{self.task_number}"
         generation = self.screen_generation
-        snapshot = await self.helper.snapshot()
+        try:
+            snapshot = await self.helper.snapshot()
+        except HelperError as error:
+            LOGGER.warning("Could not read the active window: %s", error.code)
+            await self.say("I couldn't read the current window. Bring the app you want to use to the front and try again.")
+            return
         previous_snapshot = None
         task_summary = ""
         consecutive_invalid = 0
@@ -164,7 +223,19 @@ class Brain:
                 previous_snapshot, snapshot = snapshot, await self.helper.snapshot()
             await self.set_state("thinking", transcript=memory.latest_words)
             started = time.perf_counter()
-            call = await self.think(memory.messages(snapshot), filler=step == 1)
+            if screen_question:
+                call = await self.answer_from_screen(snapshot, memory.request)
+            elif screen_summary and snapshot["app"].casefold() in page_summary.BROWSERS:
+                call = await self.describe_page(snapshot, memory.request)
+            else:
+                try:
+                    call = await self.think(memory.messages(snapshot), available_tools, filler=step == 1)
+                except BonsaiError:
+                    if not screen_summary:
+                        raise
+                    call = snapshot_summary(snapshot)
+            if screen_summary and (call.name != "say" or tools.validate(call, snapshot)):
+                call = snapshot_summary(snapshot)
             llm_ms = round((time.perf_counter() - started) * 1000)
             if call.stray_text:
                 LOGGER.warning("Model wrote %d chars outside its tool call", len(call.stray_text))
@@ -227,6 +298,8 @@ class Brain:
                         result = {"ok": False, "reply": reply}
                         memory.answer(proposed_summary.rstrip(".") + ". Say yes to continue.", reply)
                         fresh_request = True
+                        generation = self.screen_generation
+                        previous_snapshot, snapshot = snapshot, await self.helper.snapshot()
                     else:
                         result = {"ok": False, "end_task": True, "error": "Action cancelled"}
                 else:
@@ -241,6 +314,8 @@ class Brain:
                         memory.answer(call.arguments.get("question") or call.arguments.get("summary", ""),
                                       result["reply"])
                         fresh_request = True
+                        generation = self.screen_generation
+                        previous_snapshot, snapshot = snapshot, await self.helper.snapshot()
             except HelperError as failure:
                 result = {"ok": False, "error": {"code": failure.code, "message": str(failure)}}
                 if failure.code in {"element_not_found", "action_failed", "stale_snapshot"}:
@@ -265,7 +340,7 @@ class Brain:
                         result["value"] = field.get("value")
             append_step(
                 self.config.log_path,
-                task_id=task_id, step=step, utterance=text, snapshot_id=screen["snapshot_id"],
+                task_id=task_id, step=step, utterance=text, route="screen", snapshot_id=screen["snapshot_id"],
                 snapshot_tokens=(len(screen["text"]) + 3) // 4, tool=call.name, args=call.arguments,
                 valid=error is None, risk=verdict, ok=result["ok"], stray_chars=len(call.stray_text),
                 grounded=grounded or None,
@@ -289,10 +364,47 @@ class Brain:
             await self.say(task_summary)
         self.previous_result = memory.summarize(task_summary or "The previous task stopped.")
 
-    async def think(self, messages: list[dict], *, filler: bool):
+    async def answer_from_screen(self, snapshot: dict, request: str) -> ToolCall:
+        if snapshot["app"].casefold() in page_summary.BROWSERS:
+            content = page_summary.visible_content(snapshot, include_display_values=True)
+            messages = page_summary.messages(snapshot, content, request, prompt=questions.SCREEN_PROMPT)
+            evidence = list(content)
+        else:
+            messages = TaskMemory(questions.SCREEN_PROMPT, request).messages(snapshot)
+            evidence = [f"{item.get('label') or ''} {item.get('value') or ''}" for item in snapshot["elements"]]
+        allowed_numbers = questions.reference_numbers(request, evidence)
+        unavailable = ToolCall("screen-question", "say", {"text": "I couldn't find that on the current screen."})
+        if allowed_numbers == set() or not any(label.strip() for label in evidence):
+            return unavailable
+        try:
+            answer = await self.think(messages, SCREEN_SUMMARY_TOOLS, filler=True)
+        except BonsaiError:
+            LOGGER.warning("Could not answer from the active screen", exc_info=True)
+        else:
+            if answer.name == "say" and tools.validate(answer, {}) is None:
+                text = answer.arguments["text"]
+                if text.strip() and (allowed_numbers is None or questions.numbers(text) <= allowed_numbers):
+                    return answer
+        return unavailable
+
+    async def describe_page(self, snapshot: dict, request: str) -> ToolCall:
+        content = page_summary.visible_content(snapshot)
+        if content:
+            try:
+                call = await self.think(page_summary.messages(snapshot, content, request), SCREEN_SUMMARY_TOOLS,
+                                        filler=True)
+            except BonsaiError:
+                LOGGER.warning("Using the available page content after Bonsai failed", exc_info=True)
+            else:
+                if (call.name == "say" and not tools.validate(call, snapshot)
+                        and page_summary.mentions_content(call.arguments["text"], snapshot, content)):
+                    return call
+        return ToolCall("page-summary", "say", {"text": page_summary.fallback(snapshot, content)})
+
+    async def think(self, messages: list[dict], available_tools: list[dict], *, filler: bool):
         """Ask the model, saying "One moment." if it takes longer than the filler delay (spec 10.2)."""
         if not filler or self.config.thinking_filler_ms <= 0:
-            return await self.model.next_tool_call(messages, tools.TOOL_DEFINITIONS)
+            return await self.model.next_tool_call(messages, available_tools)
 
         async def say_filler():
             await asyncio.sleep(self.config.thinking_filler_ms / 1000)
@@ -303,7 +415,7 @@ class Brain:
 
         timer = asyncio.create_task(say_filler())
         try:
-            return await self.model.next_tool_call(messages, tools.TOOL_DEFINITIONS)
+            return await self.model.next_tool_call(messages, available_tools)
         finally:
             timer.cancel()
             await asyncio.gather(timer, return_exceptions=True)
