@@ -4,7 +4,7 @@ Read this first if you are an AI agent picking up the Mac owner's work. The full
 (sections 4, 5, 9, 11, 12 cover the Helper). Keep this file current: update the status table and "Next steps"
 whenever you finish or start something, and commit it.
 
-Last updated: 2026-11-14 18:55 UTC.
+Last updated: 2026-11-14 19:10 UTC (paused: usage limit).
 
 ## Ground rules
 
@@ -82,6 +82,12 @@ for fast debugging and `BEACON_TTS=system` if TTSKit is slow or memory is tight.
 - HUD was verified only via rendered images (no Screen Recording permission for the shell).
 
 ## Next steps
+
+0. **Resume here.** Walker fix for Mail bodies (timeouts on fresh WebKit trees) is committed but `mail_inbox` is not
+   recorded: select Sarah Chen's "Lunch tomorrow?" in Mail's Beacon Demo list, then `scripts/dump_fixture.sh mail_inbox 3`
+   and check the body text appears. Then `mail_reply_draft` (click Reply, do not send), `notes_list` (Notes > Beacon Demo).
+   An uncommitted `contracts/fixtures/mail_inbox.json` from earlier may be stale; re-record it.
+   A debug Helper may still be running on 8765 (`pkill -f .build/debug/beacon-helper`).
 
 1. Merge the three in-progress agents' work, `swift build && swift test`, fix integration errors.
 2. Build the signed app, have Justin grant permissions, run `scripts/contract_test.sh`.
