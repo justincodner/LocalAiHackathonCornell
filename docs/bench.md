@@ -80,6 +80,15 @@ the Brain asks for `max_elements` 120 by default and `BEACON_SNAPSHOT_MAX_ELEMEN
 | v3 (worked examples, none taken from the eval screens) | 0.7 | 21/30 | pass | 5/31 |
 | v3 | 0.2 | 22/30 | pass | 5/31 |
 | **v3 + grounding check (default)** | **0.2** | **26/30 typical** (four runs: 28, 26, 26, 26) | pass | 1–5/31 |
+| v3 + grounding check, **Bonsai 2 4B** | 0.2 | **29/30** (one run) | pass | 0/31 |
+
+**4B comparison (one run):**
+- The only miss was the unlabeled button (it called `what_changed`).
+- It asked on its own for 2 of the 4 ambiguous requests; the grounding check covered the other 2.
+- It fixed all three of the 2B's repeat misses (the checkbox, Submit's position, and the Notes body).
+- Cost: on this laptop's CPU it reads prompts at 17 tok/s, against ~78 for the 2B, and the median call takes 6.8 s
+  against ~2.6–3.2 s. It needed `BEACON_LLM_TIMEOUT_S=300` just for the cold prompt warm-up (~2,200 tokens, ~130 s).
+- On the M1, Justin's 170 tok/s puts a 4B step at about 4–5 s (estimate).
 
 The grounding check (`brain/beacon_brain/grounding.py`) turned all four ambiguous cases into the right question on
 every run and changed no other case. The score is **usually 26, one below the 27 target**. The same four model
