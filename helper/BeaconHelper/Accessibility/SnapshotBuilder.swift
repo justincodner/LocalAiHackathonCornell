@@ -196,7 +196,8 @@ enum SnapshotBuilder {
     static func mergeTexts(_ outs: [Out]) -> [Out] {
         var result: [Out] = []
         for o in outs {
-            if o.role == "text", o.children.isEmpty, var last = result.last, last.role == "text", last.children.isEmpty {
+            if o.role == "text", o.children.isEmpty, var last = result.last, last.role == "text", last.children.isEmpty,
+               adjacent(last.frame, o.frame) {
                 let full = (last.fullText ?? last.fullLabel) + " " + (o.fullText ?? o.fullLabel)
                 let (short, cut) = Labels.trim(full)
                 last.label = short
@@ -211,6 +212,14 @@ enum SnapshotBuilder {
             }
         }
         return result
+    }
+
+    /// Two text runs are adjacent if they share a line or the vertical gap between them is small. Text that only
+    /// became neighbours because unlabelled groups were collapsed (e.g. a footer and a fixed pay bar) stays separate.
+    static func adjacent(_ a: CGRect?, _ b: CGRect?) -> Bool {
+        guard let a, let b, !a.isEmpty, !b.isEmpty else { return true }
+        let gap = max(b.minY - a.maxY, a.minY - b.maxY)
+        return gap <= 16
     }
 
     static func repairFromSiblings(_ outs: [Out]) -> [Out] {

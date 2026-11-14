@@ -1,0 +1,693 @@
+{
+  "app" : "Safari",
+  "build_ms" : 108,
+  "elements" : [
+    {
+      "bounds" : [
+        0,
+        120,
+        1440,
+        831
+      ],
+      "depth" : 0,
+      "id" : 1,
+      "label" : "Volunteer sign-up",
+      "label_source" : "description",
+      "role" : "group",
+      "states" : [
+        "focused"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        440,
+        187,
+        560,
+        35
+      ],
+      "depth" : 1,
+      "id" : 2,
+      "label" : "Volunteer sign-up",
+      "label_source" : "title",
+      "role" : "heading",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        440,
+        237,
+        560,
+        26
+      ],
+      "depth" : 1,
+      "id" : 3,
+      "label" : "First name",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        440,
+        266,
+        560,
+        46
+      ],
+      "depth" : 1,
+      "id" : 4,
+      "label" : "First name",
+      "label_source" : "title",
+      "role" : "textfield",
+      "states" : [
+
+      ],
+      "value" : ""
+    },
+    {
+      "bounds" : [
+        440,
+        327,
+        560,
+        25
+      ],
+      "depth" : 1,
+      "id" : 5,
+      "label" : "Last name",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        440,
+        355,
+        560,
+        46
+      ],
+      "depth" : 1,
+      "id" : 6,
+      "label" : "Last name",
+      "label_source" : "title",
+      "role" : "textfield",
+      "states" : [
+
+      ],
+      "value" : ""
+    },
+    {
+      "bounds" : [
+        440,
+        416,
+        560,
+        25
+      ],
+      "depth" : 1,
+      "id" : 7,
+      "label" : "Email",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        440,
+        445,
+        560,
+        45
+      ],
+      "depth" : 1,
+      "id" : 8,
+      "label" : "Email",
+      "label_source" : "title",
+      "role" : "textfield",
+      "states" : [
+
+      ],
+      "value" : ""
+    },
+    {
+      "bounds" : [
+        440,
+        505,
+        560,
+        26
+      ],
+      "depth" : 1,
+      "id" : 9,
+      "label" : "Preferred role",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        440,
+        534,
+        560,
+        26
+      ],
+      "depth" : 1,
+      "id" : 10,
+      "label" : "Preferred role",
+      "label_source" : "title",
+      "role" : "popup",
+      "states" : [
+
+      ],
+      "value" : "Greeter"
+    },
+    {
+      "bounds" : [
+        440,
+        575,
+        560,
+        68
+      ],
+      "depth" : 1,
+      "id" : 11,
+      "label" : "Availability",
+      "label_source" : "description",
+      "role" : "group",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        455,
+        577,
+        81,
+        22
+      ],
+      "depth" : 2,
+      "id" : 12,
+      "label" : "Availability",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        455,
+        608,
+        83,
+        21
+      ],
+      "depth" : 2,
+      "id" : 13,
+      "label" : "Saturday",
+      "label_source" : "title",
+      "role" : "radio",
+      "states" : [
+
+      ],
+      "value" : "off"
+    },
+    {
+      "bounds" : [
+        469,
+        608,
+        69,
+        21
+      ],
+      "depth" : 2,
+      "id" : 14,
+      "label" : "Saturday",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        557,
+        608,
+        72,
+        21
+      ],
+      "depth" : 2,
+      "id" : 15,
+      "label" : "Sunday",
+      "label_source" : "title",
+      "role" : "radio",
+      "states" : [
+
+      ],
+      "value" : "off"
+    },
+    {
+      "bounds" : [
+        571,
+        608,
+        58,
+        21
+      ],
+      "depth" : 2,
+      "id" : 16,
+      "label" : "Sunday",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        440,
+        658,
+        560,
+        26
+      ],
+      "depth" : 1,
+      "id" : 17,
+      "label" : "Anything we should know?",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        440,
+        687,
+        560,
+        91
+      ],
+      "depth" : 1,
+      "id" : 18,
+      "label" : "Anything we should know?",
+      "label_source" : "title",
+      "role" : "textarea",
+      "states" : [
+
+      ],
+      "value" : ""
+    },
+    {
+      "bounds" : [
+        442,
+        801,
+        194,
+        21
+      ],
+      "depth" : 1,
+      "id" : 19,
+      "label" : "Send me event updates",
+      "label_source" : "title",
+      "role" : "checkbox",
+      "states" : [
+
+      ],
+      "value" : "off"
+    },
+    {
+      "bounds" : [
+        456,
+        801,
+        180,
+        21
+      ],
+      "depth" : 1,
+      "id" : 20,
+      "label" : "Send me event updates",
+      "label_source" : "title",
+      "role" : "text",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        440,
+        839,
+        101,
+        46
+      ],
+      "depth" : 1,
+      "id" : 21,
+      "label" : "Submit",
+      "label_source" : "title",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        0,
+        30,
+        1440,
+        52
+      ],
+      "depth" : 0,
+      "id" : 22,
+      "label" : "",
+      "label_source" : "none",
+      "role" : "toolbar",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        95,
+        37,
+        38,
+        38
+      ],
+      "depth" : 1,
+      "id" : 23,
+      "label" : "show sidebar",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        131,
+        37,
+        20,
+        38
+      ],
+      "depth" : 1,
+      "id" : 24,
+      "label" : "Tab Group picker",
+      "label_source" : "description",
+      "role" : "popup",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        167,
+        39,
+        37,
+        36
+      ],
+      "depth" : 1,
+      "id" : 25,
+      "label" : "Go back",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+        "disabled"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        204,
+        39,
+        38,
+        36
+      ],
+      "depth" : 1,
+      "id" : 26,
+      "label" : "Go forward",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+        "disabled"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        425,
+        39,
+        35,
+        34
+      ],
+      "depth" : 1,
+      "id" : 27,
+      "label" : "Page Menu",
+      "label_source" : "title",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        451,
+        41,
+        24,
+        30
+      ],
+      "depth" : 1,
+      "id" : 28,
+      "label" : "Add page to Reading List",
+      "label_source" : "title",
+      "role" : "button",
+      "states" : [
+        "disabled"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        452,
+        48,
+        507,
+        31
+      ],
+      "depth" : 1,
+      "id" : 29,
+      "label" : "smart search field",
+      "label_source" : "description",
+      "role" : "textfield",
+      "states" : [
+
+      ],
+      "value" : "file:///Users/justin/AIHackathon/LocalAiHackathonCornell/demo/form.html"
+    },
+    {
+      "bounds" : [
+        965,
+        43,
+        24,
+        28
+      ],
+      "depth" : 1,
+      "id" : 30,
+      "label" : "Translation Available",
+      "label_source" : "title",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        987,
+        43,
+        24,
+        29
+      ],
+      "depth" : 1,
+      "id" : 31,
+      "label" : "Reload this page",
+      "label_source" : "title",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        1321,
+        30,
+        36,
+        52
+      ],
+      "depth" : 1,
+      "id" : 32,
+      "label" : "Share",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        1357,
+        30,
+        36,
+        52
+      ],
+      "depth" : 1,
+      "id" : 33,
+      "label" : "New Tab",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        1393,
+        30,
+        43,
+        52
+      ],
+      "depth" : 1,
+      "id" : 34,
+      "label" : "Tab Overview",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        8,
+        82,
+        474,
+        32
+      ],
+      "depth" : 0,
+      "id" : 35,
+      "label" : "Example Domain",
+      "label_source" : "title",
+      "role" : "tab",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        483,
+        82,
+        474,
+        32
+      ],
+      "depth" : 0,
+      "id" : 36,
+      "label" : "Volunteer sign-up",
+      "label_source" : "title",
+      "role" : "tab",
+      "states" : [
+        "selected"
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        958,
+        82,
+        474,
+        32
+      ],
+      "depth" : 0,
+      "id" : 37,
+      "label" : "Checkout - Lantern Books",
+      "label_source" : "title",
+      "role" : "tab",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        18,
+        48,
+        16,
+        16
+      ],
+      "depth" : 0,
+      "id" : 38,
+      "label" : "close window",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        64,
+        48,
+        16,
+        16
+      ],
+      "depth" : 0,
+      "id" : 39,
+      "label" : "full screen",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    },
+    {
+      "bounds" : [
+        41,
+        48,
+        16,
+        16
+      ],
+      "depth" : 0,
+      "id" : 40,
+      "label" : "minimize window",
+      "label_source" : "description",
+      "role" : "button",
+      "states" : [
+
+      ],
+      "value" : null
+    }
+  ],
+  "focused_id" : 1,
+  "ok" : true,
+  "snapshot_id" : "s_0001",
+  "text" : "APP Safari | WINDOW \"Volunteer sign-up\" | FOCUS [1]\n[1] group \"Volunteer sign-up\" (focused)\n  [2] heading \"Volunteer sign-up\"\n  [3] text \"First name\"\n  [4] textfield \"First name\" value=\"\"\n  [5] text \"Last name\"\n  [6] textfield \"Last name\" value=\"\"\n  [7] text \"Email\"\n  [8] textfield \"Email\" value=\"\"\n  [9] text \"Preferred role\"\n  [10] popup \"Preferred role\" value=\"Greeter\"\n  [11] group \"Availability\"\n    [12] text \"Availability\"\n    [13] radio \"Saturday\" value=\"off\"\n    [14] text \"Saturday\"\n    [15] radio \"Sunday\" value=\"off\"\n    [16] text \"Sunday\"\n  [17] text \"Anything we should know?\"\n  [18] textarea \"Anything we should know?\" value=\"\"\n  [19] checkbox \"Send me event updates\" value=\"off\"\n  [20] text \"Send me event updates\"\n  [21] button \"Submit\"\n[22] toolbar\n  [23] button \"show sidebar\"\n  [24] popup \"Tab Group picker\"\n  [25] button \"Go back\" (disabled)\n  [26] button \"Go forward\" (disabled)\n  [27] button \"Page Menu\"\n  [28] button \"Add page to Reading List\" (disabled)\n  [29] textfield \"smart search field\" value=\"file:///Users/justin/AIHackathon/LocalAiHackathonCornell/demo/form.html\"\n  [30] button \"Translation Available\"\n  [31] button \"Reload this page\"\n  [32] button \"Share\"\n  [33] button \"New Tab\"\n  [34] button \"Tab Overview\"\n[35] tab \"Example Domain\"\n[36] tab \"Volunteer sign-up\" (selected)\n[37] tab \"Checkout - Lantern Books\"\n[38] button \"close window\"\n[39] button \"full screen\"\n[40] button \"minimize window\"",
+  "total_elements" : 40,
+  "truncated" : false,
+  "window" : "Volunteer sign-up"
+}
