@@ -46,6 +46,7 @@ key (`Input/HotkeyMonitor.swift`, Right Option by default), barge-in, `app.chang
 | Fixtures | All five captured and schema-validated. The inbox fixture omits the Mail account sidebar. |
 | Brain integration | [PR #2](https://github.com/justincodner/LocalAiHackathonCornell/pull/2) merged. Bonsai 2 2B, Brain, and signed Helper passed a live Safari screen summary and the Saturday radio-button action using debug transcripts. |
 | Question routing | Standalone questions use the local model without taking a snapshot. Personal and screen-specific questions use a fresh accessibility snapshot. Browser answers use the active page's contents. |
+| Advice about the active page | Advice or requests to choose between visible options use read-only questions. Beacon gives a recommendation based on available page content or explains what it can't read. Unlabeled graphics are still unavailable. |
 | P2 vision label repair (S2) | Not started |
 
 ## How to build, test, run
@@ -85,3 +86,4 @@ for fast debugging and `BEACON_TTS=system` if TTSKit is slow or memory is tight.
 1. Run the live push-to-talk and audible barge-in checks in `helper/TESTING.md`, including voice placement with the microphone.
 2. Rehearse the full demo offline, including the seeded Mail reply and confirmation. Rehearse X2 before S2.
 3. Rehearse a page-specific question followed by a standalone question on the same page. Include a question about a value the page does not show.
+4. Ask for a recommendation about visible options, then repeat on a page that does not expose the details needed to compare them.

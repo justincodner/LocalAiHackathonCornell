@@ -172,18 +172,27 @@ class Brain:
             {"role": "system", "content": questions.ROUTING_PROMPT},
             {"role": "user", "content": text},
         ]
-        route = await self.think(messages, SCREEN_SUMMARY_TOOLS + questions.ROUTE_TOOLS, filler=True)
-        if route.name in {"use_screen", "act_on_screen"} and not route.arguments:
-            await self.run_task(text, stt_ms, screen_question=route.name == "use_screen")
+        advisory = fastpath.wants_advice(text)
+        route_tools = questions.ROUTE_TOOLS[:1] if advisory else questions.ROUTE_TOOLS
+        route = await self.think(messages, SCREEN_SUMMARY_TOOLS + route_tools, filler=True)
+        if route.name == "act_on_screen" and not advisory and not route.arguments:
+            await self.run_task(text, stt_ms)
+            return
+        if route.name == "use_screen" and not route.arguments:
+            await self.run_task(text, stt_ms, screen_question=True)
             return
 
         def clean_answer(call: ToolCall) -> str:
             if call.name != "say" or tools.validate(call, {}):
                 return ""
             answer = narrate.clean_speech(call.arguments["text"])
-            return answer if fastpath.normalize(answer) != fastpath.normalize(text) else ""
+            return answer if not questions.is_question_only(answer) and (
+                fastpath.normalize(answer) != fastpath.normalize(text)) else ""
 
         answer = clean_answer(route)
+        if advisory and not answer:
+            await self.run_task(text, stt_ms, screen_question=True)
+            return
         if route.name == "say" and not answer:
             messages[0]["content"] = questions.GENERAL_PROMPT
             answer = clean_answer(await self.think(messages, SCREEN_SUMMARY_TOOLS, filler=False))
@@ -365,26 +374,38 @@ class Brain:
         self.previous_result = memory.summarize(task_summary or "The previous task stopped.")
 
     async def answer_from_screen(self, snapshot: dict, request: str) -> ToolCall:
+        advisory = fastpath.wants_advice(request)
+        prompt = questions.ADVICE_PROMPT if advisory else questions.SCREEN_PROMPT
         if snapshot["app"].casefold() in page_summary.BROWSERS:
             content = page_summary.visible_content(snapshot, include_display_values=True)
-            messages = page_summary.messages(snapshot, content, request, prompt=questions.SCREEN_PROMPT)
+            messages = page_summary.messages(snapshot, content, request, prompt=prompt)
             evidence = list(content)
         else:
-            messages = TaskMemory(questions.SCREEN_PROMPT, request).messages(snapshot)
+            messages = TaskMemory(prompt, request).messages(snapshot)
             evidence = [f"{item.get('label') or ''} {item.get('value') or ''}" for item in snapshot["elements"]]
-        allowed_numbers = questions.reference_numbers(request, evidence)
-        unavailable = ToolCall("screen-question", "say", {"text": "I couldn't find that on the current screen."})
-        if allowed_numbers == set() or not any(label.strip() for label in evidence):
+        allowed_numbers = None if advisory else questions.reference_numbers(request, evidence)
+        missing_context = questions.missing_betting_context(request, evidence) if advisory else None
+        if missing_context:
+            return ToolCall("screen-question", "say", {"text": missing_context})
+        fallback = ("I couldn't read enough from the active window to recommend an option. "
+                    "Tell me any detail the page doesn't show."
+                    if advisory else "I couldn't find that on the current screen.")
+        unavailable = ToolCall("screen-question", "say", {"text": fallback})
+        if (allowed_numbers is not None and not allowed_numbers) or not any(label.strip() for label in evidence):
             return unavailable
         try:
-            answer = await self.think(messages, SCREEN_SUMMARY_TOOLS, filler=True)
+            for attempt in range(2):
+                answer = await self.think(messages, SCREEN_SUMMARY_TOOLS, filler=attempt == 0)
+                if answer.name == "say" and tools.validate(answer, {}) is None:
+                    text = answer.arguments["text"].strip()
+                    if (text and not questions.is_question_only(text)
+                            and fastpath.normalize(text) != fastpath.normalize(request)):
+                        if allowed_numbers is None or questions.numbers(text) <= allowed_numbers:
+                            return answer
+                        break
+                messages[0]["content"] = f"{prompt}\n{questions.SCREEN_RETRY}"
         except BonsaiError:
             LOGGER.warning("Could not answer from the active screen", exc_info=True)
-        else:
-            if answer.name == "say" and tools.validate(answer, {}) is None:
-                text = answer.arguments["text"]
-                if text.strip() and (allowed_numbers is None or questions.numbers(text) <= allowed_numbers):
-                    return answer
         return unavailable
 
     async def describe_page(self, snapshot: dict, request: str) -> ToolCall:

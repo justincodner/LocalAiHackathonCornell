@@ -12,6 +12,7 @@ PAGE_ROLES = {
     "popup", "textfield", "textarea", "slider",
 }
 WINDOW_BUTTONS = {"close window", "minimize window", "full screen", "zoom window"}
+UNLABELED_IMAGES = {"image", "unlabeled", "unlabeled image"}
 GENERIC_WORDS = {
     "about", "also", "and", "are", "has", "have", "here", "into", "more", "page",
     "screen", "see", "shows", "tab", "that", "the", "there", "this", "visible",
@@ -43,7 +44,8 @@ def visible_content(snapshot: dict, *, include_display_values: bool = False) -> 
         if include_display_values and role == "slider" and element.get("value"):
             label = f"{label} {element['value']}".strip()
         key = label.casefold()
-        if (role not in PAGE_ROLES or not label or (role == "button" and key in WINDOW_BUTTONS)
+        readable_image = include_display_values and role == "image" and key not in UNLABELED_IMAGES
+        if ((role not in PAGE_ROLES and not readable_image) or not label or (role == "button" and key in WINDOW_BUTTONS)
                 or key == snapshot["window"].strip().casefold() or element.get("label_source") == "inferred"):
             continue
         if key not in labels or labels[key][1] == "text":

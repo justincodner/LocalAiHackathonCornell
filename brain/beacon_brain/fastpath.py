@@ -41,21 +41,35 @@ def wants_screen_summary(text: str) -> bool:
 
 def is_question(text: str) -> bool:
     words = normalize(text).removeprefix("please ")
-    return bool(re.match(
+    return wants_advice(text) or bool(re.match(
         r"^(?:whats?|wheres?|whens?|whos?|which|why|hows?|is|are|do|does|did|can|could|"
         r"would|should|will|have|has|explain|tell me|i (?:want|need) to know)\b",
         words,
     ))
 
 
+def wants_advice(text: str) -> bool:
+    words = normalize(text).removeprefix("please ")
+    return bool(re.match(
+        r"^(?:(?:(?:can|could|would) you |give me |i (?:want|need) )?"
+        r"(?:some |any )?(?:advice|advise|recommend(?:ation)?|suggest(?:ion)?|help me (?:decide|choose))"
+        r"|(?:should|would) i|what (?:do you think|would you do|should i do))\b", words,
+    ))
+
+
 def needs_screen(text: str) -> bool:
     """Fast route for questions that explicitly refer to the user or their screen."""
     words = normalize(text)
-    return bool(re.search(
-        r"\b(?:on screen|on (?:the|this|my) screen|this (?:page|tab|website|window)|"
-        r"the current (?:page|tab|website|window)|i (?:am|was) (?:viewing|looking at))\b",
+    explicit = re.search(
+        r"\b(?:on screen|on (?:the|this|my) screen|this (?:page|tab|website|window|form|dialog)|"
+        r"the current (?:page|tab|website|window)|i (?:am|was) (?:viewing|looking at))\b|"
+        r"\b(?:here|from this screen)(?: right now)?(?: please)?$",
         words,
-    ) or re.match(r"^(?:what(?:s| is| are)|where(?:s| is| are)|how (?:much|many)\b.*?)\s+my\b", words))
+    )
+    personal = re.match(r"^(?:what(?:s| is| are)|where(?:s| is| are)|how (?:much|many)\b.*?)\s+my\b", words)
+    choice = re.search(r"\b(?:what should i do|which option should i (?:pick|choose)|"
+                       r"(?:should i|whether i should) (?:\w+ ){1,4}or \w+(?: \d+)?)(?: please)?$", words)
+    return bool(explicit or personal or choice)
 
 
 def asks_for_action(text: str) -> bool:

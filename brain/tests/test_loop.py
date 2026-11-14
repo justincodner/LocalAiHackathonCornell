@@ -146,6 +146,82 @@ def test_personal_score_uses_fresh_screen_and_checks_the_label(tmp_path, score_v
 
 
 @pytest.mark.loop
+@pytest.mark.parametrize("first_answer", [
+    ToolCall("echo", "say", {"text": "Should you fold, raise 13, or call on the current tab?"}),
+    ToolCall("clarify", "ask_user", {"question": "Which tab?"}),
+])
+def test_advice_fragment_uses_active_page_and_retries_question_only_reply(tmp_path, first_answer):
+    async def run():
+        helper = ReplayHelper(fixture("safari_form"))
+        helper.screen = dict(helper.screen, window="Practice table", elements=[
+            {"id": 1, "role": "image", "depth": 0, "label": "Practice hand: two aces"},
+            {"id": 2, "role": "button", "depth": 0, "label": "Fold"},
+            {"id": 3, "role": "button", "depth": 0, "label": "Call"},
+            {"id": 4, "role": "button", "depth": 0, "label": "Raise 13"},
+            {"id": 5, "role": "tab", "depth": 0, "label": "Different practice table"},
+            {"id": 6, "role": "text", "depth": 0, "label": "Pot: 20; amount to call: 5"},
+        ])
+        recommendation = "Consider raising. Your practice hand shows two aces, a strong starting hand."
+        model = ScriptedModel(first_answer, ToolCall("answer", "say", {"text": recommendation}))
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl"), "Test instruction")
+
+        await brain.on_event({"type": "stt.final", "text": "Advice on whether I should fold raise 13 or call"})
+        await asyncio.wait_for(brain.active, timeout=2)
+
+        assert helper.snapshot_calls == 1
+        assert all('image "Practice hand: two aces"' in prompt for prompt in model.requests)
+        assert all("Different practice table" not in prompt for prompt in model.requests)
+        assert model.tools == [["say"], ["say"]]
+        assert helper.spoken == [recommendation]
+        assert not helper.actions
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_advice_does_not_guess_a_hand_from_betting_buttons(tmp_path):
+    async def run():
+        helper = ReplayHelper(dict(fixture("safari_form"), window="Practice table", elements=[
+            {"id": i, "role": "button", "depth": 0, "label": label}
+            for i, label in enumerate(("Fold", "Raise 13", "Call"))
+        ]))
+        model = ScriptedModel()
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl"), "Test instruction")
+        await brain.on_event({"type": "stt.final", "text": "Advice on whether I should fold raise 13 or call"})
+        await asyncio.wait_for(brain.active, timeout=2)
+        assert helper.snapshot_calls == 1
+        assert "your cards" in helper.spoken[-1] and "amount to call" in helper.spoken[-1]
+        assert not helper.actions and not model.requests
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_implicit_advice_can_route_to_screen_and_explain_missing_detail(tmp_path):
+    async def run():
+        helper = ReplayHelper(fixture("safari_form"))
+        helper.screen = dict(helper.screen, window="Compare plans", elements=[
+            {"id": 1, "role": "heading", "depth": 0, "label": "Standard plan"},
+            {"id": 2, "role": "heading", "depth": 0, "label": "Premium plan"},
+        ])
+        answer = "I can see Standard and Premium, but neither price is shown. If they cover the same needs, choose the cheaper plan."
+        model = ScriptedModel(ToolCall("route", "use_screen", {}), ToolCall("answer", "say", {"text": answer}))
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl"), "Test instruction")
+
+        question = "Help me decide between the options"
+        await brain.on_event({"type": "stt.final", "text": question})
+        await asyncio.wait_for(brain.active, timeout=2)
+
+        assert helper.snapshot_calls == 1
+        assert model.requests[0] == question
+        assert "Premium plan" in model.requests[1]
+        assert model.tools == [["say", "use_screen"], ["say"]]
+        assert helper.spoken == [answer]
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
 def test_confirmation_cannot_execute_against_changed_screen(tmp_path):
     async def run():
         screen = fixture("mail_reply_draft")
