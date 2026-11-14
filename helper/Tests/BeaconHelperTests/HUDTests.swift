@@ -88,6 +88,17 @@ final class HUDTests: XCTestCase {
         XCTAssertEqual(hud.ticksPlayed, 2, "ticks stop when the state changes")
     }
 
+    func testThinkingTimesOutToError() async throws {
+        let saved = HUDController.thinkingTimeout
+        HUDController.thinkingTimeout = 2
+        defer { HUDController.thinkingTimeout = saved }
+        let hud = HUDController()
+        hud.update(state: .thinking, transcript: "send Emmett hello", caption: nil, latencyMS: nil)
+        try await Task.sleep(nanoseconds: 3_200_000_000)
+        XCTAssertEqual(hud.model.state, .error)
+        XCTAssertEqual(hud.model.caption, HUDController.thinkingTimeoutMessage)
+    }
+
     func testSoundsAreFoundInBuiltBundle() {
         let dir = SoundPlayer.soundsDirectory()
         // The test bundle is not Bundle.main; just make sure lookup does not crash and, if found, has every cue.

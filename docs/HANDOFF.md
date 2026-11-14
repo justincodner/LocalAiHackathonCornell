@@ -73,6 +73,9 @@ for fast debugging and `BEACON_TTS=system` if TTSKit is slow or memory is tight.
 - **Demo data:** fake Mail mailbox (On My Mac > Import > Beacon Demo, from `demo/seed/make_demo_mbox.py`) and a fake
   "Beacon Demo" Notes folder (iCloud). Record fixtures only from those, never from Justin's real mail/notes.
 
+- **Stuck on "Thinking":** the Helper outlives `run_all.sh` if that terminal is closed, so Bonsai and the Brain can be
+  gone while push-to-talk still works. The Helper now says the Brain isn't running when no `/events` client is
+  connected, and drops out of Thinking after 90 s with no Brain update. Restart with `scripts/run_all.sh`.
 - **Bonsai latency:** The Mac launcher prefers the installed 2B model. See [bench.md](bench.md) for timings.
 - `start_bonsai.sh` skips the vision projector (memory); `BEACON_VISION=1` re-enables it.
 - macOS ties Accessibility, Microphone and Screen Recording permissions to the signed app. Launch the current signed

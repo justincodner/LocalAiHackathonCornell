@@ -76,10 +76,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.hotkey = hotkey
     }
 
+    static let brainOfflineMessage = "Beacon's brain isn't running, so I can't do that. Restart it with run all."
+
     /// Mirrors speech events onto the HUD so captions work even before the Brain posts /hud.
     private func wireEventsToHUD(_ hud: HUDController) {
-        services.events.observe { event in
+        let events = services.events
+        let speechOut = services.speechOut
+        events.observe { event in
             let type = event["type"] as? String ?? ""
+            // The Brain is the only /events client. Without one, nothing will answer this request.
+            let brainConnected = events.clientCount > 0
             let text = event["text"] as? String
             let speechID = event["speech_id"] as? String
             let interrupted = event["interrupted"] as? Bool ?? false
@@ -89,7 +95,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     hud.update(state: .listening, transcript: text, caption: nil, latencyMS: nil)
                 case "stt.final":
                     hud.play(.listenStop)
-                    hud.update(state: .thinking, transcript: text, caption: nil, latencyMS: nil)
+                    if brainConnected {
+                        hud.update(state: .thinking, transcript: text, caption: nil, latencyMS: nil)
+                    } else {
+                        Log.error("stt.final with no Brain connected to /events; request dropped")
+                        hud.play(.error)
+                        hud.update(state: .error, transcript: text, caption: Self.brainOfflineMessage, latencyMS: nil)
+                        _ = speechOut.speak(text: Self.brainOfflineMessage, interrupt: true, rate: nil)
+                    }
                 case "listen.cancelled":
                     hud.play(.error)
                     hud.update(state: .idle, transcript: nil, caption: nil, latencyMS: nil)
