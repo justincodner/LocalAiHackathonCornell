@@ -1,0 +1,239 @@
+"""Async client for the local Bonsai llama.cpp server."""
+
+import asyncio
+import json
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any
+from uuid import uuid4
+
+import httpx
+
+
+class BonsaiError(RuntimeError):
+    """The model server did not return a usable completion."""
+
+
+class _InvalidToolCall(BonsaiError):
+    pass
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: dict[str, Any]
+    stray_text: str = ""  # text the model wrote outside the tool call; costs generation time
+
+
+@dataclass(frozen=True)
+class Completion:
+    tool_call: ToolCall
+    prompt_tokens: int | None
+    generation_tokens_per_second: float | None
+    timings: dict[str, Any] | None = None  # llama-server: prompt_n (uncached), prompt_per_second, cache_n
+
+
+class BonsaiClient:
+    def __init__(
+        self,
+        base_url: str,
+        timeout_s: float = 12.0,
+        *,
+        temperature: float = 0.7,
+        top_p: float = 0.8,
+        top_k: int = 20,
+        presence_penalty: float = 1.5,
+        max_tokens: int = 300,
+        cache_prompt: bool = True,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        self._http = httpx.AsyncClient(
+            base_url=f"{base_url.rstrip('/')}/",
+            headers={"Authorization": "Bearer beacon"},
+            timeout=timeout_s,
+            transport=transport,
+            trust_env=False,
+        )
+        self._timeout_s = timeout_s
+        self._sampling: dict[str, Any] = {
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "presence_penalty": presence_penalty,
+            "max_tokens": max_tokens,
+            "chat_template_kwargs": {"enable_thinking": False},
+            "cache_prompt": cache_prompt,
+        }
+        self._model: str | None = None
+        self._required_tool_choice = True
+
+    async def __aenter__(self) -> "BonsaiClient":
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        await self.aclose()
+
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
+    async def discover_model(self) -> str:
+        try:
+            async with asyncio.timeout(self._timeout_s):
+                response = await self._http.get("models")
+                response.raise_for_status()
+                body = response.json()
+        except (httpx.HTTPError, TimeoutError, ValueError) as exc:
+            raise BonsaiError("Could not read Bonsai's model list") from exc
+
+        models = body.get("data") if isinstance(body, dict) else None
+        if isinstance(models, list):
+            for model in models:
+                model_id = model.get("id") if isinstance(model, dict) else None
+                if isinstance(model_id, str) and model_id.strip():
+                    self._model = model_id
+                    return model_id
+        raise BonsaiError("Bonsai reported no loaded model")
+
+    async def prewarm(self, system_prompt: str, tools: Sequence[Mapping[str, Any]]) -> float:
+        """Fill the server's prompt cache with the fixed system prompt + tool schemas (spec 10.3).
+
+        Every real request starts with the same prefix, so afterwards the server only
+        processes the new snapshot. Returns the seconds the warm-up took.
+        """
+        model = self._model or await self.discover_model()
+        payload = {
+            **self._sampling,
+            "model": model,
+            "max_tokens": 1,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": "SCREEN:\n\nREQUEST: hello"},
+            ],
+            "tools": [dict(tool) for tool in tools],
+        }
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        limit = max(self._timeout_s, 120)  # a cold prefix takes ~20 s on a laptop CPU
+        try:
+            async with asyncio.timeout(limit):
+                response = await self._http.post("chat/completions", json=payload, timeout=limit)
+        except (httpx.HTTPError, TimeoutError) as exc:
+            raise BonsaiError("Could not prewarm Bonsai's prompt cache") from exc
+        if response.status_code >= 400:
+            raise BonsaiError(f"Bonsai prewarm failed (HTTP {response.status_code})")
+        return loop.time() - started
+
+    async def next_tool_call(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        tools: Sequence[Mapping[str, Any]],
+    ) -> ToolCall:
+        return (await self.complete(messages, tools)).tool_call
+
+    async def complete(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        tools: Sequence[Mapping[str, Any]],
+    ) -> Completion:
+        model = self._model or await self.discover_model()
+        payload = {
+            **self._sampling,
+            "model": model,
+            "messages": [dict(message) for message in messages],
+            "tools": [dict(tool) for tool in tools],
+        }
+        for attempt in range(2):
+            try:
+                response, allow_text = await self._request_completion(payload)
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                if attempt == 0 and (status in {408, 429} or status >= 500):
+                    continue
+                raise BonsaiError(f"Bonsai completion failed (HTTP {status})") from exc
+            except (httpx.TransportError, TimeoutError) as exc:
+                if attempt == 0:
+                    continue
+                if isinstance(exc, (httpx.TimeoutException, TimeoutError)):
+                    raise BonsaiError("Bonsai completion timed out") from exc
+                raise BonsaiError("Could not connect to Bonsai for completion") from exc
+
+            try:
+                body = response.json()
+                call = _parse_tool_call(body, allow_text=allow_text)
+            except (ValueError, _InvalidToolCall) as exc:
+                if attempt != 0:
+                    raise BonsaiError("Bonsai did not return one valid tool call") from exc
+                payload["messages"].append(
+                    {"role": "user", "content": "Reply with exactly one tool call"}
+                )
+                payload["presence_penalty"] = min(payload["presence_penalty"], 1.0)
+                continue
+
+            usage = body.get("usage")
+            timings = body.get("timings")
+            prompt_tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
+            speed = timings.get("predicted_per_second") if isinstance(timings, dict) else None
+            return Completion(
+                call,
+                prompt_tokens if type(prompt_tokens) is int and prompt_tokens >= 0 else None,
+                float(speed) if type(speed) in (int, float) and speed >= 0 else None,
+                timings if isinstance(timings, dict) else None,
+            )
+
+        raise AssertionError("Completion retry must return or raise")
+
+    async def _request_completion(self, payload: dict[str, Any]) -> tuple[httpx.Response, bool]:
+        async with asyncio.timeout(self._timeout_s):
+            if self._required_tool_choice:
+                response = await self._http.post(
+                    "chat/completions", json={**payload, "tool_choice": "required"}
+                )
+                if not _rejects_required_tool_choice(response):
+                    return response, False
+                self._required_tool_choice = False
+            return await self._http.post("chat/completions", json=payload), True
+
+
+def _rejects_required_tool_choice(response: httpx.Response) -> bool:
+    if response.status_code not in {400, 422}:
+        return False
+    explanation = response.text.casefold().replace("tool choice", "tool_choice")
+    return "tool_choice" in explanation and "required" in explanation
+
+
+def _parse_tool_call(body: Any, *, allow_text: bool) -> ToolCall:
+    choices = body.get("choices") if isinstance(body, dict) else None
+    if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
+        raise _InvalidToolCall("Expected one completion choice")
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        raise _InvalidToolCall("Completion had no message")
+    calls = message.get("tool_calls")
+    if allow_text and (calls is None or calls == []):
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return ToolCall(f"call_{uuid4().hex}", "say", {"text": content.strip()})
+    if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
+        raise _InvalidToolCall("Expected exactly one tool call")
+
+    call = calls[0]
+    function = call.get("function")
+    if not isinstance(function, dict):
+        raise _InvalidToolCall("Tool call had no function")
+    call_id, name, raw_arguments = call.get("id"), function.get("name"), function.get("arguments")
+    if not isinstance(call_id, str) or not call_id.strip() or not isinstance(name, str) or not name.strip():
+        raise _InvalidToolCall("Tool call had no ID or function name")
+    if not isinstance(raw_arguments, str):
+        raise _InvalidToolCall("Tool arguments were not encoded as JSON")
+    arguments = json.loads(raw_arguments, parse_constant=_reject_json_constant)
+    if not isinstance(arguments, dict):
+        raise _InvalidToolCall("Tool arguments were not an object")
+    content = message.get("content")
+    stray = content.strip() if isinstance(content, str) else ""
+    return ToolCall(call_id, name, arguments, stray)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Invalid JSON constant: {value}")

@@ -19,3 +19,8 @@ scripts/dump_fixture.sh mail_inbox   # save the frontmost window as contracts/fi
 ```
 
 Grant Microphone and Accessibility to Beacon Helper on first launch. Demo pages and the rehearsal checklist are in `demo/`; manual Helper checks are in `helper/TESTING.md`.
+
+## Windows quick start (Brain)
+
+Windows development: run `./scripts/setup_windows.ps1`, start Bonsai with `./scripts/start_bonsai.ps1`, then run `uv run --project brain python -m mock_helper` and `uv run --project brain python -m beacon_brain` in separate terminals from the repo root. See [evaluations](evals/README.md) for fixture and scoring commands.
+Brain status and Windows run commands (no uv needed): [docs/BRAIN_HANDOFF.md](docs/BRAIN_HANDOFF.md).

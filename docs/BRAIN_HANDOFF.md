@@ -1,0 +1,126 @@
+# Windows owner handoff (Beacon Brain)
+
+Read this first if you are an AI agent picking up Emmet's work. The design is in `hackthonspec.md`
+(sections 6, 7, 8, 12 and 14 cover the Brain). The Mac side has its own `docs/HANDOFF.md`.
+Update the status table and "Next steps" whenever you finish or start something.
+
+Last updated: 2026-11-14.
+
+## Ground rules
+
+- Branch `brain/<topic>` (currently `brain/windows-foundation`); merge to `main` by PR.
+- Emmet owns `brain/`, `mock_helper/`, `evals/`, `scripts/*.ps1`, `scripts/bench.py`.
+  **Never edit `helper/`, `contracts/fixtures/`, `scripts/*.sh`, `demo/`.** `contracts/` changes need both people.
+- Only Emmet runs `uv lock`.
+
+## Status
+
+| Workstream | Status |
+| --- | --- |
+| B1 Bonsai serving, `llm.py`, `bench.py` | Done on Windows. Bonsai-demo is at `..\Bonsai-demo` with the 2B + 4B GGUFs and the CPU llama.cpp build. Results and the **2B decision** are in `docs/bench.md`. Still to do: run `bench.py --model 2B` on the M1. |
+| B2 Mock Helper | Done. Covers the full v1 REST surface plus `/events`; replays fixtures, and swaps fixtures on Reply/Send/Escape/`open_app`. Tested in `brain/tests/test_mock_helper.py`. |
+| B3 Agent loop, state machine, memory, logging | Done. The acceptance test passes over real sockets (`brain/tests/test_end_to_end.py`). |
+| B4 Validation, risk guard, narration, fast paths | Done, with unit tests for each rule. |
+| B5 Prompt + 30-scenario evals | **26/30 typical** (four runs: 28, 26, 26, 26; target 27) with prompt v3, temperature 0.2 and the grounding check, on the 2B. The injection case passes. The last four failures are listed in `docs/bench.md`. The likeliest next gain is a position word per element in the snapshot ("where is…"). | The official run still needs Justin's `mail_inbox`, `mail_reply_draft` and `notes_list` recordings. |
+| S1 Two-model routing (P2) | Not started (after X2). |
+
+## Run it on Windows
+
+There's no `uv`, no `git` and no Python on PATH on this laptop. Anaconda 3.14 lives at `%USERPROFILE%\anaconda3`.
+A venv is in `brain\.venv` (git-ignored); it's the editable Brain plus pytest.
+
+```powershell
+brain\.venv\Scripts\python.exe -m pytest brain/tests -q          # 198 tests, ~3 s, no model, no Mac
+brain\.venv\Scripts\python.exe -m pytest brain/tests -m loop     # loop and end-to-end tests only
+brain\.venv\Scripts\python.exe -m mock_helper                    # terminal 1: mock on 127.0.0.1:8765
+brain\.venv\Scripts\python.exe -m beacon_brain                   # terminal 2: needs Bonsai on :8080
+brain\.venv\Scripts\python.exe evals\run_evals.py --fixtures mock_helper\fixtures   # synthetic-screen eval
+brain\.venv\Scripts\python.exe scripts\bench.py --model 4B       # writes a markdown table for docs/bench.md
+```
+
+Once `uv` is installed, the equivalents are `uv run --project brain ...` as in the README.
+
+## Changes since Codex's first pass
+
+- `fastpath.py`: "stop ..." at the start of any request cancels (spec 9.5). "No, cancel", "yeah" and "okay" are recognised.
+- `risk.py`: password/card-label refusal applies only to actions. Reading the "Password expiry" email is allowed.
+- `loop.py`: retries `stale_snapshot` once on a fresh snapshot if the app and target are unchanged (spec 8.5).
+  A model failure now says "I'm having trouble thinking. Please try again."
+- Added tests for the Mock Helper, narration, memory, the eval scorer, loop failure paths and two
+  end-to-end runs over real HTTP and WebSocket (R1 and story A4).
+
+## Latency work (after Justin's M1 numbers)
+
+- `config.py`: `BEACON_SNAPSHOT_MAX_ELEMENTS` (default 120) is sent as `max_elements` on every snapshot.
+  `BEACON_PREWARM` (default on) caches the system prompt + tools prefix at start-up.
+  `BEACON_THINKING_FILLER_MS` (default 1500) sets when "One moment." is spoken if the model is still thinking.
+  `BEACON_PROMPT_PATH` selects the system prompt file.
+- `llm.py`: `prewarm()`. `ToolCall.stray_text` captures text the model writes outside its tool call; the loop logs it as
+  `stray_chars`, and evals count it.
+- `scripts/start_bonsai.ps1` defaults to the 2B. It and `setup_windows.ps1` had a PowerShell 5.1 bug (empty
+  `$PSScriptRoot` in `param()` defaults), now fixed.
+- `scripts/bench.py` reports cached tokens and prompt tok/s, and sweeps snapshot sizes (`--sizes`).
+
+Start Bonsai on Windows without the PrismML setup script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_bonsai.ps1 -Model 2B
+```
+
+## Grounding check (`brain/beacon_brain/grounding.py`)
+
+The 2B almost never asks on an ambiguous request, so the Brain checks this in code. It runs after validation and
+before the risk guard. Like the risk guard, it doesn't depend on the model following the prompt.
+
+| Situation | Example | Beacon does |
+| --- | --- | --- |
+| Generic click target with several candidates | "click the button", "open one of my notes" | Asks "Which button: New Message, Reply or …?" |
+| Named target not on screen | "click Continue" on a form with only Submit | Asks "I don't see continue on this screen. What should I click instead?" |
+| Wrong pick, exactly one control matches the user's words | model picks New Message for "click reply" | Clicks Reply instead |
+| Typed text mostly not from the user (<60% of its words) | "type my message" → model invents a message | Asks "What would you like me to type?" |
+
+It's lenient about letting a call through and strict about changing one:
+- A click passes if the chosen label has any word the user said ("open my notes" → Notes).
+- Retargeting needs at least half the user's words to match, and prefix matching runs one way only ("payment" never matches "Pay").
+- A click is moved onto a Pay/Send/Delete control only if the user said that verb and every word they named is in its label. Otherwise it asks "Did you mean …?".
+- Typing: digits match number words, and email addresses and URLs are left out of the comparison. The words around them are still checked.
+
+It deliberately leaves alone:
+- requests that aren't "click/press/tap/select/open X" (e.g. "reply to Sarah that …")
+- pronouns and ordinals ("click it", "the first one")
+- later clicks in a multi-step plan (it's only active until the first action after the user speaks)
+
+Logged as `grounded: asked|retargeted`. The evals score the call after grounding, as the Brain would run it.
+
+## Review (subagent, two rounds)
+
+An independent review found 6 bugs that the tests missed, then re-probed the fixes and found 4 more. All are now fixed,
+each with a regression test:
+- `clean_speech` clipped "is on." / "come on!".
+- The honesty guard rewrote screen descriptions like "Sarah sent you…", and missed "Okay, sent!" and "saved and sent".
+- Clicks could be retargeted by prefix ("payment" → Pay now).
+- "open my notes" was asked about needlessly.
+- The typing check was too strict (digits, emails), and one URL exempted a whole sentence.
+- The model's own `confirm` caused a double confirmation in demo step 5. Fixing that is a safety edge: a model confirm
+  now covers an action only if it names the control's full label (or the chord's verb), not negated. "Send Sarah the
+  payment reminder" never covers **Pay now**, and "Don't delete anything" never covers **Delete**. See
+  `risk.covered_by` and its tests.
+
+Still open (cosmetic): an id spoken after a preposition is dropped with it, so "is at [3]." becomes "is.". The prompt
+already forbids speaking ids.
+
+## Known gaps
+
+- The log line has no `tts_first_audio` timing (the Brain doesn't wait for `tts.started`).
+- The Brain doesn't send `latency_ms` to the HUD.
+- `uv.lock` isn't committed (no `uv` on this machine).
+
+## Next steps
+
+1. Justin: run `scripts/bench.py --model 2B` on the M1 and add the table to `docs/bench.md`. That sets `BEACON_SNAPSHOT_MAX_ELEMENTS`.
+2. Justin's recorded Mail/Notes fixtures are now in `contracts/fixtures/` (this branch is based on his). Run the
+   official eval without `--fixtures`. Note that Mail's compose body records as a focused `group "message body"`; the mock
+   and the scorer accept typing into it.
+3. Suggest to Justin (contract): a coarse position word per element in the snapshot text (e.g. "bottom") would let the
+   model answer "where is…" questions. It currently only has reading order.
+4. Approve the C0 contracts PR; install Git, commit, push `brain/windows-foundation` and open a PR. Only Emmet runs `uv lock`.
