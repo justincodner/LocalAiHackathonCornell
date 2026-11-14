@@ -4,7 +4,7 @@ Read this first if you are an AI agent picking up the Mac owner's work. The full
 (sections 4, 5, 9, 11, 12 cover the Helper). Keep this file current: update the status table and "Next steps"
 whenever you finish or start something, and commit it.
 
-Last updated: 2026-11-14 18:10 UTC.
+Last updated: 2026-11-14 18:25 UTC.
 
 ## Ground rules
 
@@ -42,7 +42,7 @@ key (`Input/HotkeyMonitor.swift`, Right Option by default), barge-in, `app.chang
 | H6 HUD, ring, sounds | Done, 7 tests pass; not yet seen on a real screen |
 | H2/H3 accessibility + input | In progress (agent) |
 | H4/H5 speech in/out + model downloads | In progress (agent) |
-| Scripts, app packaging, demo pages, Bonsai setup | In progress (agent) |
+| Scripts, app packaging, demo pages, Bonsai setup | Done. Signed app installed at `/Applications/Beacon Helper.app`; contract tests 24 pass / 2 fail (AX permission) / 4 skip |
 | Fixtures (`mail_inbox`, `mail_reply_draft`, `notes_list`, `safari_form`, `safari_form_unlabeled`) | Not started; needs permissions granted |
 | P2 vision label repair (S2) | Not started |
 
@@ -62,6 +62,12 @@ Models live in git-ignored `models/` (`models/whisperkit-coreml/<model>`, `model
 for fast debugging and `BEACON_TTS=system` if TTSKit is slow or memory is tight.
 
 ## Known issues and blockers
+
+- **Bonsai latency (biggest risk):** 4B prompt processing is ~150-170 tok/s on this M1. 316-token prompt: 4.3 s cold,
+  2.2 s with prefix cache. 4,899-token screen: 32.7 s. `tool_choice: required`, `enable_thinking: false` and
+  `cache_prompt` are all accepted and enforced. Needs the 2B and/or much smaller snapshots; Emmet decides via bench.py.
+- `start_bonsai.sh` skips the vision projector (memory); `BEACON_VISION=1` re-enables it.
+- Accessibility not yet granted to the app (asked Justin 18:25 UTC). Microphone is granted.
 
 - Accessibility, Microphone (and Screen Recording for screenshots/P2) must be granted by Justin in System Settings to
   the signed app. Until then `Permissions.requestAtLaunch` brings System Settings to the front at each launch,
