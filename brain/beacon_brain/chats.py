@@ -4,7 +4,8 @@ The model can't do this: Messages shows its whole conversation list as one text 
 there is nothing to click, and in another app the chat isn't on screen at all. Each chat app
 has a keyboard route instead:
 
-- Messages: Cmd+F, type the name, wait for the "Conversations" results, arrow down to the one
+- Messages: if the chat is listed in the sidebar under exactly that name, press its row (no typing).
+  Otherwise Cmd+F, type the name, wait for the "Conversations" results, arrow down to the one
   that matches, Return opens it, Escape puts the cursor in the message field. The first
   Return after a fresh search is sometimes ignored, so the name is retyped and tried again.
 - Discord and Slack (app or browser tab): Cmd+K opens the quick switcher; type the name,
@@ -21,6 +22,7 @@ from dataclasses import dataclass
 
 from . import compose
 from .browser import LEAD
+from .helper_client import HelperError
 from .page_summary import BROWSERS
 
 I = re.IGNORECASE
@@ -166,6 +168,24 @@ def results(snapshot: dict) -> list[dict]:
     return found
 
 
+def sidebar_rows(name: str, matches: list[dict]) -> list[dict]:
+    """Messages sidebar rows ("Name, last message, time") whose chat name is exactly `name`, top first.
+
+    "David" matches "David, How are you?, 12:59 AM" but not "David & Clav, ...". Rows are tall texts
+    (two lines, ~80 pt); sender names and timestamps in the open chat are one-line and left out.
+    """
+    spoken = " ".join(_words(name))
+    rows = []
+    for item in matches:
+        label = (item.get("label") or "").replace("\u200e", "")
+        bounds = item.get("bounds") or [0, 0, 0, 0]
+        head = label.split(",", 1)[0]
+        if (item.get("role") == "text" and "," in label and bounds[3] >= 40 and spoken
+                and " ".join(_words(head)) == spoken):
+            rows.append(item)
+    return sorted(rows, key=lambda item: (item.get("bounds") or [0, 0])[1])
+
+
 class Switcher:
     """Runs the keyboard route for one chat app through the Helper."""
 
@@ -189,10 +209,13 @@ class Switcher:
         """Open the named Messages conversation. (snapshot showing it, its name), or (None, why)."""
         await self.helper.request("/app/open", {"name": "Messages"})
         await self.wait(self.settle_s)
-        snapshot = await self.helper.snapshot()
         # Only the window title says which chat is open: the "selected" chat list holds every name.
-        if title_is(name, snapshot) and compose.message_field(snapshot):
+        if title_is(name, await self.helper.frontmost()):
+            snapshot = await self.helper.snapshot()
             return snapshot, snapshot.get("window") or name
+        opened = await self.sidebar(name)
+        if opened is not None:
+            return opened, name
         await self.key("cmd+f")
         for attempt in range(3):
             await self.key("cmd+a")
@@ -201,7 +224,10 @@ class Switcher:
             polls = int(4 / self.POLL_S)
             for poll in range(polls):
                 await self.wait(self.POLL_S)
-                snapshot = await self.helper.snapshot()
+                try:
+                    snapshot = await self.helper.snapshot()
+                except HelperError:
+                    continue  # a slow read while results load: look again
                 labels = [item.get("label") or "" for item in results(snapshot)]
                 stable = bool(labels) and labels == previous
                 previous = labels
@@ -231,6 +257,35 @@ class Switcher:
                     return await self.helper.snapshot(), found[index]
         await self.key("escape")
         return None, f"I found {name} in Messages but couldn't open the chat."
+
+    async def sidebar(self, name: str) -> dict | None:
+        """Click the chat in Messages' sidebar when it is listed there: one press, no typing.
+
+        The window read merges the sidebar into one text, but /ax/find returns each row on its own
+        ("David, Draft: How are you doing?, 12:59 AM"). A row whose name is exactly the spoken one is
+        pressed; the window title must then match, or the next such row is tried ("Alvin" could also
+        start "Alvin, David & Clav"). None when no row worked: the caller searches instead.
+        """
+        try:
+            found = await self.helper.request("/ax/find", {"query": name, "limit": 30})
+        except HelperError:
+            return None
+        for row in sidebar_rows(name, found.get("matches") or []):
+            try:
+                await self.helper.request("/ax/act", {"snapshot_id": row["snapshot_id"], "element_id": row["id"],
+                                                      "action": "press"})
+            except HelperError:
+                continue
+            for _ in range(8):
+                await self.wait(0.25)
+                try:
+                    front = await self.helper.frontmost()
+                except HelperError:
+                    continue
+                if title_is(name, front):
+                    await self.wait(self.settle_s)
+                    return await self.helper.snapshot()
+        return None
 
     async def quick_switcher(self, app: str, name: str, front: dict) -> tuple[dict | None, str | None]:
         """Discord or Slack: bring it forward (its browser tab, or the app), then Cmd+K, name, Return."""
