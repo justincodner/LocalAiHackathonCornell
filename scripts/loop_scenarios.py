@@ -373,6 +373,7 @@ class Scenario:
     replies: list[str] = field(default_factory=list)
     after_press: dict[str, Callable[[], dict]] = field(default_factory=dict)
     before: list[str] = field(default_factory=list)  # earlier requests in the same conversation; not checked
+    during: list[tuple[float, dict]] = field(default_factory=list)  # (seconds after the request, Helper event)
 
 
 def expect(condition: bool, message: str) -> str | None:
@@ -408,6 +409,16 @@ def browsed(h: FakeHelper, first_key: str, typed: str | None) -> str | None:
           and (typed is None or keys[-1:] == ["return"]))
     return expect(ok, f"asked {h.asked}, keys {keys}, typed {h.typed()!r}, said {h.spoken}")
 
+
+
+def glided(h: FakeHelper, direction: str, stopped: bool) -> str | None:
+    """Many small scrolls one way, nothing else; "Done scrolling." only when the limit ended it."""
+    steps = [p for path, p in h.actions if path == "/input/scroll"]
+    others = [a for a in h.actions if a[0] != "/input/scroll"]
+    small = all(p["direction"] == direction and isinstance(p["amount"], int) and p["amount"] <= 60 for p in steps)
+    done = "done scrolling" in h.said()
+    return expect(len(steps) >= 5 and small and not others and done != stopped and h.asked == 0,
+                  f"{len(steps)} scrolls {steps[:3]}, other actions {others}, said {h.spoken}")
 
 
 def keys_only(h: FakeHelper, expected: list[str]) -> str | None:
@@ -543,6 +554,15 @@ SCENARIOS = [
     Scenario("command scroll down", lambda: load("chrome_article"), "Scroll down.",
              lambda h: expect([a[0] for a in h.actions] == ["/input/scroll"] and h.asked == 0,
                               f"actions {h.actions}, said {h.spoken}")),
+    # Continuous scrolling (commands.continuous_scroll): small steady scrolls until stop, the talk key or the limit.
+    Scenario("glide scroll through results", lambda: load("chrome_article"), "Scroll through the results.",
+             lambda h: glided(h, "down", stopped=False)),
+    Scenario("glide keep scrolling stop", lambda: load("chrome_article"), "Keep scrolling.",
+             lambda h: glided(h, "down", stopped=True), during=[(0.6, {"type": "stt.final", "text": "Stop."})]),
+    Scenario("glide slowly talk key", lambda: load("chrome_article"), "Scroll down slowly.",
+             lambda h: glided(h, "down", stopped=True), during=[(0.6, {"type": "listen.started"})]),
+    Scenario("glide up slowly", lambda: load("chrome_article"), "Scroll up slowly.",
+             lambda h: glided(h, "up", stopped=False)),
     Scenario("command press tab twice", lambda: messages_screen(), "Press tab twice.",
              lambda h: keys_only(h, ["tab", "tab"])),
     Scenario("open app messages", lambda: load("chrome_article"), "Open messages.",
@@ -764,6 +784,8 @@ async def run_one(scenario: Scenario, config: Config, prompt: str, model, questi
             await hear(earlier)
         helper.spoken.clear()
         started = time.perf_counter()
+        for delay, event in scenario.during:
+            asyncio.get_running_loop().call_later(delay, lambda e=event: asyncio.ensure_future(brain.on_event(e)))
         await hear(scenario.utterance)
     except TimeoutError:
         return "timed out", time.perf_counter() - started, helper
@@ -776,7 +798,7 @@ async def run_one(scenario: Scenario, config: Config, prompt: str, model, questi
 async def main(filters: list[str]) -> int:
     base = Config.from_environment()
     log = Path(tempfile.mkdtemp()) / "scenarios.jsonl"
-    config = Config(**{**base.__dict__, "log_path": log, "settle_ms": 0, "reply_timeout_s": 3,
+    config = Config(**{**base.__dict__, "log_path": log, "settle_ms": 0, "reply_timeout_s": 3, "scroll_max_s": 1.5,
                        "thinking_filler_ms": 0})
     prompt = config.prompt_path.read_text(encoding="utf-8").strip()
     model = make_client(config, config.llm_url)
