@@ -141,6 +141,16 @@ def window_shows(name: str, snapshot: dict) -> bool:
     return name_score(name, window) >= 0.75 or compose.chat_open(name, snapshot)
 
 
+def exact_index(name: str, labels: list[str]) -> int | None:
+    spoken = " ".join(_words(name))
+    return next((i for i, label in enumerate(labels) if " ".join(_words(label)) == spoken), None)
+
+
+def title_is(name: str, snapshot: dict) -> bool:
+    """The window title is exactly this chat ("David", not "David & Clav")."""
+    return " ".join(_words(name)) == " ".join(_words(snapshot.get("window") or "")) != ""
+
+
 def results(snapshot: dict) -> list[dict]:
     """The "Conversations" buttons in Messages' search results, in order."""
     elements = snapshot.get("elements", [])
@@ -180,22 +190,29 @@ class Switcher:
         await self.helper.request("/app/open", {"name": "Messages"})
         await self.wait(self.settle_s)
         snapshot = await self.helper.snapshot()
-        if window_shows(name, snapshot) and compose.message_field(snapshot):
+        # Only the window title says which chat is open: the "selected" chat list holds every name.
+        if title_is(name, snapshot) and compose.message_field(snapshot):
             return snapshot, snapshot.get("window") or name
         await self.key("cmd+f")
         for attempt in range(3):
             await self.key("cmd+a")
             await self.type(name)
             found, previous = [], None
-            for _ in range(int(4 / self.POLL_S)):
+            polls = int(4 / self.POLL_S)
+            for poll in range(polls):
                 await self.wait(self.POLL_S)
                 snapshot = await self.helper.snapshot()
                 labels = [item.get("label") or "" for item in results(snapshot)]
-                if labels and labels == previous and best_match(name, labels) is not None:
-                    found = labels
-                    break
+                stable = bool(labels) and labels == previous
                 previous = labels
-            index = best_match(name, found)
+                if stable and best_match(name, labels) is not None:
+                    found = labels
+                    # "David & Clav" can list before "David" while results load: settle for a partial
+                    # match only once the results have had time to fill in.
+                    if exact_index(name, labels) is not None or poll >= polls // 2:
+                        break
+            index = exact_index(name, found)
+            index = best_match(name, found) if index is None else index
             if index is None:
                 await self.key("escape")
                 return None, f"I couldn't find a Messages chat called {name}."
@@ -208,7 +225,7 @@ class Switcher:
             for _ in range(8):
                 await self.wait(0.25)
                 snapshot = await self.helper.snapshot()
-                if window_shows(found[index], snapshot) or window_shows(name, snapshot):
+                if title_is(found[index], snapshot):
                     await self.key("escape")  # leave search: the cursor goes to the message field
                     await self.wait(self.settle_s)
                     return await self.helper.snapshot(), found[index]
