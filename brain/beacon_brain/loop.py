@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import httpx
 
-from . import compose, fastpath, grounding, narrate, page_summary, questions, risk, route, tools
+from . import compose, fastpath, grounding, narrate, page_summary, questions, risk, route, screen_words, tools
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall
@@ -231,6 +231,11 @@ class Brain:
             LOGGER.warning("Could not read the active window: %s", error.code)
             await self.say("I couldn't read the current window. Bring the app you want to use to the front and try again.")
             return
+        heard, text = text, screen_words.correct(text, snapshot)  # misheard on-screen names
+        if text != heard:
+            LOGGER.info("Heard %r; on screen that is %r", heard, text)
+            append_step(self.config.log_path, task_id=task_id, step=0, kind="heard", utterance=heard, corrected=text)
+            memory.utterance = text
         previous_snapshot = None
         task_summary = ""
         consecutive_invalid = 0
