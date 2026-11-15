@@ -142,6 +142,19 @@ final class SpeechBenchTests: XCTestCase {
         }
     }
 
+    /// Long replies must render to the end: the synthesizer sends an empty buffer mid-utterance (around 10.9 s
+    /// here), which used to be taken as the end and cut the reply short. Runs without BEACON_SPEECH_BENCH (silent).
+    func testSystemVoiceRendersALongReplyToTheEnd() throws {
+        let engine = SystemSpeechEngine(voice: SystemSpeechEngine.compactEnglishVoice(), assumedSpeed: 0)
+        let text = "The game being played appears to be FreeBetRange based on the text visible on the screen. "
+            + "It's a betting or gambling application with various buttons for actions like folding, raising, and "
+            + "calling. The specific game title isn't explicitly stated as FreeBetRange, but that is the main "
+            + "interface element displayed."
+        let clips = try pumping { try await engine.render(SentenceSplitter.split(text), rate: 1, token: SpeechCancelToken()) }
+        let seconds = Double(clips.reduce(0) { $0 + $1.count }) / SpeechAudio.sampleRate
+        XCTAssertGreaterThan(seconds, 14, "the whole reply is rendered, not just its first ~11 s")
+    }
+
     func testSystemVoiceRender() throws {
         try XCTSkipUnless(enabled, "set BEACON_SPEECH_BENCH=1")
         print("BENCH en-US voices: " + AVSpeechSynthesisVoice.speechVoices().filter { $0.language == "en-US" }.map { "\($0.identifier)/\($0.quality.rawValue)" }.joined(separator: ", "))
