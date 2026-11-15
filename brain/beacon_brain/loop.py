@@ -10,7 +10,7 @@ from dataclasses import replace
 import httpx
 
 from . import (browser, chats, commands, compose, fastpath, followup, grounding, locate, narrate, page_summary, questions,
-               risk, route, screen_words, tools)
+               risk, route, screen_words, steps, tools)
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall, has_tool_markup, strip_tool_markup
@@ -25,6 +25,7 @@ TERMINALS = {"say", "done", "read_element"}
 QUESTION_PAUSE_S = 60
 CONNECTION_ERRORS = (HelperError, httpx.HTTPError, OSError, TimeoutError, ValueError, KeyError)
 DECIDE_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] in {"click", "set_value"}]
+FIND_FIELD_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "click"]  # steps.py
 # Focus on one of these means Return would press it, not send the typed message.
 PRESSABLE = {"button", "link", "checkbox", "radio", "menuitem", "tab", "row", "cell", "popup", "slider", "menu", "list"}
 SCREEN_SUMMARY_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
@@ -46,6 +47,7 @@ def prompt_families(prompt: str) -> list[tuple[str, list[dict]]]:
         (questions.ADVICE_PROMPT, SCREEN_SUMMARY_TOOLS),  # "What should I do?" about the screen
         (page_summary.PROMPT, SCREEN_SUMMARY_TOOLS),  # "What's on my screen?" in a browser
         (followup.PROMPT, followup.REWRITE_TOOLS),  # follow-up rewrites
+        (prompt, FIND_FIELD_TOOLS),  # "which field is the search bar?" (steps.py)
     ]
 
 
@@ -509,6 +511,11 @@ class Brain:
                 await self.run_browser_plan(browser.Plan([click], f"Pressing {label}", f"I pressed {label}."), text,
                                             snapshot, stt_ms, kind="command")
                 return
+        if not (screen_question or screen_summary) and await steps.run(
+                self, text, snapshot, stt_ms, task_route=route.classify(text) if self.question_model else "single"):
+            # "In the Amazon search bar search for X": find the field (code, else the model), then
+            # type, Return and check the page in code. The model never has to press Return.
+            return
         quick = None if screen_question or screen_summary else (
             browser.named_tab(text, snapshot) or browser.plan(text, snapshot["app"]))
         if quick is not None:
@@ -638,6 +645,12 @@ class Brain:
                     if planned is not None:
                         LOGGER.info("Send request: %s %s instead of %s", planned.name, planned.arguments, call.name)
                         call = planned
+            if (last_action == "type_text" and not sending and call.name in {"confirm", "done", "ask_user", "say"}
+                    and steps.wants_submit(text)):
+                # "Search for X in the search bar": the words are typed and the model stops or
+                # confirms (seven times on Amazon) instead of pressing Return. Press it in code.
+                LOGGER.info("Pressing Return after typing a search instead of %s", call.name)
+                call = ToolCall(call.id, "press_key", {"keys": "return"}, call.stray_text)
             send_call = self.send_typed(call, last_action, committed, memory.all_words, snapshot, typed_field)
             if send_call is not None:
                 # "Send hello to Emmett": the 2B model types, then stops or asks. Finish the
@@ -655,6 +668,10 @@ class Brain:
                     LOGGER.warning("Replaced a done summary that claimed an action Beacon did not take")
                     call = replace(call, arguments={**call.arguments, "summary": honest})
             error = tools.validate(call, snapshot)
+            if error is None and call.name == "confirm" and len(memory.turns) >= 2 and any(
+                    tc["function"]["name"] == "confirm" for tc in memory.turns[-2].get("tool_calls", [])):
+                # The 2B confirms the same thing again and again (7 times, to the 45 s timeout).
+                error = "Already approved: take the action itself now, do not confirm again"
             if (error is None and call.name == "ask_user" and not (screen_question or screen_summary)
                     and HOW_DO_I.match(fastpath.normalize(str(call.arguments.get("question", ""))))):
                 # "How do I access messages in this app?" asks the user how to do what they asked for.
@@ -977,6 +994,9 @@ class Brain:
             return f"I pressed {label or 'that option'}."
         if call.name == "scroll" and was_fresh and fastpath.single_scroll(text):
             return f"I scrolled {call.arguments['direction']}."
+        if (call.name == "press_key" and call.arguments.get("keys") == "return" and typed.strip()
+                and not fastpath.wants_send(text) and steps.wants_submit(text)):
+            return f"I searched for {typed.strip()}."  # no extra model call just to hear "done"
         if fastpath.wants_send(text) and committed and typed and call.name in {"click", "press_key"}:
             name = compose.recipient(text)
             name = compose.shown_name(name, screen) if name else name

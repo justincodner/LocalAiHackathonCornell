@@ -1,0 +1,424 @@
+{
+ "app": "Google Chrome",
+ "build_ms": 60,
+ "elements": [
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 0,
+   "id": 1,
+   "label": "Amazon.com. Spend less. Smile more. - Google Chrome",
+   "label_source": "title",
+   "role": "group",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 1,
+   "id": 2,
+   "label": "",
+   "label_source": "none",
+   "role": "toolbar",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 3,
+   "label": "Back",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 4,
+   "label": "Forward",
+   "label_source": "title",
+   "role": "button",
+   "states": [
+    "disabled"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 5,
+   "label": "Reload",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 6,
+   "label": "Address and search bar",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": "amazon.com"
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 7,
+   "label": "Bookmark this tab",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 8,
+   "label": "Amazon.com. Spend less. Smile more.",
+   "label_source": "title",
+   "role": "tab",
+   "states": [
+    "selected"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 1,
+   "id": 9,
+   "label": "Amazon.com. Spend less. Smile more.",
+   "label_source": "title",
+   "role": "group",
+   "states": [
+    "focused"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 10,
+   "label": "Amazon",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 11,
+   "label": "Deliver to Sam Ithaca 14850",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 12,
+   "label": "Select the department you want to search in",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": "All Departments"
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 13,
+   "label": "Search Amazon",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": ""
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 14,
+   "label": "Go",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 15,
+   "label": "Account & Lists",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 16,
+   "label": "Returns & Orders",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 17,
+   "label": "0 items in cart",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 18,
+   "label": "Today's Deals",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 19,
+   "label": "Customer Service",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 20,
+   "label": "Gift Cards",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 21,
+   "label": "Holiday gift guide",
+   "label_source": "title",
+   "role": "heading",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 22,
+   "label": "Gifts for him",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 23,
+   "label": "Gifts for her",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 24,
+   "label": "Gifts for kids",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 25,
+   "label": "Deals on top picks",
+   "label_source": "title",
+   "role": "heading",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 26,
+   "label": "Echo Dot (5th Gen) $22.99",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "depth": 2,
+   "id": 27,
+   "label": "Kindle Paperwhite $109.99",
+   "label_source": "title",
+   "role": "link",
+   "states": [],
+   "value": null
+  }
+ ],
+ "focused_id": 9,
+ "ok": true,
+ "snapshot_id": "s_amazon",
+ "text": "APP Google Chrome | WINDOW \"Amazon.com. Spend less. Smile more. - Google Chrome\" | FOCUS [9]\n[1] group \"Amazon.com. Spend less. Smile more. - Google Chrome\"\n  [2] toolbar\n    [3] button \"Back\"\n    [4] button \"Forward\" (disabled)\n    [5] button \"Reload\"\n    [6] textfield \"Address and search bar\" value=\"amazon.com\"\n    [7] button \"Bookmark this tab\"\n    [8] tab \"Amazon.com. Spend less. Smile more.\" (selected)\n  [9] group \"Amazon.com. Spend less. Smile more.\" (focused)\n    [10] link \"Amazon\"\n    [11] link \"Deliver to Sam Ithaca 14850\"\n    [12] popup \"Select the department you want to search in\" value=\"All Departments\"\n    [13] textfield \"Search Amazon\" value=\"\"\n    [14] button \"Go\"\n    [15] link \"Account & Lists\"\n    [16] link \"Returns & Orders\"\n    [17] link \"0 items in cart\"\n    [18] link \"Today's Deals\"\n    [19] link \"Customer Service\"\n    [20] link \"Gift Cards\"\n    [21] heading \"Holiday gift guide\"\n    [22] link \"Gifts for him\"\n    [23] link \"Gifts for her\"\n    [24] link \"Gifts for kids\"\n    [25] heading \"Deals on top picks\"\n    [26] link \"Echo Dot (5th Gen) $22.99\"\n    [27] link \"Kindle Paperwhite $109.99\"",
+ "total_elements": 27,
+ "truncated": false,
+ "window": "Amazon.com. Spend less. Smile more. - Google Chrome"
+}
