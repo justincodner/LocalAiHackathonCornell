@@ -135,6 +135,43 @@ It deliberately leaves alone:
 
 Logged as `grounded: asked|retargeted`. The evals score the call after grounding, as the Brain would run it.
 
+## Conversation memory (`memory.Conversation`, `followup.py`)
+
+Before this, each request stood alone. A general question had no memory at all ("Who is the president of France?" then
+"How old is he?" failed). An action only saw a two-line summary of the request just before it. A full chat history would
+not fit: every step already spends the 2B's context and prompt-processing time on the screen.
+
+Memory costs tokens only when the words need it. It also enters the request in just one place.
+
+1. **A small, fixed budget.** `Conversation` keeps the last 4 exchanges as `User: … / Beacon: …`. The newest reply is
+   kept whole (clipped to the room left). Older replies are cut to their first sentence, and the oldest are dropped
+   once the block passes 240 tokens. It is forgotten after 5 minutes of silence, or when the user says "forget that" or
+   "new topic". Settings: `BEACON_MEMORY_TOKENS` (0 turns it off), `BEACON_MEMORY_TURNS` and `BEACON_MEMORY_IDLE_S`.
+2. **Follow-ups only.** `followup.is_follow_up` looks for pronouns (he, it, their, there, one), openers ("what about",
+   "and", "tell me more") and bare replies ("Why?"). "this" and "here" mean the screen, so they don't count, and "What
+   time is it?" is excluded. A standalone request sends no memory and makes no extra model call.
+3. **Follow-up questions are rewritten.** One short call (about 50 uncached tokens) turns "How old is he?" into "How old
+   is Emmanuel Macron?". From then on, routing, the question prompts, the logs and every code guard that reads the
+   user's words see only the standalone request. The history never reaches the question prompt.
+4. **Rewrites are grounded.** `followup.checked` accepts a rewrite only if it keeps all of the user's content words and
+   every word it adds already appears in the conversation. An answer instead of a rewrite ("Macron is 48") or an
+   invented name is rejected.
+5. **Fallback.** If the rewrite is rejected, unchanged or failed, the question goes out with the history attached
+   (`EARLIER CONVERSATION: … QUESTION: …`). A follow-up action ("Reply to her") is never rewritten, because rewriting
+   could make the send guards type text again. It gets the history in its task prompt, before the steps, so the
+   history stays in the cached prefix for every later step.
+6. **Follow-ups stay on the screen.** A follow-up question to an exchange that used the screen is answered from the
+   screen again ("Who sent the latest email here?" then "What does she want?").
+
+Logs record `heard` (what the user said) whenever `utterance` was rewritten.
+
+Live results, Bonsai 2 2B on the Windows laptop:
+- Rewrite probe: 7 of 10 follow-ups were rewritten and accepted, using about 50 new prompt tokens each.
+- Through the loop: 8 of 8 follow-ups in four conversations were answered in context, 3 through the rewrite and the
+  rest through the history fallback. The 2B still gets some facts wrong (for example Macron's age).
+- `scripts/loop_scenarios.py follow-up` covers a pronoun, an ellipsis and a follow-up on the screen. All 3 pass;
+  the screen one needs `BEACON_LLM_TIMEOUT_S=60` on this laptop, because cold prompts there take about 20 s.
+
 ## Review (subagent, two rounds)
 
 An independent review found 6 bugs that the tests missed, then re-probed the fixes and found 4 more. All are now fixed,

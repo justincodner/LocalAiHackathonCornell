@@ -93,12 +93,10 @@ def test_newest_snapshot_is_last_and_older_ones_are_stubbed():
     assert messages[3] == {"role": "tool", "tool_call_id": "call_1", "content": json.dumps({"ok": True})}
 
 
-def test_previous_task_becomes_a_two_line_summary():
-    summary = TaskMemory("S", "read the message from Sarah").summarize("Sarah asked about lunch.")
-    assert summary.splitlines() == ["Previous request: read the message from Sarah",
-                                    "Previous result: Sarah asked about lunch."]
-    follow_up = TaskMemory("S", "open the second one", summary).messages(SCREEN)
-    assert follow_up[1] == {"role": "user", "content": summary}
+def test_earlier_conversation_sits_before_the_task_in_the_cached_prefix():
+    earlier = "User: read the message from Sarah\nBeacon: Sarah asked about lunch."
+    follow_up = TaskMemory("S", "open the second one", earlier).messages(SCREEN)
+    assert follow_up[1] == {"role": "user", "content": f"EARLIER CONVERSATION:\n{earlier}"}
     assert len(follow_up) == 3
 
 
@@ -119,7 +117,7 @@ def test_an_answer_is_kept_with_the_question_and_the_request():
     assert 'REQUEST: click the button\nUSER ANSWERED "Which button: New Message or Reply?": the reply one' in last
     assert memory.latest_words == "the reply one"
     assert memory.all_words == "click the button the reply one"
-    assert "click the button / USER ANSWERED" in memory.summarize("Opened a reply.")
+    assert memory.one_line.startswith("click the button / USER ANSWERED")
 
 
 def test_the_system_prefix_never_changes_between_steps():
