@@ -193,14 +193,46 @@ final class HUDTests: XCTestCase {
         XCTAssertEqual(WakePhrase.match("Beacon: read the first email"), .followedBy("read the first email"))
         XCTAssertNil(WakePhrase.match("Open Mail"))
         XCTAssertNil(WakePhrase.match("Hey Sarah"))
-        XCTAssertNil(WakePhrase.match("Hey"))
+        XCTAssertEqual(WakePhrase.match("Hey"), .only, "any greeting on its own wakes Beacon")
         XCTAssertNil(WakePhrase.match(""))
         XCTAssertNil(WakePhrase.match("Search for beacon lights"), "Beacon must lead the utterance")
     }
 
+    func testAnyGreetingWakesBeaconAndIsSaidBack() {
+        for (said, reply) in [("What's up?", "What's up, how can I help you?"),
+                              ("whats up beacon", "What's up, how can I help you?"),
+                              ("Yo Beacon!", "Yo, how can I help you?"),
+                              ("Good morning.", "Good morning, how can I help you?"),
+                              ("Hello there", "Hello there, how can I help you?"),
+                              ("Howdy", "Howdy, how can I help you?"),
+                              ("Sup", "Sup, how can I help you?"),
+                              ("Hey Beacon.", "Hey, how can I help you?"),
+                              ("Beacon?", "Hey, how can I help you?"),
+                              ("Okay Beacon", "Hey, how can I help you?")] {
+            XCTAssertEqual(WakePhrase.match(said), .only, said)
+            XCTAssertEqual(WakePhrase.reply(to: said), reply, said)
+        }
+        // A greeting with a request still runs the request.
+        XCTAssertEqual(WakePhrase.match("What's up Beacon, open Mail"), .followedBy("open Mail"))
+        XCTAssertEqual(WakePhrase.match("Good morning Beacon what's on my screen"), .followedBy("what's on my screen"))
+        XCTAssertEqual(WakePhrase.match("Hey, open Mail."), .followedBy("open Mail."))
+        // Not greetings: left alone and sent to the Brain as said.
+        XCTAssertNil(WakePhrase.match("Hey what's on my screen"), "no comma, no Beacon: a request that starts with hey")
+        XCTAssertNil(WakePhrase.match("Good job"))
+        XCTAssertNil(WakePhrase.match("Morning routine checklist please"))
+        XCTAssertNil(WakePhrase.match("Okay"))
+        XCTAssertNil(WakePhrase.match("Open Safari"))
+
+        let restores = LockedValue<[String?]>([])
+        let hub = EventHub(restoreHUD: { restores.set(restores.get() + [$0]) }, isHUDMinimized: { false })
+        hub.emit("stt.final", ["text": "What's up?"])
+        XCTAssertEqual(restores.get(), ["What's up, how can I help you?"])
+        XCTAssertTrue(hub.recent.isEmpty, "a greeting is answered by the Helper, never sent to the Brain")
+    }
+
     func testWakePhraseIsInterceptedOnlyWhileMinimized() {
         let minimized = LockedValue(true)
-        let restores = LockedValue<[Bool]>([])
+        let restores = LockedValue<[String?]>([])
         let placements = LockedValue<[HUDPlacement]>([])
         let hub = EventHub(moveHUD: { placements.set(placements.get() + [$0]) },
                            restoreHUD: { restores.set(restores.get() + [$0]) },
@@ -209,13 +241,14 @@ final class HUDTests: XCTestCase {
         hub.emit("stt.final", ["text": "Hey Beacon, open Mail."])
         hub.emit("stt.final", ["text": "Hey Beacon, move Beacon to the top left."])
         hub.emit("stt.final", ["text": "Open Safari"])
-        XCTAssertEqual(restores.get(), [true, false, false])
+        XCTAssertEqual(restores.get(), ["Hey, how can I help you?", nil, nil])
         XCTAssertEqual(placements.get(), [.topLeft])
         XCTAssertEqual(hub.recent.compactMap { $0["text"] as? String }, ["open Mail.", "Open Safari"])
 
         minimized.set(false)
         hub.emit("stt.final", ["text": "Hey Beacon."])
-        XCTAssertEqual(restores.get(), [true, false, false, true], "a lone wake phrase is always a greeting")
+        XCTAssertEqual(restores.get(), ["Hey, how can I help you?", nil, nil, "Hey, how can I help you?"],
+                       "a lone wake phrase is always a greeting")
         XCTAssertEqual(hub.recent.last?["text"] as? String, "Open Safari", "and never reaches the Brain")
         hub.emit("stt.final", ["text": "Hey Beacon, open Mail."])
         XCTAssertEqual(hub.recent.last?["text"] as? String, "Hey Beacon, open Mail.",

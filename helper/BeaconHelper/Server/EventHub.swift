@@ -10,12 +10,12 @@ final class EventHub: @unchecked Sendable {
 
     private var observers: [@Sendable (JSONObject) -> Void] = []
     private let moveHUD: (@Sendable (HUDPlacement) -> Void)?
-    /// Brings back a minimized HUD. The flag is true when the utterance was only the wake phrase.
-    private let restoreHUD: (@Sendable (_ wakeOnly: Bool) -> Void)?
+    /// Brings back a minimized HUD. `greetingReply` is set when the utterance was only a greeting: what to say back.
+    private let restoreHUD: (@Sendable (_ greetingReply: String?) -> Void)?
     private let isHUDMinimized: (@Sendable () -> Bool)?
 
     init(moveHUD: (@Sendable (HUDPlacement) -> Void)? = nil,
-         restoreHUD: (@Sendable (_ wakeOnly: Bool) -> Void)? = nil,
+         restoreHUD: (@Sendable (_ greetingReply: String?) -> Void)? = nil,
          isHUDMinimized: (@Sendable () -> Bool)? = nil) {
         self.moveHUD = moveHUD
         self.restoreHUD = restoreHUD
@@ -66,7 +66,7 @@ final class EventHub: @unchecked Sendable {
             // "Hey, how can I help you?". While minimized, "Hey Beacon, open Mail" also restores it.
             let wake = restoreHUD == nil ? nil : WakePhrase.match(text)
             if let restoreHUD, wake == .only {
-                restoreHUD(true)
+                restoreHUD(WakePhrase.reply(to: text))
                 Log.info("wake phrase; HUD greeted, utterance not forwarded")
                 return
             }
@@ -75,7 +75,7 @@ final class EventHub: @unchecked Sendable {
                 case .only:
                     return
                 case let .followedBy(rest):
-                    restoreHUD(false)
+                    restoreHUD(nil)
                     fields["text"] = rest
                 }
             }
