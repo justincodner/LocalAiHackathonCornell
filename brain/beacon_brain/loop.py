@@ -8,10 +8,10 @@ from dataclasses import replace
 
 import httpx
 
-from . import fastpath, grounding, narrate, risk, route, tools
+from . import compose, fastpath, grounding, narrate, page_summary, questions, risk, route, tools
 from .config import Config
 from .helper_client import HelperError
-from .llm import BonsaiError
+from .llm import BonsaiError, ToolCall
 from .log import append_step
 from .memory import TaskMemory
 
@@ -20,6 +20,15 @@ LOGGER = logging.getLogger(__name__)
 TERMINALS = {"say", "done", "read_element"}
 QUESTION_PAUSE_S = 60
 CONNECTION_ERRORS = (HelperError, httpx.HTTPError, OSError, TimeoutError, ValueError, KeyError)
+DECIDE_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] in {"click", "set_value"}]
+SCREEN_SUMMARY_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
+
+
+def snapshot_summary(snapshot: dict) -> ToolCall:
+    app = snapshot["app"]
+    title = snapshot["window"].strip()
+    answer = f'The active window in {app} is titled "{title}".' if title else f"{app} is open."
+    return ToolCall("screen-summary", "say", {"text": answer})
 
 
 class Brain:
@@ -28,11 +37,13 @@ class Brain:
         self.model = model  # fast model: actions and multi-step tasks
         self.question_model = question_model  # optional accurate model for questions (route.py)
         self.question_paused_until = 0.0  # after a question-model failure, skip it for a while
+        self.last_answered_by: str | None = None  # which model answered the latest call, for the log
         self.config = config
         self.prompt = prompt
         self.state = "idle"
         self.active: asyncio.Task | None = None
         self.reply: asyncio.Future | None = None
+        self.awaiting_message = False  # asked "What should the message say?"
         self.speech_events: dict[str, asyncio.Future] = {}
         self.finished_speech: dict[str, bool] = {}
         self.screen_generation = 0
@@ -76,7 +87,10 @@ class Brain:
             await self.set_state("idle")
         elif kind == "stt.final" and isinstance(event.get("text"), str) and event["text"].strip():
             text = event["text"].strip()
-            if self.reply is not None and not self.reply.done():
+            # A dictated message ("Are you free tonight?") is the answer, not a new question.
+            new_question = (self.state != "confirm" and not self.awaiting_message
+                            and fastpath.is_question(text))
+            if self.reply is not None and not self.reply.done() and not new_question:
                 self.reply.set_result(text)
                 return
             await self.cancel_active()
@@ -102,21 +116,27 @@ class Brain:
         await self.speak(text)
 
     async def ask(self, question: str, *, confirm: bool = False) -> str | None:
+        if not confirm:
+            question += " Hold the talk key to answer."
         await self.set_state("confirm" if confirm else "speaking", caption=question)
         if not await self.speak(question):
             return None
         reply = asyncio.get_running_loop().create_future()
         self.reply = reply
+        self.awaiting_message = question.startswith(compose.ASK_MESSAGE)
         try:
-            await self.helper.listen("start")
+            if confirm:
+                await self.helper.listen("start")
             try:
                 return await asyncio.wait_for(reply, self.config.reply_timeout_s)
             except TimeoutError:
-                await self.helper.listen("stop")
+                if confirm:
+                    await self.helper.listen("stop")
                 await self.say("I didn't hear a reply, so I stopped.")
                 return None
         finally:
             self.reply = None
+            self.awaiting_message = False
 
     async def handle_utterance(self, text: str, stt_ms: int) -> None:
         command = fastpath.classify(text)
@@ -131,7 +151,7 @@ class Brain:
                     self.rate = max(0.5, min(1.5, round(self.rate + delta, 1)))
                     await self.say(f"Speaking {command}.")
                 else:
-                    await self.run_task(text, stt_ms)
+                    await self.route_request(text, stt_ms)
         except (TimeoutError, BonsaiError) as error:
             LOGGER.warning("Task ended: %s", error)
             apology = (
@@ -148,11 +168,69 @@ class Brain:
         finally:
             await self.set_state("idle")
 
-    async def run_task(self, text: str, stt_ms: int) -> None:
-        memory = TaskMemory(self.prompt, text, self.previous_result)
+    async def route_request(self, text: str, stt_ms: int) -> None:
+        if (fastpath.wants_screen_summary(text) or fastpath.asks_for_action(text)
+                or fastpath.wants_follow_through(text) or not fastpath.is_question(text)):
+            await self.run_task(text, stt_ms)
+            return
+        if fastpath.needs_screen(text):
+            await self.run_task(text, stt_ms, screen_question=True)
+            return
+
+        await self.set_state("thinking", transcript=text)
+        started = time.perf_counter()
+        messages = [
+            {"role": "system", "content": questions.ROUTING_PROMPT},
+            {"role": "user", "content": text},
+        ]
+        advisory = fastpath.wants_advice(text)
+        route_tools = questions.ROUTE_TOOLS[:1] if advisory else questions.ROUTE_TOOLS
+        decision, answered_by = await self.think(messages, SCREEN_SUMMARY_TOOLS + route_tools, filler=True,
+                                                task_route=route.QUESTION)
+        if decision.name == "act_on_screen" and not advisory and not decision.arguments:
+            await self.run_task(text, stt_ms)
+            return
+        if decision.name == "use_screen" and not decision.arguments:
+            await self.run_task(text, stt_ms, screen_question=True)
+            return
+
+        def clean_answer(call: ToolCall) -> str:
+            if call.name != "say" or tools.validate(call, {}):
+                return ""
+            answer = narrate.clean_speech(call.arguments["text"])
+            return answer if not questions.is_question_only(answer) and (
+                fastpath.normalize(answer) != fastpath.normalize(text)) else ""
+
+        answer = clean_answer(decision)
+        if advisory and not answer:
+            await self.run_task(text, stt_ms, screen_question=True)
+            return
+        if decision.name == "say" and not answer:
+            messages[0]["content"] = questions.GENERAL_PROMPT
+            retry, answered_by = await self.think(messages, SCREEN_SUMMARY_TOOLS, filler=False, task_route=route.QUESTION)
+            answer = clean_answer(retry)
+        model_ms = round((time.perf_counter() - started) * 1000)
+        started_speaking = time.perf_counter()
+        reply = answer or "I couldn't answer that. Try asking another way."
+        await self.say(reply)
+        append_step(self.config.log_path, task_id=f"t_{self.task_number}", step=1,
+                    utterance=text, kind="general", route=route.QUESTION, model=answered_by, snapshot_id=None, snapshot_tokens=0,
+                    tool="say", args={"text": reply}, valid=bool(answer), risk="allow", ok=bool(answer),
+                    ms={"stt": stt_ms, "snapshot": 0, "llm": model_ms,
+                        "act": round((time.perf_counter() - started_speaking) * 1000)})
+
+    async def run_task(self, text: str, stt_ms: int, *, screen_question: bool = False) -> None:
+        screen_summary = fastpath.wants_screen_summary(text)
+        memory = TaskMemory(self.prompt, text, "" if screen_summary or screen_question else self.previous_result)
+        available_tools = SCREEN_SUMMARY_TOOLS if screen_summary else tools.TOOL_DEFINITIONS
         task_id = f"t_{self.task_number}"
         generation = self.screen_generation
-        snapshot = await self.helper.snapshot()
+        try:
+            snapshot = await self.helper.snapshot()
+        except HelperError as error:
+            LOGGER.warning("Could not read the active window: %s", error.code)
+            await self.say("I couldn't read the current window. Bring the app you want to use to the front and try again.")
+            return
         previous_snapshot = None
         task_summary = ""
         consecutive_invalid = 0
@@ -161,28 +239,86 @@ class Brain:
         actions_taken: list[str] = []  # spoken past tense, for honest done summaries
         committed = False  # a confirm-level action (send, delete, ...) actually ran
         fresh_request = True  # no action has run since the user last spoke (grounding.check)
+        last_action = ""  # name of the latest screen action that ran
+        last_typed = ""  # text of the latest type_text that ran
+        # "Send hello to Emmett", "decide and do it": a say/done before any action is not the end.
+        must_act = not (screen_question or screen_summary) and (
+            fastpath.wants_send(text) or fastpath.wants_follow_through(text))
+        early_stops = 0
+        decide_first = must_act and fastpath.wants_decision(text)
+        said_decision = False
+        tried_action = False  # a screen action was attempted, even if it failed
         # Route once per task from the user's own words: questions to the accurate model,
         # actions to the fast one. Without a question model everything uses the one model.
-        task_route = route.classify(text) if self.question_model is not None else "single"
+        if self.question_model is None:
+            task_route = "single"
+        else:
+            task_route = route.QUESTION if screen_question or screen_summary else route.classify(text)
         for step in range(1, self.config.max_steps + 1):
             if generation != self.screen_generation:
                 generation = self.screen_generation
                 previous_snapshot, snapshot = snapshot, await self.helper.snapshot()
             await self.set_state("thinking", transcript=memory.latest_words)
             started = time.perf_counter()
-            call, answered_by = await self.think(memory.messages(snapshot), filler=step == 1, task_route=task_route)
+            self.last_answered_by = None  # stays None when code, not a model, wrote the answer
+            if screen_question:
+                call = await self.answer_from_screen(snapshot, memory.request)
+            elif decide_first and not tried_action and step <= 2:
+                # "Decide and do it": offer only action tools so the model must commit to one option
+                # instead of weighing them aloud or asking the user to choose.
+                messages = memory.messages(snapshot)
+                messages[-1]["content"] += "\nDecide yourself: pick the best option on SCREEN and act on it now."
+                call, _ = await self.think(messages, DECIDE_TOOLS, filler=step == 1, task_route=task_route)
+            elif screen_summary and snapshot["app"].casefold() in page_summary.BROWSERS:
+                call = await self.describe_page(snapshot, memory.request)
+            else:
+                try:
+                    call, _ = await self.think(memory.messages(snapshot), available_tools, filler=step == 1,
+                                               task_route=task_route)
+                except BonsaiError:
+                    if not screen_summary:
+                        raise
+                    call = snapshot_summary(snapshot)
+            if screen_summary and (call.name != "say" or tools.validate(call, snapshot)):
+                call = snapshot_summary(snapshot)
             llm_ms = round((time.perf_counter() - started) * 1000)
             if call.stray_text:
                 LOGGER.warning("Model wrote %d chars outside its tool call", len(call.stray_text))
             acted_at = time.perf_counter()
             screen = snapshot
             call = tools.normalize(call, snapshot)
+            if fastpath.wants_send(text) and committed and call.name == "type_text":
+                # Already sent: typing again would start a duplicate message.
+                call = ToolCall(call.id, "done", {"summary": f"Sent: {last_typed}"}, call.stray_text)
+            if fastpath.wants_send(text) and not committed and not screen_question and not screen_summary:
+                if last_action == "type_text":
+                    if call.name == "type_text":  # typing the message again: send it instead
+                        call = ToolCall(call.id, "done", {"summary": ""}, call.stray_text)
+                elif not tried_action and call.name in {"type_text", "ask_user", "done", "say", "confirm"}:
+                    planned = compose.plan(call, text, memory.answers, snapshot)
+                    if planned is not None:
+                        LOGGER.info("Send request: %s %s instead of %s", planned.name, planned.arguments, call.name)
+                        call = planned
+            send_call = self.send_typed(call, last_action, committed, memory.all_words, snapshot)
+            if send_call is not None:
+                # "Send hello to Emmett": the 2B model types, then stops or asks. Finish the
+                # request it was given: click the Send button, or press Return in the field.
+                LOGGER.info("Sending the typed message (%s) instead of %s", send_call.name, call.name)
+                call = send_call
             if call.name == "done" and isinstance(call.arguments.get("summary"), str):
                 honest = narrate.honest_summary(call.arguments["summary"], actions_taken, committed)
                 if honest != call.arguments["summary"]:
                     LOGGER.warning("Replaced a done summary that claimed an action Beacon did not take")
                     call = replace(call, arguments={**call.arguments, "summary": honest})
             error = tools.validate(call, snapshot)
+            if (error is None and must_act and not tried_action and call.name == "done"
+                    and early_stops < 2):
+                early_stops += 1
+                error = "The request is not finished: take the action the user asked for"
+            if (error is None and must_act and not tried_action and call.name == "ask_user"
+                    and decide_first and early_stops < 2):
+                early_stops += 1
+                error = "The user asked you to decide: pick the best option on SCREEN yourself and do it"
             grounded = ""
             if error is None:
                 checked = grounding.check(call, snapshot, memory.latest_words,
@@ -216,7 +352,7 @@ class Brain:
                     result = {"ok": False, "error": "Action refused"}
                 elif verdict == "confirm":
                     consecutive_invalid = 0
-                    reply = "yes" if already_confirmed else await self.ask(
+                    reply = "yes" if already_confirmed or not self.config.confirm_sends else await self.ask(
                         proposed_summary.rstrip(".") + ". Say yes to continue.", confirm=True,
                     )
                     reply_command = fastpath.classify(reply or "")
@@ -233,6 +369,8 @@ class Brain:
                         result = {"ok": False, "reply": reply}
                         memory.answer(proposed_summary.rstrip(".") + ". Say yes to continue.", reply)
                         fresh_request = True
+                        generation = self.screen_generation
+                        previous_snapshot, snapshot = snapshot, await self.helper.snapshot()
                     else:
                         result = {"ok": False, "end_task": True, "error": "Action cancelled"}
                 else:
@@ -247,6 +385,8 @@ class Brain:
                         memory.answer(call.arguments.get("question") or call.arguments.get("summary", ""),
                                       result["reply"])
                         fresh_request = True
+                        generation = self.screen_generation
+                        previous_snapshot, snapshot = snapshot, await self.helper.snapshot()
             except HelperError as failure:
                 result = {"ok": False, "error": {"code": failure.code, "message": str(failure)}}
                 if failure.code in {"element_not_found", "action_failed", "stale_snapshot"}:
@@ -256,8 +396,12 @@ class Brain:
                     result = await self.retry_on_fresh_screen(call, screen, snapshot, previous_snapshot) or result
 
             act_ms = round((time.perf_counter() - acted_at) * 1000)
+            tried_action = tried_action or (error is None and call.name in tools.SCREEN_ACTIONS)
             if result["ok"] and call.name in tools.SCREEN_ACTIONS:
                 actions_taken.append(narrate.past_action(call, screen))
+                last_action = call.name
+                if call.name == "type_text":
+                    last_typed = call.arguments.get("text", "")
                 committed = committed or verdict == "confirm" or (
                     call.name == "press_key" and risk.normal_keys(call.arguments["keys"]).split("+")[-1] in {"return", "enter"}
                 )  # Return sends in many chat apps, so don't claim "nothing has been sent"
@@ -271,10 +415,10 @@ class Brain:
                         result["value"] = field.get("value")
             append_step(
                 self.config.log_path,
-                task_id=task_id, step=step, utterance=text, snapshot_id=screen["snapshot_id"],
+                task_id=task_id, step=step, utterance=text, kind="screen", snapshot_id=screen["snapshot_id"],
                 snapshot_tokens=(len(screen["text"]) + 3) // 4, tool=call.name, args=call.arguments,
                 valid=error is None, risk=verdict, ok=result["ok"], stray_chars=len(call.stray_text),
-                grounded=grounded or None, route=task_route, model=answered_by,
+                grounded=grounded or None, route=task_route, model=self.last_answered_by,
                 ms={"stt": stt_ms, "snapshot": screen.get("build_ms", 0), "llm": llm_ms, "act": act_ms},
             )
             target = tools.element_for(call, screen) if "id" in call.arguments else None
@@ -284,6 +428,11 @@ class Brain:
                 task_summary = "I couldn't find a valid action for that request."
                 await self.say(task_summary)
                 break
+            if (call.name == "say" and result["ok"] and must_act and not tried_action
+                    and not said_decision):
+                said_decision = True  # the decision was spoken; now carry it out
+                memory.done_so_far.append(f"said {call.arguments['text']!r}")
+                continue
             if verdict == "refuse" or result.get("end_task") or (call.name in TERMINALS and result["ok"]):
                 break
             if not result["ok"]:
@@ -295,23 +444,97 @@ class Brain:
             await self.say(task_summary)
         self.previous_result = memory.summarize(task_summary or "The previous task stopped.")
 
-    async def ask_model(self, messages: list[dict], task_route: str):
+    @staticmethod
+    def send_typed(call, last_action: str, committed: bool, said: str, snapshot: dict) -> ToolCall | None:
+        """After typing for a send request, the call that sends it, or None to keep the model's call."""
+        if last_action != "type_text" or committed or call.name not in {"done", "ask_user", "confirm", "say"}:
+            return None
+        if not fastpath.wants_send(said):
+            return None
+        buttons = [item for item in snapshot["elements"] if item["role"] == "button"
+                   and "disabled" not in item["states"]
+                   and fastpath.normalize(item.get("label") or "") in {"send", "send message", "reply", "post"}]
+        if len(buttons) == 1:  # Mail and web composers: Return there only adds a new line
+            return ToolCall(call.id, "click", {"id": buttons[0]["id"]}, call.stray_text)
+        # Keyboard focus stays in the field we just typed into. Messages often reports no focus
+        # after typing, so only hold back when focus is visibly on something that isn't a field.
+        focused = next((item for item in snapshot["elements"] if item["id"] == snapshot.get("focused_id")), None)
+        if focused is None or focused["role"] in {"textfield", "textarea", "combobox"}:
+            return ToolCall(call.id, "press_key", {"keys": "return"}, call.stray_text)
+        return None
+
+    async def answer_from_screen(self, snapshot: dict, request: str, *, advisory: bool | None = None) -> ToolCall:
+        advisory = fastpath.wants_advice(request) if advisory is None else advisory
+        prompt = questions.ADVICE_PROMPT if advisory else questions.SCREEN_PROMPT
+        if snapshot["app"].casefold() in page_summary.BROWSERS:
+            content = page_summary.visible_content(snapshot, include_display_values=True)
+            messages = page_summary.messages(snapshot, content, request, prompt=prompt)
+            evidence = list(content)
+        else:
+            messages = TaskMemory(prompt, request).messages(snapshot)
+            evidence = [f"{item.get('label') or ''} {item.get('value') or ''}" for item in snapshot["elements"]]
+        allowed_numbers = None if advisory else questions.reference_numbers(request, evidence)
+        missing_context = questions.missing_betting_context(request, evidence) if advisory else None
+        if missing_context:
+            return ToolCall("screen-question", "say", {"text": missing_context})
+        fallback = ("I couldn't read enough from the active window to recommend an option. "
+                    "Tell me any detail the page doesn't show."
+                    if advisory else "I couldn't find that on the current screen.")
+        unavailable = ToolCall("screen-question", "say", {"text": fallback})
+        if (allowed_numbers is not None and not allowed_numbers) or not any(label.strip() for label in evidence):
+            return unavailable
+        try:
+            for attempt in range(2):
+                answer, _ = await self.think(messages, SCREEN_SUMMARY_TOOLS, filler=attempt == 0,
+                                             task_route=route.QUESTION)
+                if answer.name == "say" and tools.validate(answer, {}) is None:
+                    text = answer.arguments["text"].strip()
+                    if (text and not questions.is_question_only(text)
+                            and fastpath.normalize(text) != fastpath.normalize(request)):
+                        if allowed_numbers is None or questions.numbers(text) <= allowed_numbers:
+                            return answer
+                        break
+                messages[0]["content"] = f"{prompt}\n{questions.SCREEN_RETRY}"
+        except BonsaiError:
+            LOGGER.warning("Could not answer from the active screen", exc_info=True)
+        return unavailable
+
+    async def describe_page(self, snapshot: dict, request: str) -> ToolCall:
+        content = page_summary.visible_content(snapshot)
+        if content:
+            try:
+                call, _ = await self.think(page_summary.messages(snapshot, content, request), SCREEN_SUMMARY_TOOLS,
+                                           filler=True, task_route=route.QUESTION)
+            except BonsaiError:
+                LOGGER.warning("Using the available page content after Bonsai failed", exc_info=True)
+            else:
+                if (call.name == "say" and not tools.validate(call, snapshot)
+                        and page_summary.mentions_content(call.arguments["text"], snapshot, content)):
+                    return call
+        return ToolCall("page-summary", "say", {"text": page_summary.fallback(snapshot, content)})
+
+    async def ask_model(self, messages: list[dict], available_tools: list[dict], task_route: str):
         """Return (tool call, which model answered). The question model falls back to the fast one."""
         if (task_route == route.QUESTION and self.question_model is not None
                 and time.monotonic() >= self.question_paused_until):
             try:
-                return await self.question_model.next_tool_call(messages, tools.TOOL_DEFINITIONS), "question"
+                call = await self.question_model.next_tool_call(messages, available_tools)
+                self.last_answered_by = "question"
+                return call, "question"
             except BonsaiError as error:
                 # A busy or hung 4B must not cost every later step its timeout again: pause it for
                 # longer than one task can run (45 s), then try it again.
                 self.question_paused_until = time.monotonic() + QUESTION_PAUSE_S
                 LOGGER.warning("Question model failed (%s); using the fast model for %d s", error, QUESTION_PAUSE_S)
-        return await self.model.next_tool_call(messages, tools.TOOL_DEFINITIONS), "fast"
+        call = await self.model.next_tool_call(messages, available_tools)
+        self.last_answered_by = "fast"
+        return call, "fast"
 
-    async def think(self, messages: list[dict], *, filler: bool, task_route: str = "single"):
+    async def think(self, messages: list[dict], available_tools: list[dict], *, filler: bool,
+                    task_route: str = "single"):
         """Ask the model, saying "One moment." if it takes longer than the filler delay (spec 10.2)."""
         if not filler or self.config.thinking_filler_ms <= 0:
-            return await self.ask_model(messages, task_route)
+            return await self.ask_model(messages, available_tools, task_route)
 
         async def say_filler():
             await asyncio.sleep(self.config.thinking_filler_ms / 1000)
@@ -322,7 +545,7 @@ class Brain:
 
         timer = asyncio.create_task(say_filler())
         try:
-            return await self.ask_model(messages, task_route)
+            return await self.ask_model(messages, available_tools, task_route)
         finally:
             timer.cancel()
             await asyncio.gather(timer, return_exceptions=True)
@@ -352,6 +575,8 @@ class Brain:
         if call.name == "ask_user":
             reply = await self.ask(narrate.clean_speech(args["question"]))
             return {"ok": bool(reply), "reply": reply, "end_task": not reply or fastpath.classify(reply) == "stop"}
+        if call.name == "confirm" and not self.config.confirm_sends:
+            return {"ok": True, "approved": True}  # the user's request is the approval
         if call.name == "confirm":
             reply = await self.ask(
                 narrate.clean_speech(args["summary"]).rstrip(".") + ". Say yes to continue.", confirm=True,

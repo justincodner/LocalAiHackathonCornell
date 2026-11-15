@@ -5,7 +5,7 @@
 #   scripts/start_bonsai.sh            start, wait until ready, stay in the foreground (Ctrl-C stops it)
 #   scripts/start_bonsai.sh --detach   start, wait until ready, return (pid in logs/bonsai.pid)
 #
-# Env: BONSAI_MODEL (4B), BONSAI_CTX (16384), BONSAI_DIR (../Bonsai-demo), BEACON_VISION=1 keeps the vision
+# Env: BONSAI_MODEL (2B if installed, otherwise 4B), BONSAI_CTX (16384), BONSAI_DIR (../Bonsai-demo), BEACON_VISION=1 keeps the vision
 # projector loaded (P2 only; it costs ~0.4-0.6 GB). BONSAI_HOST is never set: the server binds 127.0.0.1.
 set -euo pipefail
 
@@ -30,7 +30,13 @@ if [[ ! -x "$BONSAI_DIR/scripts/start_llama_server.sh" ]]; then
   exit 1
 fi
 
-MODEL_SIZE="${BONSAI_MODEL:-4B}"
+MODEL_SIZE="${BONSAI_MODEL:-}"
+if [[ -z "$MODEL_SIZE" ]]; then
+  MODEL_SIZE=4B
+  if [[ -f "$BONSAI_DIR/models/bonsai2-gguf/2B/Ternary-Bonsai-2-2B-PQ2_0.gguf" ]]; then
+    MODEL_SIZE=2B
+  fi
+fi
 # Bonsai-demo auto-loads the vision projector when its file exists, and --no-mmproj does not override that.
 # Without BEACON_VISION=1, point BONSAI_GGUF at the language model file so no projector is loaded.
 GGUF_OVERRIDE=""

@@ -2,7 +2,7 @@
 # Owner: Mac owner
 # Start the whole Beacon stack on the Mac: Bonsai (llama.cpp), the Helper app, then the Brain.
 #
-#   scripts/run_all.sh           use the signed app (/Applications copy if installed, else build/)
+#   scripts/run_all.sh           use the newest signed app in build/ or /Applications
 #   scripts/run_all.sh --debug   run helper/.build/debug/beacon-helper directly (swift build if needed)
 #
 # Logs go to logs/ (bonsai.log, helper.log, brain.log). Ctrl-C stops only what this script started.
@@ -14,6 +14,16 @@ HELPER_URL="http://127.0.0.1:8765"
 DEBUG=0
 [[ "${1:-}" == "--debug" ]] && DEBUG=1
 mkdir -p "$LOG_DIR"
+
+BRAIN_PYTHON="$ROOT/brain/.venv/bin/python"
+HAS_BRAIN=0
+if [[ -f "$ROOT/brain/pyproject.toml" ]]; then
+  HAS_BRAIN=1
+  if [[ ! -x "$BRAIN_PYTHON" ]]; then
+    echo "error: Brain environment missing. Run scripts/setup_mac.sh while online." >&2
+    exit 1
+  fi
+fi
 
 STARTED_BONSAI=""
 STARTED_HELPER=""
@@ -58,15 +68,22 @@ else
     (cd "$ROOT" && BEACON_ROOT="$ROOT" exec "$BIN") >>"$LOG_DIR/helper.log" 2>&1 &
     STARTED_HELPER=$!
   else
-    APP="/Applications/Beacon Helper.app"
-    [[ -d "$APP" ]] || APP="$ROOT/build/Beacon Helper.app"
-    if [[ ! -d "$APP" ]]; then
+    INSTALLED_APP="/Applications/Beacon Helper.app"
+    BUILT_APP="$ROOT/build/Beacon Helper.app"
+    APP="$INSTALLED_APP"
+    if [[ "$BUILT_APP/Contents/MacOS/beacon-helper" -nt "$INSTALLED_APP/Contents/MacOS/beacon-helper" ]]; then
+      APP="$BUILT_APP"
+    fi
+    if [[ ! -x "$APP/Contents/MacOS/beacon-helper" ]]; then
       echo "error: no Helper app; run scripts/build_helper.sh (or use --debug)" >&2
       exit 1
     fi
     echo "==> Opening $APP"
     # `open` makes launchd the parent so the app's own Microphone/Accessibility grants apply (not Terminal's).
-    open -n -g --env "BEACON_ROOT=$ROOT" --stdout "$LOG_DIR/helper.log" --stderr "$LOG_DIR/helper.log" "$APP"
+    HELPER_ENV=(--env "BEACON_ROOT=$ROOT")
+    if [[ -n "${BEACON_TTS:-}" ]]; then HELPER_ENV+=(--env "BEACON_TTS=$BEACON_TTS"); fi
+    if [[ -n "${BEACON_STT_MODEL:-}" ]]; then HELPER_ENV+=(--env "BEACON_STT_MODEL=$BEACON_STT_MODEL"); fi
+    open -n -g "${HELPER_ENV[@]}" --stdout "$LOG_DIR/helper.log" --stderr "$LOG_DIR/helper.log" "$APP"
     for _ in $(seq 1 50); do
       STARTED_HELPER="$(pgrep -nf "$APP/Contents/MacOS/beacon-helper" || true)"
       [[ -n "$STARTED_HELPER" ]] && break
@@ -87,9 +104,9 @@ fi
 curl -s "$HELPER_URL/health" | (command -v jq >/dev/null && jq -c . || cat)
 
 # 3. Brain ------------------------------------------------------------------
-if [[ -d "$ROOT/brain" && -f "$ROOT/brain/pyproject.toml" ]]; then
+if (( HAS_BRAIN )); then
   echo "==> Starting Brain (log: $LOG_DIR/brain.log)"
-  (cd "$ROOT/brain" && exec uv run python -m beacon_brain) >>"$LOG_DIR/brain.log" 2>&1 &
+  (cd "$ROOT/brain" && exec "$BRAIN_PYTHON" -m beacon_brain) >"$LOG_DIR/brain.log" 2>&1 &
   STARTED_BRAIN=$!
 else
   echo "==> The Brain isn't in this checkout yet (no brain/); running Bonsai + Helper only."

@@ -2,9 +2,8 @@
 # Owner: Mac owner
 # One-time Mac setup (run while online). Idempotent: safe to re-run.
 #   - brew installs git-lfs, uv, jq
-#   - clones PrismML's Bonsai-demo next to this repo (../Bonsai-demo) and runs its setup for the 4B
-#     (and the 2B when BONSAI_ALSO_2B=1)
-#   - runs `uv sync` in brain/ when the Brain is in this checkout
+#   - clones PrismML's Bonsai-demo next to this repo (../Bonsai-demo) and sets up the 2B by default
+#   - installs the Brain into its virtual environment when present
 # Speech models (models/whisperkit-coreml, models/ttskit) are fetched by the Helper's speech setup, not here.
 set -euo pipefail
 
@@ -62,8 +61,9 @@ run_bonsai_setup() {
     BONSAI_CODE_INTERPRETER="${BONSAI_CODE_INTERPRETER:-0}" \
     ./setup.sh </dev/null)
 }
-run_bonsai_setup 4B
-if [[ "${BONSAI_ALSO_2B:-0}" == "1" ]]; then
+MODEL_SIZE="${BONSAI_MODEL:-2B}"
+run_bonsai_setup "$MODEL_SIZE"
+if [[ "$MODEL_SIZE" != 2B && "${BONSAI_ALSO_2B:-0}" == "1" ]]; then
   run_bonsai_setup 2B
 fi
 
@@ -82,8 +82,16 @@ done
 
 # 4. Brain -------------------------------------------------------------------
 if [[ -d "$ROOT/brain" && -f "$ROOT/brain/pyproject.toml" ]]; then
-  say "uv sync in brain/ (never commit uv.lock changes from the Mac)"
-  (cd "$ROOT/brain" && uv sync)
+  say "Installing the Brain's local environment"
+  (
+    cd "$ROOT/brain"
+    if [[ -f uv.lock ]]; then
+      uv sync --locked --no-dev
+    else
+      [[ -x .venv/bin/python ]] || uv venv
+      uv pip install --python .venv/bin/python -e .
+    fi
+  )
 else
   echo "Brain is not in this checkout yet; skipping uv sync."
 fi

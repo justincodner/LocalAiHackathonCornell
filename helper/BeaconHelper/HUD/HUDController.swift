@@ -7,6 +7,9 @@ final class HUDController: HUDProviding {
     /// Spec 9.2: after 1.5 s of thinking, tick once a second until the state changes.
     static let tickDelay: TimeInterval = 1.5
     static let tickInterval: TimeInterval = 1.0
+    /// If the Brain hangs or dies mid-request, stop thinking after this long. Bonsai 4B can take ~35 s on a big screen.
+    static var thinkingTimeout: TimeInterval = 90
+    static let thinkingTimeoutMessage = "I didn't get an answer. Please try again."
 
     let model = HUDModel()
     private let pill = PillPanel()
@@ -175,8 +178,15 @@ final class HUDController: HUDProviding {
         tickTask = nil
         guard state == .thinking else { return }
         tickTask = Task { @MainActor [weak self] in
+            let started = Date()
             try? await Task.sleep(nanoseconds: UInt64(Self.tickDelay * 1_000_000_000))
             while !Task.isCancelled, let self, self.model.state == .thinking {
+                if Date().timeIntervalSince(started) >= Self.thinkingTimeout {
+                    Log.error("HUD thinking for \(Int(Self.thinkingTimeout)) s with no Brain update; showing error")
+                    self.sounds.play(.error)
+                    self.update(state: .error, transcript: nil, caption: Self.thinkingTimeoutMessage, latencyMS: nil)
+                    return
+                }
                 self.sounds.play(.tick)
                 self.ticksPlayed += 1
                 try? await Task.sleep(nanoseconds: UInt64(Self.tickInterval * 1_000_000_000))
