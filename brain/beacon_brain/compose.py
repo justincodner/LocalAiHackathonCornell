@@ -40,8 +40,43 @@ def _clean(text: str) -> str | None:
     return text if text and text.casefold().rstrip(".!?") not in NOT_CONTENT else None
 
 
+HERE_PLACE = (r"(?:here|in\s+here|(?:in|to|into|on)\s+(?:this|the|our|my)\s+(?:current\s+)?"
+              r"(?:chat|conversation|thread|channel|group(?:\s+chat)?|dm|server))")
+# "Send, did you find it?", "send to this chat: on my way", "post here, who's in?"
+HERE_FIRST = re.compile(rf"\b(?:send|post|write|type)(?:\s+(?:a\s+)?(?:message|this|it))?(?:\s+{HERE_PLACE})?"
+                        rf"(?:\s*[,:]\s*|\s+(?:saying|that\s+says)\s+)(?P<body>\S.*)$", re.IGNORECASE)
+# "Send to David, how are you doing?": the person, a comma or colon, then the message.
+TO_NAME_COMMA = re.compile(r"\b(?:send|write)\s+(?:a\s+message\s+|a\s+text\s+)?to\s+@?[\w'-]+(?:\s+[A-Z][\w'-]*)?\s*[,:]\s*"
+                           r"(?P<body>\S.*)$", re.IGNORECASE)
+HERE_ONLY = re.compile(rf"\b{HERE_PLACE}\s*[.!?]?$", re.IGNORECASE)
+# "Send on my way in this chat", "say hi guys here".
+HERE_LAST = re.compile(rf"\b(?:send|post|say|write)\s+(?P<body>.+?)\s+{HERE_PLACE}\s*[.!]?$", re.IGNORECASE)
+# "... and ask, "did you guys find it?"": the quoted words are the message.
+QUOTED = re.compile(r"\b(?:ask|say|tell\s+(?:them|everyone|the\s+group)|send|reply)\s*[,:]?\s*[\"“](?P<body>[^\"”]+)[\"”]",
+                    re.IGNORECASE)
+
+
+def here_content(utterance: str) -> str | None:
+    """The message for a send into the chat already open ("send to this chat, ..."), or None."""
+    for pattern in (QUOTED, HERE_FIRST, HERE_LAST):
+        match = pattern.search(utterance.strip())
+        if match:
+            body = _clean(match.group("body").strip())
+            if body and not re.match(rf"(?i)^{HERE_PLACE}$", body):
+                return body
+    return None
+
+
 def command_and_content(utterance: str) -> tuple[str, str | None]:
     """The sentence that asks to send, and the message text the user gave (None if none)."""
+    here = here_content(utterance)
+    if here:
+        return utterance, here
+    to_name = TO_NAME_COMMA.search(utterance.strip())
+    if to_name and _clean(to_name.group("body")):
+        return utterance, _clean(to_name.group("body"))
+    if HERE_ONLY.search(utterance.strip()) and re.search(r"(?i)\b(?:a|the)\s+message\b", utterance):
+        return utterance, None  # "send a message to this chat": the message is still to come
     parts = sentences(utterance)
     index = next((i for i, part in enumerate(parts) if SEND_VERB.search(part)), None)
     if index is None:

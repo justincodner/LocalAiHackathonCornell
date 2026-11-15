@@ -624,7 +624,8 @@ def test_send_request_types_and_sends_in_one_go(tmp_path, model_after_typing):
         await brain.on_event({"type": "stt.final", "text": "Send hello to Emmett"})
         await asyncio.wait_for(brain.active, timeout=3)
 
-        assert [path for path, _ in helper.actions] == ["/ax/act", "/input/type", "/input/key"]
+        # Emmett's chat is open with "hello" given: chats.here_send types and sends it in code.
+        assert [path for path, _ in helper.actions] == ["/input/type", "/input/key"]
         assert helper.actions[-1][1] == {"keys": "return"}
         assert not any("Say yes" in text or "say your answer" in text for text in helper.spoken)
         assert helper.spoken[-1] == "Sent to Emmett: hello."
