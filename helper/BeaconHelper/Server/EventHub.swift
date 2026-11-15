@@ -24,6 +24,35 @@ final class EventHub: @unchecked Sendable {
 
     var clientCount: Int { lock.withLock { clients.count } }
 
+    // MARK: Selection focus
+
+    /// Text from a screen region the user selected (Control+Option+S). The next `stt.final`, spoken or typed,
+    /// carries it as `focus` and consumes it.
+    private var pendingFocus: (id: Int, focus: JSONObject)?
+    private var focusCounter = 0
+
+    /// Stores focus for the next utterance, replacing any earlier one. Returns an id for `clearPendingFocus`.
+    @discardableResult
+    func setPendingFocus(_ focus: JSONObject) -> Int {
+        lock.withLock {
+            focusCounter += 1
+            pendingFocus = (focusCounter, focus)
+            return focusCounter
+        }
+    }
+
+    /// Drops the pending focus (only if it is still the one with this id, when given). True if one was dropped.
+    @discardableResult
+    func clearPendingFocus(id: Int? = nil) -> Bool {
+        lock.withLock {
+            guard let current = pendingFocus, id == nil || current.id == id else { return false }
+            pendingFocus = nil
+            return true
+        }
+    }
+
+    var hasPendingFocus: Bool { lock.withLock { pendingFocus != nil } }
+
     /// In-process listeners (the app coordinator uses this to drive the HUD and sounds).
     func observe(_ observer: @escaping @Sendable (JSONObject) -> Void) {
         lock.withLock { observers.append(observer) }
@@ -49,6 +78,13 @@ final class EventHub: @unchecked Sendable {
                 moveHUD(placement)
                 return
             }
+        }
+        if type == "stt.final", fields["focus"] == nil,
+           let focus = lock.withLock({ () -> JSONObject? in
+               defer { pendingFocus = nil }
+               return pendingFocus?.focus
+           }) {
+            fields["focus"] = focus
         }
         var event = fields
         event["type"] = type

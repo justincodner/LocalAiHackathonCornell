@@ -7,6 +7,8 @@ struct PillView: View {
     var dragHeader: ((NSEvent) -> Void)?
     var minimize: (() -> Void)?
     var turnOff: (() -> Void)?
+    var typePrompt: (() -> Void)?
+    var askAboutRegion: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,8 +38,8 @@ struct PillView: View {
         }
     }
 
-    /// Asking, or listening for the answer to a question.
-    private var isQuestion: Bool { model.state == .asking || model.isAnswering }
+    /// Asking, listening for the answer to a question, or waiting for a question about a selection.
+    private var isQuestion: Bool { model.state == .asking || model.isAnswering || model.showsSelection }
 
     private var cardShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: 12)
@@ -63,20 +65,26 @@ struct PillView: View {
                         HeaderDragView(drag: dragHeader).accessibilityHidden(true)
                     }
                 }
-            if minimize != nil || turnOff != nil {
+            if minimize != nil || turnOff != nil || typePrompt != nil || askAboutRegion != nil {
                 HStack(spacing: 6) {
+                    if let typePrompt {
+                        headerButton(symbol: "keyboard", label: "Type a request",
+                                     help: "Type a request instead of speaking (\(model.typeShortcut))",
+                                     action: typePrompt)
+                    }
+                    if let askAboutRegion {
+                        headerButton(symbol: "viewfinder", label: "Ask about part of the screen",
+                                     help: "Drag around part of the screen, then ask about it (\(model.snapshotShortcut))",
+                                     action: askAboutRegion)
+                    }
                     if let minimize {
-                        HUDButton(symbol: "minus", label: "Minimize Beacon",
-                                  help: "Hide Beacon. Press \(model.talkKey) and say \"Hey Beacon\" to bring it back.",
-                                  action: minimize)
-                            .frame(width: Self.buttonSize, height: Self.buttonSize)
-                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                        headerButton(symbol: "minus", label: "Minimize Beacon",
+                                     help: "Hide Beacon. Press \(model.talkKey) and say \"Hey Beacon\" to bring it back.",
+                                     action: minimize)
                     }
                     if let turnOff {
-                        HUDButton(symbol: "power", label: "Turn off Beacon", help: "Turn off Beacon (quits Beacon Helper)",
-                                  action: turnOff)
-                            .frame(width: Self.buttonSize, height: Self.buttonSize)
-                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                        headerButton(symbol: "power", label: "Turn off Beacon", help: "Turn off Beacon (quits Beacon Helper)",
+                                     action: turnOff)
                     }
                 }
                 .padding(.trailing, 12)
@@ -87,11 +95,18 @@ struct PillView: View {
 
     static let buttonSize: CGFloat = 28
 
+    private func headerButton(symbol: String, label: String, help: String, action: @escaping () -> Void) -> some View {
+        HUDButton(symbol: symbol, label: label, help: help, action: action)
+            .frame(width: Self.buttonSize, height: Self.buttonSize)
+            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+    }
+
     private var headerStatus: some View {
         let style = HUDStyle.of(model.state)
         let status = model.statusText
         return HStack(spacing: 12) {
-            Image(systemName: model.isAnswering ? "mic.fill" : style.symbol)
+            Image(systemName: model.isAnswering || (model.showsSelection && model.state == .listening) ? "mic.fill"
+                  : model.showsSelection ? "viewfinder" : style.symbol)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(isQuestion ? Color.black : Color.white)
                 .frame(width: 34, height: 34)
@@ -161,7 +176,7 @@ struct PillView: View {
             .padding(.vertical, 14)
         }
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
-        .accessibilityLabel(isQuestion ? "Beacon's question" : "Beacon reply")
+        .accessibilityLabel(model.showsSelection ? "Your selection" : isQuestion ? "Beacon's question" : "Beacon reply")
     }
 
     static let replyHorizontalPadding: CGFloat = 16

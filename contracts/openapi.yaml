@@ -318,6 +318,14 @@ paths:
               required: [text]
               properties:
                 text: {type: string}
+                focus:
+                  description: Optional selection focus attached to the event (see events.md)
+                  type: object
+                  required: [text]
+                  properties:
+                    text: {type: string, maxLength: 4000}
+                    source: {type: string, default: selection}
+                    app: {type: string}
       responses:
         "200": {$ref: "#/components/responses/Empty"}
 components:

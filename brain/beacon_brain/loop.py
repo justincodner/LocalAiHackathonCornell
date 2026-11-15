@@ -96,6 +96,14 @@ class Brain:
             await self.set_state("idle")
         elif kind == "stt.final" and isinstance(event.get("text"), str) and event["text"].strip():
             text = event["text"].strip()
+            focus = questions.selection_focus(event)
+            if focus is not None:
+                # A question about a screen region the user just selected is always a new request,
+                # even while Beacon waits for an answer to something else.
+                await self.cancel_active()
+                self.task_number += 1
+                self.active = asyncio.create_task(self.handle_utterance(text, event.get("stt_ms", 0), focus=focus))
+                return
             # A dictated message ("Are you free tonight?") is the answer, not a new question.
             new_question = (self.state != "confirm" and not self.awaiting_message
                             and fastpath.is_question(text))
@@ -151,7 +159,7 @@ class Brain:
             self.reply = None
             self.awaiting_message = False
 
-    async def handle_utterance(self, text: str, stt_ms: int) -> None:
+    async def handle_utterance(self, text: str, stt_ms: int, focus: dict | None = None) -> None:
         command = fastpath.classify(text)
         try:
             async with asyncio.timeout(self.config.task_timeout_s):
@@ -163,6 +171,8 @@ class Brain:
                     delta = -0.1 if command == "slower" else 0.1
                     self.rate = max(0.5, min(1.5, round(self.rate + delta, 1)))
                     await self.say(f"Speaking {command}.")
+                elif focus is not None:
+                    await self.answer_about_selection(text, focus, stt_ms)
                 else:
                     await self.route_request(text, stt_ms)
         except (TimeoutError, BonsaiError) as error:
@@ -228,6 +238,37 @@ class Brain:
         await self.say(reply)
         append_step(self.config.log_path, task_id=f"t_{self.task_number}", step=1,
                     utterance=text, kind="general", route=route.QUESTION, model=answered_by, snapshot_id=None, snapshot_tokens=0,
+                    tool="say", args={"text": reply}, valid=bool(answer), risk="allow", ok=bool(answer),
+                    ms={"stt": stt_ms, "snapshot": 0, "llm": model_ms,
+                        "act": round((time.perf_counter() - started_speaking) * 1000)})
+
+    async def answer_about_selection(self, text: str, focus: dict, stt_ms: int) -> None:
+        """Answer a question about the screen region the user selected. Its text is the primary context."""
+        await self.set_state("thinking", transcript=text)
+        started = time.perf_counter()
+        answered_by = None
+        if questions.wants_selection_read(text):
+            answer = questions.selection_text(focus)
+        else:
+            messages = questions.selection_messages(text, focus)
+            answer = ""
+            for attempt in range(2):
+                call, answered_by = await self.think(messages, SCREEN_SUMMARY_TOOLS, filler=attempt == 0,
+                                                     task_route=route.QUESTION)
+                if call.name == "say" and tools.validate(call, {}) is None:
+                    candidate = narrate.clean_speech(call.arguments["text"])
+                    if (candidate and not questions.is_question_only(candidate)
+                            and fastpath.normalize(candidate) != fastpath.normalize(text)):
+                        answer = candidate
+                        break
+                messages[0]["content"] = f"{questions.SELECTION_PROMPT}\n{questions.SELECTION_RETRY}"
+        model_ms = round((time.perf_counter() - started) * 1000)
+        started_speaking = time.perf_counter()
+        reply = answer or questions.SELECTION_FALLBACK
+        await self.say(reply)
+        append_step(self.config.log_path, task_id=f"t_{self.task_number}", step=1,
+                    utterance=text, kind="selection", route=route.QUESTION, model=answered_by, snapshot_id=None,
+                    snapshot_tokens=0, focus_chars=len(questions.selection_text(focus)),
                     tool="say", args={"text": reply}, valid=bool(answer), risk="allow", ok=bool(answer),
                     ms={"stt": stt_ms, "snapshot": 0, "llm": model_ms,
                         "act": round((time.perf_counter() - started_speaking) * 1000)})

@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkey: HotkeyMonitor?
     private var server: HelperServer?
     private var services: Services!
+    private var prompts: PromptCoordinator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)   // LSUIElement: no Dock icon, never frontmost
@@ -44,6 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wireEventsToHUD(hud)
         observeFrontmostApp()
         startHotkey()
+        let prompts = PromptCoordinator(services: services, hud: hud)
+        prompts.start()
+        self.prompts = prompts
         buildMenu()
 
         let server = HelperServer(services: services)
@@ -106,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let text = event["text"] as? String
             let speechID = event["speech_id"] as? String
             let interrupted = event["interrupted"] as? Bool ?? false
+            let reason = event["reason"] as? String
             Task { @MainActor in
                 switch type {
                 case "stt.partial":
@@ -121,7 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         _ = speechOut.speak(text: Self.brainOfflineMessage, interrupt: true, rate: nil)
                     }
                 case "listen.cancelled":
-                    hud.play(.error)
+                    // A Control+Option shortcut cancels a recording its Option press started: no error tone.
+                    if reason != "shortcut" { hud.play(.error) }
                     hud.listenCancelled()
                 case "tts.started":
                     if let speechID, let text { hud.speechStarted(id: speechID, text: text) }
@@ -156,6 +162,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(.separator())
         menu.addItem(withTitle: "Show Beacon", action: #selector(showHUD), keyEquivalent: "")
             .target = self
+        menu.addItem(withTitle: "Type a Request…", action: #selector(typeRequest), keyEquivalent: "")
+            .target = self
+        menu.addItem(withTitle: "Ask About Part of the Screen…", action: #selector(askAboutRegion), keyEquivalent: "")
+            .target = self
         menu.addItem(withTitle: "Open Accessibility Settings…", action: #selector(openAXSettings), keyEquivalent: "")
             .target = self
         menu.addItem(withTitle: "Quit Beacon Helper", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -166,6 +176,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showHUD() {
         (services.hud as? HUDController)?.restore()
     }
+
+    @objc private func typeRequest() { prompts?.openTypedPrompt() }
+    @objc private func askAboutRegion() { prompts?.beginRegionSelection() }
 
     @objc private func openAXSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
