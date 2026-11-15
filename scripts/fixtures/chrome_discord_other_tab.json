@@ -1,0 +1,347 @@
+{
+ "ok": true,
+ "snapshot_id": "s_docs",
+ "app": "Google Chrome",
+ "window": "Weekend plans - Google Docs - Google Chrome",
+ "focused_id": 9,
+ "build_ms": 40,
+ "truncated": false,
+ "total_elements": 22,
+ "elements": [
+  {
+   "id": 1,
+   "depth": 0,
+   "role": "group",
+   "label": "Weekend plans - Google Docs - Google Chrome",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    30,
+    1440,
+    870
+   ]
+  },
+  {
+   "id": 2,
+   "depth": 1,
+   "role": "toolbar",
+   "label": "",
+   "label_source": "none",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 3,
+   "depth": 2,
+   "role": "button",
+   "label": "Back",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 4,
+   "depth": 2,
+   "role": "button",
+   "label": "Forward",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 5,
+   "depth": 2,
+   "role": "button",
+   "label": "Reload",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 6,
+   "depth": 2,
+   "role": "textfield",
+   "label": "Address and search bar",
+   "label_source": "title",
+   "states": [],
+   "value": "docs.google.com/document/d/1x2y3z/edit",
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 7,
+   "depth": 2,
+   "role": "button",
+   "label": "Bookmark this tab",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 8,
+   "depth": 2,
+   "role": "popup",
+   "label": "Chrome",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 9,
+   "depth": 1,
+   "role": "group",
+   "label": "Weekend plans - Google Docs",
+   "label_source": "title",
+   "states": [
+    "focused"
+   ],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 10,
+   "depth": 2,
+   "role": "heading",
+   "label": "Weekend plans",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 11,
+   "depth": 2,
+   "role": "text",
+   "label": "Saturday: farmers market, then climbing at 3.",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 12,
+   "depth": 2,
+   "role": "text",
+   "label": "Sunday: finish the problem set.",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 13,
+   "depth": 2,
+   "role": "button",
+   "label": "Share",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 14,
+   "depth": 1,
+   "role": "popup",
+   "label": "Tab search",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 15,
+   "depth": 1,
+   "role": "tab",
+   "label": "(8623) Discord | @Kingsnipeshot - Memory usage - 383 MB",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 16,
+   "depth": 2,
+   "role": "button",
+   "label": "Close",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 17,
+   "depth": 1,
+   "role": "tab",
+   "label": "Weekend plans - Google Docs - Memory usage - 141 MB",
+   "label_source": "title",
+   "states": [
+    "selected"
+   ],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 18,
+   "depth": 2,
+   "role": "button",
+   "label": "Close",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 19,
+   "depth": 1,
+   "role": "button",
+   "label": "New Tab",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 20,
+   "depth": 0,
+   "role": "button",
+   "label": "close window",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 21,
+   "depth": 0,
+   "role": "button",
+   "label": "full screen",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 22,
+   "depth": 0,
+   "role": "button",
+   "label": "minimize window",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  }
+ ],
+ "text": "APP Google Chrome | WINDOW \"Weekend plans - Google Docs - Google Chrome\" | FOCUS [9]\n[1] group \"Weekend plans - Google Docs - Google Chrome\"\n  [2] toolbar\n    [3] button \"Back\"\n    [4] button \"Forward\"\n    [5] button \"Reload\"\n    [6] textfield \"Address and search bar\" value=\"docs.google.com/document/d/1x2y3z/edit\"\n    [7] button \"Bookmark this tab\"\n    [8] popup \"Chrome\"\n  [9] group \"Weekend plans - Google Docs\" (focused)\n    [10] heading \"Weekend plans\"\n    [11] text \"Saturday: farmers market, then climbing at 3.\"\n    [12] text \"Sunday: finish the problem set.\"\n    [13] button \"Share\"\n  [14] popup \"Tab search\"\n  [15] tab \"(8623) Discord | @Kingsnipeshot - Memory usage - 383 MB\"\n    [16] button \"Close\"\n  [17] tab \"Weekend plans - Google Docs - Memory usage - 141 MB\" (selected)\n    [18] button \"Close\"\n  [19] button \"New Tab\"\n[20] button \"close window\"\n[21] button \"full screen\"\n[22] button \"minimize window\""
+}
