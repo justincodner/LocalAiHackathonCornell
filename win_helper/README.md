@@ -26,6 +26,25 @@ powershell -ExecutionPolicy Bypass -File scripts\stop_windows.ps1
 laptop (`BEACON_LLM_TIMEOUT_S=60`, `BEACON_TASK_TIMEOUT_S=150`). It uses `brain/prompts/system_v3_windows.txt`,
 which is v3 with "Mac" changed to "Windows PC". Logs go to `logs\bonsai.log`, `logs\helper.log` and `logs\brain.log`.
 
+### Speed: run Bonsai on the GPU
+
+On a CPU-only laptop, reading each new screen is what makes Beacon slow. PrismML's setup installs the Vulkan (GPU)
+build only when it finds the Vulkan SDK, so Intel and AMD integrated graphics are left idle. `setup_windows_helper.ps1`
+adds the same release's Vulkan build to `..\Bonsai-demo\bin\vulkan` when the graphics driver provides Vulkan and
+`llama-server --list-devices` sees a GPU. `start_bonsai.ps1` prefers that folder and offloads every layer.
+To go back to the CPU, delete `bin\vulkan`.
+
+Measured on an i7-1260P with Iris Xe, on battery, using the Balanced power plan (Bonsai 2 2B):
+
+| | CPU (best of 4/8/12/16 threads) | Vulkan (Iris Xe) |
+| --- | --- | --- |
+| Prompt reading | 44–65 tok/s | 155–171 tok/s |
+| Generation | 27–29 tok/s | 19–25 tok/s |
+| One Beacon step, warm cache | 35–40 s | 13 s |
+
+The 4B on Vulkan reads about 65 tok/s, the 2B's old CPU speed. That makes the Brain's two-model setting
+(`BEACON_LLM_QUESTION_URL`, see `docs/BRAIN_HANDOFF.md`) practical here.
+
 To run the Helper alone: `brain\.venv\Scripts\python.exe -m win_helper [--no-voice] [--no-hud] [--talk-key right_control]`.
 
 ## Behaviour worth knowing
