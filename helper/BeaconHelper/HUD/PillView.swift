@@ -5,16 +5,17 @@ import SwiftUI
 struct PillView: View {
     @ObservedObject var model: HUDModel
     var dragHeader: ((NSEvent) -> Void)?
-    var selectPosition: ((HUDPlacement) -> Void)?
+    var minimize: (() -> Void)?
+    var turnOff: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.replyAboveHeader, !model.visibleCaption.isEmpty {
+            if model.replyAboveHeader, !model.replyText.isEmpty {
                 reply
                 separator
             }
             header
-            if !model.replyAboveHeader, !model.visibleCaption.isEmpty {
+            if !model.replyAboveHeader, !model.replyText.isEmpty {
                 separator
                 reply
             }
@@ -29,8 +30,14 @@ struct PillView: View {
             }
         }
         .clipShape(cardShape)
-        .overlay { cardShape.strokeBorder(.white.opacity(0.25), lineWidth: 1).allowsHitTesting(false) }
+        .overlay {
+            cardShape.strokeBorder(isQuestion ? HUDStyle.question : .white.opacity(0.25), lineWidth: isQuestion ? 2 : 1)
+                .allowsHitTesting(false)
+        }
     }
+
+    /// Asking, or listening for the answer to a question.
+    private var isQuestion: Bool { model.state == .asking || model.isAnswering }
 
     private var cardShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: 12)
@@ -56,42 +63,66 @@ struct PillView: View {
                         HeaderDragView(drag: dragHeader).accessibilityHidden(true)
                     }
                 }
-            if let selectPosition {
-                PositionMenuButton(select: selectPosition)
-                    .frame(width: 34, height: 34)
-                    .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
-                    .padding(.trailing, 12)
+            if minimize != nil || turnOff != nil {
+                HStack(spacing: 6) {
+                    if let minimize {
+                        HUDButton(symbol: "minus", label: "Minimize Beacon",
+                                  help: "Hide Beacon. Press \(model.talkKey) and say \"Hey Beacon\" to bring it back.",
+                                  action: minimize)
+                            .frame(width: Self.buttonSize, height: Self.buttonSize)
+                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                    }
+                    if let turnOff {
+                        HUDButton(symbol: "power", label: "Turn off Beacon", help: "Turn off Beacon (quits Beacon Helper)",
+                                  action: turnOff)
+                            .frame(width: Self.buttonSize, height: Self.buttonSize)
+                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                    }
+                }
+                .padding(.trailing, 12)
             }
         }
         .foregroundStyle(.white)
     }
 
+    static let buttonSize: CGFloat = 28
+
     private var headerStatus: some View {
         let style = HUDStyle.of(model.state)
+        let status = model.statusText
         return HStack(spacing: 12) {
-            Image(systemName: style.symbol)
+            Image(systemName: model.isAnswering ? "mic.fill" : style.symbol)
                 .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isQuestion ? Color.black : Color.white)
                 .frame(width: 34, height: 34)
-                .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+                .background(isQuestion ? AnyShapeStyle(HUDStyle.question) : AnyShapeStyle(.white.opacity(0.12)),
+                            in: RoundedRectangle(cornerRadius: 7))
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Text("Beacon").font(.system(size: 15, weight: .semibold))
-                    Text(style.word)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(HUDStyle.secondaryText)
+                    Text(verbatim: status.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(isQuestion ? HUDStyle.question : .white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    if let word = status.word {
+                        Text(verbatim: word)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(HUDStyle.secondaryText)
+                    }
                 }
-                if !model.transcript.isEmpty {
-                    Text(verbatim: model.transcript)
-                        .font(.system(size: 13))
-                        .foregroundStyle(HUDStyle.secondaryText)
+                if let detail = status.detail {
+                    Text(verbatim: detail)
+                        .font(.system(size: 13, weight: status.detailIsHint ? .medium : .regular))
+                        .foregroundStyle(status.detailIsHint ? .white : HUDStyle.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.head)
-                        .accessibilityLabel("You said: \(model.transcript)")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(status.accessibilityLabel)
 
             VStack(alignment: .trailing, spacing: 3) {
                 if model.offline {
@@ -110,71 +141,69 @@ struct PillView: View {
 
     private var reply: some View {
         ScrollView {
-            Text(verbatim: model.visibleCaption)
-                .font(.system(size: 16))
-                .lineSpacing(4)
-                .foregroundStyle(.white)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, Self.replyHorizontalPadding)
-                .padding(.vertical, 14)
-                .accessibilityLabel(model.caption)
+            VStack(alignment: .leading, spacing: 4) {
+                if let label = model.replyLabel {
+                    Text(verbatim: label.uppercased())
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(HUDStyle.question)
+                        .accessibilityHidden(true)
+                }
+                Text(verbatim: model.replyText)
+                    .font(.system(size: isQuestion ? 17 : 16, weight: isQuestion ? .medium : .regular))
+                    .lineSpacing(4)
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(model.replyLabel.map { "\($0): \(model.replyText)" }
+                                        ?? (model.caption.isEmpty ? model.replyText : model.caption))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Self.replyHorizontalPadding)
+            .padding(.vertical, 14)
         }
         .defaultScrollAnchor(.bottom, for: .sizeChanges)
-        .accessibilityLabel("Beacon reply")
+        .accessibilityLabel(isQuestion ? "Beacon's question" : "Beacon reply")
     }
 
     static let replyHorizontalPadding: CGFloat = 16
 }
 
-private struct PositionMenuButton: NSViewRepresentable {
-    let select: (HUDPlacement) -> Void
+/// Small header button. AppKit-backed so the first click works in the non-activating panel without activating Beacon.
+private struct HUDButton: NSViewRepresentable {
+    let symbol: String
+    let label: String
+    let help: String
+    let action: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeNSView(context: Context) -> MenuButton {
-        let button = MenuButton()
-        button.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: nil)
+    func makeNSView(context: Context) -> FirstMouseButton {
+        let button = FirstMouseButton()
         button.imagePosition = .imageOnly
         button.contentTintColor = .white
         button.isBordered = false
-        button.toolTip = "Move Beacon"
-        button.setAccessibilityLabel("Move Beacon")
         button.target = context.coordinator
-        button.action = #selector(Coordinator.openMenu(_:))
+        button.action = #selector(Coordinator.press(_:))
         return button
     }
 
-    func updateNSView(_ button: MenuButton, context: Context) {
-        context.coordinator.select = select
+    func updateNSView(_ button: FirstMouseButton, context: Context) {
+        context.coordinator.action = action
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
+        button.toolTip = help
+        button.setAccessibilityLabel(label)
+        button.setAccessibilityHelp(help)
     }
 
-    final class MenuButton: NSButton {
+    final class FirstMouseButton: NSButton {
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override var mouseDownCanMoveWindow: Bool { false }
     }
 
     @MainActor
     final class Coordinator: NSObject {
-        var select: ((HUDPlacement) -> Void)?
-
-        @objc func openMenu(_ button: NSButton) {
-            let menu = NSMenu()
-            menu.autoenablesItems = false
-            for placement in HUDPlacement.allCases {
-                let item = NSMenuItem(title: placement.rawValue.capitalized,
-                                      action: #selector(move(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = placement.rawValue
-                menu.addItem(item)
-            }
-            menu.popUp(positioning: nil, at: NSPoint(x: button.bounds.minX, y: button.bounds.minY), in: button)
-        }
-
-        @objc func move(_ item: NSMenuItem) {
-            guard let value = item.representedObject as? String, let placement = HUDPlacement(rawValue: value)
-            else { return }
-            select?(placement)
-        }
+        var action: (() -> Void)?
+        @objc func press(_ sender: NSButton) { action?() }
     }
 }
 

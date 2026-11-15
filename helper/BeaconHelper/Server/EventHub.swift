@@ -10,9 +10,16 @@ final class EventHub: @unchecked Sendable {
 
     private var observers: [@Sendable (JSONObject) -> Void] = []
     private let moveHUD: (@Sendable (HUDPlacement) -> Void)?
+    /// Brings back a minimized HUD. The flag is true when the utterance was only the wake phrase.
+    private let restoreHUD: (@Sendable (_ wakeOnly: Bool) -> Void)?
+    private let isHUDMinimized: (@Sendable () -> Bool)?
 
-    init(moveHUD: (@Sendable (HUDPlacement) -> Void)? = nil) {
+    init(moveHUD: (@Sendable (HUDPlacement) -> Void)? = nil,
+         restoreHUD: (@Sendable (_ wakeOnly: Bool) -> Void)? = nil,
+         isHUDMinimized: (@Sendable () -> Bool)? = nil) {
         self.moveHUD = moveHUD
+        self.restoreHUD = restoreHUD
+        self.isHUDMinimized = isHUDMinimized
     }
 
     var clientCount: Int { lock.withLock { clients.count } }
@@ -24,10 +31,24 @@ final class EventHub: @unchecked Sendable {
 
     /// Emits `{"type": type, "ts": <unix ms>, ...fields}` to every client.
     func emit(_ type: String, _ fields: JSONObject = [:], localFields: JSONObject = [:]) {
-        if type == "stt.final", let moveHUD, let text = fields["text"] as? String,
-           let placement = HUDPlacement(utterance: text) {
-            moveHUD(placement)
-            return
+        var fields = fields
+        if type == "stt.final", let text = fields["text"] as? String {
+            // While the HUD is minimized, "Hey Beacon" brings it back and is not a task for the Brain.
+            if let restoreHUD, isHUDMinimized?() == true, let wake = WakePhrase.match(text) {
+                switch wake {
+                case .only:
+                    restoreHUD(true)
+                    Log.info("wake phrase while minimized; HUD restored, utterance not forwarded")
+                    return
+                case let .followedBy(rest):
+                    restoreHUD(false)
+                    fields["text"] = rest
+                }
+            }
+            if let moveHUD, let text = fields["text"] as? String, let placement = HUDPlacement(utterance: text) {
+                moveHUD(placement)
+                return
+            }
         }
         var event = fields
         event["type"] = type

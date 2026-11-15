@@ -277,7 +277,7 @@ paths:
               type: object
               required: [state]
               properties:
-                state: {type: string, enum: [idle, listening, thinking, acting, speaking, confirm, error]}
+                state: {type: string, enum: [idle, listening, thinking, acting, speaking, asking, confirm, error]}
                 transcript: {type: string}
                 caption: {type: string}
                 latency_ms: {type: integer}

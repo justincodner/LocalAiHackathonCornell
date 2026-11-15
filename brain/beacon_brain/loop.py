@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import httpx
 
-from . import compose, fastpath, grounding, narrate, page_summary, questions, risk, route, tools
+from . import browser, compose, fastpath, grounding, narrate, page_summary, questions, risk, route, tools
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall
@@ -22,6 +22,15 @@ QUESTION_PAUSE_S = 60
 CONNECTION_ERRORS = (HelperError, httpx.HTTPError, OSError, TimeoutError, ValueError, KeyError)
 DECIDE_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] in {"click", "set_value"}]
 SCREEN_SUMMARY_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
+
+
+TALK_KEY_NAMES = {"right_command": "Command", "right_cmd": "Command", "right_control": "Control",
+                  "right_ctrl": "Control", "right_shift": "Shift", "fn": "Fn", "function": "Fn"}
+
+
+def answer_hint(ptt_key: str) -> str:
+    """How to answer a question. The talk key is push-to-talk: held while speaking (HotkeyMonitor)."""
+    return f"Hold the {TALK_KEY_NAMES.get(ptt_key.casefold(), 'Option')} key and say your answer."
 
 
 def snapshot_summary(snapshot: dict) -> ToolCall:
@@ -116,10 +125,14 @@ class Brain:
         await self.speak(text)
 
     async def ask(self, question: str, *, confirm: bool = False) -> str | None:
-        if not confirm:
-            question += " Hold the talk key to answer."
-        await self.set_state("confirm" if confirm else "speaking", caption=question)
-        if not await self.speak(question):
+        if confirm:
+            await self.set_state("confirm", caption=question)
+            spoken = question
+        else:
+            # The HUD shows the question in its "asking" look, with its own answer prompt.
+            await self.set_state("asking", caption=question)
+            spoken = f"{question} {answer_hint(self.config.ptt_key)}"
+        if not await self.speak(spoken):
             return None
         reply = asyncio.get_running_loop().create_future()
         self.reply = reply
@@ -230,6 +243,10 @@ class Brain:
         except HelperError as error:
             LOGGER.warning("Could not read the active window: %s", error.code)
             await self.say("I couldn't read the current window. Bring the app you want to use to the front and try again.")
+            return
+        quick = None if screen_question or screen_summary else browser.plan(text, snapshot["app"])
+        if quick is not None:
+            await self.run_browser_plan(quick, text, snapshot, stt_ms)
             return
         previous_snapshot = None
         task_summary = ""
@@ -465,6 +482,31 @@ class Brain:
             task_summary = "I couldn't finish that. Here is where I stopped."
             await self.say(task_summary)
         self.previous_result = memory.summarize(task_summary or "The previous task stopped.")
+
+    async def run_browser_plan(self, plan: "browser.Plan", text: str, snapshot: dict, stt_ms: int) -> None:
+        """Open a tab, search or go to a site with keyboard steps (browser.py), no model call."""
+        task_id = f"t_{self.task_number}"
+        await self.set_state("acting", caption=plan.caption)
+        summary = plan.summary
+        for step, call in enumerate(plan.steps, 1):
+            started = time.perf_counter()
+            try:
+                result = await tools.execute(self.helper, call, snapshot, None)
+            except HelperError as failure:
+                result = {"ok": False, "error": {"code": failure.code, "message": str(failure)}}
+            append_step(self.config.log_path, task_id=task_id, step=step, utterance=text, kind="browser",
+                        route="browser", model=None, snapshot_id=snapshot["snapshot_id"], snapshot_tokens=0,
+                        tool=call.name, args=call.arguments, valid=True, risk="allow", ok=bool(result.get("ok")),
+                        ms={"stt": stt_ms, "snapshot": snapshot.get("build_ms", 0), "llm": 0,
+                            "act": round((time.perf_counter() - started) * 1000)})
+            if not result.get("ok"):
+                summary = "I couldn't do that in the browser. Please try again."
+                break
+            if call.name == "press_key" and step < len(plan.steps):
+                # The new tab or address bar takes a moment to take keyboard focus.
+                await asyncio.sleep(min(self.config.settle_ms, 300) / 1000)
+        await self.say(summary)
+        self.previous_result = f"Previous request: {text[:300]}\nPrevious result: {summary}"
 
     @staticmethod
     def finished_summary(call, result: dict, text: str, target: dict | None, *, was_fresh: bool,

@@ -14,9 +14,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Permissions.requestAtLaunch()
 
         let hud = HUDController()
-        let events = EventHub { placement in
-            Task { @MainActor in hud.move(to: placement) }
-        }
+        let minimized = hud.minimizedFlag
+        let events = EventHub(
+            moveHUD: { placement in
+                Task { @MainActor in hud.move(to: placement) }
+            },
+            restoreHUD: { wakeOnly in
+                Task { @MainActor in
+                    if wakeOnly { hud.play(.listenStop) }
+                    hud.restore(wakeOnly: wakeOnly)
+                }
+            },
+            isHUDMinimized: { minimized.get() })
         services = Services(accessibility: AccessibilityService(),
                             input: InputService(),
                             speechIn: SpeechInputService(events: events),
@@ -52,6 +61,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = await (stt, tts)
             Log.info("prewarm finished")
         }
+    }
+
+    /// Runs on Quit and on the HUD's Turn off button: stop the mic and any speech before the process exits.
+    func applicationWillTerminate(_ notification: Notification) {
+        Log.info("Beacon Helper quitting")
+        guard let services else { return }
+        if services.speechIn.isListening { services.speechIn.cancelListening(reason: "quit") }
+        if services.speechOut.isSpeaking { services.speechOut.stop() }
     }
 
     // MARK: Push-to-talk and barge-in (spec 9.1, 9.5)
@@ -105,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                 case "listen.cancelled":
                     hud.play(.error)
-                    hud.update(state: .idle, transcript: nil, caption: nil, latencyMS: nil)
+                    hud.listenCancelled()
                 case "tts.started":
                     if let speechID, let text { hud.speechStarted(id: speechID, text: text) }
                 case "tts.finished":
@@ -137,11 +154,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Beacon Helper \(Config.version)", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: "Listening on 127.0.0.1:\(Config.port)", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
+        menu.addItem(withTitle: "Show Beacon", action: #selector(showHUD), keyEquivalent: "")
+            .target = self
         menu.addItem(withTitle: "Open Accessibility Settings…", action: #selector(openAXSettings), keyEquivalent: "")
             .target = self
         menu.addItem(withTitle: "Quit Beacon Helper", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
+    }
+
+    @objc private func showHUD() {
+        (services.hud as? HUDController)?.restore()
     }
 
     @objc private func openAXSettings() {
