@@ -78,3 +78,13 @@ def asks_for_action(text: str) -> bool:
         r"(?:click|press|tap|select|choose|open|switch|scroll|type|enter|fill|send|submit|delete|close|set|move|change|turn)\b",
         normalize(text).removeprefix("please "),
     ))
+
+
+SEND_REQUEST = re.compile(r"\b(?:send|reply|respond)\b|^(?:please )?(?:text|message|dm)\b")
+NO_SEND = re.compile(r"\b(?:dont|do not|not|never|without) (?:\w+ )?(?:send|sending|reply|replying)\b")
+
+
+def wants_send(text: str) -> bool:
+    """The user asked for a message to go out ("send hello to Emmett", "text Sam I'm late")."""
+    words = normalize(text)
+    return bool(SEND_REQUEST.search(words)) and not NO_SEND.search(words)

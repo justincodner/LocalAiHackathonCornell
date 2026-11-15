@@ -231,7 +231,7 @@ def test_confirmation_cannot_execute_against_changed_screen(tmp_path):
             ToolCall("test-1", "click", {"id": target}),
             ToolCall("test-2", "say", {"text": "The screen changed."}),
         )
-        config = Config(log_path=tmp_path / "session.jsonl", settle_ms=0)
+        config = Config(log_path=tmp_path / "session.jsonl", settle_ms=0, confirm_sends=True)
         brain = helper.brain = Brain(helper, model, config, "Test instruction")
 
         await brain.on_event({"type": "stt.final", "text": "Send the message"})
@@ -338,7 +338,7 @@ def test_model_confirm_covers_only_the_same_commitment(tmp_path, summary, label,
             ToolCall("b", "click", {"id": target}),
             ToolCall("c", "done", {"summary": "Done."}),
         )
-        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0, confirm_sends=True), "x")
         await brain.on_event({"type": "stt.final", "text": "send it"})
         for _ in range(expected_prompts):
             await asyncio.wait_for(helper.listening.wait(), timeout=2)
@@ -572,7 +572,7 @@ def test_send_waits_for_confirmation(tmp_path, answer, expected_presses):
             ToolCall("test-1", "click", {"id": target}),
             ToolCall("test-2", "done", {"summary": "Sent."}),
         )
-        config = Config(log_path=tmp_path / "session.jsonl", settle_ms=0)
+        config = Config(log_path=tmp_path / "session.jsonl", settle_ms=0, confirm_sends=True)
         brain = helper.brain = Brain(helper, model, config, "Test instruction")
 
         await brain.on_event({"type": "stt.final", "text": "Send the message"})
@@ -583,5 +583,79 @@ def test_send_waits_for_confirmation(tmp_path, answer, expected_presses):
 
         assert len(helper.actions) == expected_presses
         assert "Say yes to continue" in helper.spoken[0]
+
+    asyncio.run(run())
+
+
+def imessage_screen(value=""):
+    return {
+        "snapshot_id": "s_im", "app": "Messages", "window": "Emmett", "focused_id": 12,
+        "text": f'[11] heading "Emmett"\n[12] textarea "iMessage" value="{value}" (focused)',
+        "elements": [
+            {"id": 11, "role": "heading", "label": "Emmett", "states": []},
+            {"id": 12, "role": "textarea", "label": "iMessage", "value": value, "states": ["focused"]},
+        ],
+    }
+
+
+@pytest.mark.loop
+@pytest.mark.parametrize("model_after_typing", [
+    ToolCall("b", "done", {"summary": "Sent hello to Emmett."}),
+    ToolCall("b", "ask_user", {"question": "Should I send it?"}),
+    ToolCall("b", "confirm", {"summary": "Send hello to Emmett."}),
+])
+def test_send_request_types_and_sends_in_one_go(tmp_path, model_after_typing):
+    async def run():
+        helper = ReplayHelper(imessage_screen())
+        model = ScriptedModel(
+            ToolCall("a", "type_text", {"id": 12, "text": "hello"}),
+            model_after_typing,
+            ToolCall("c", "done", {"summary": "Sent hello to Emmett."}),
+        )
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
+        await brain.on_event({"type": "stt.final", "text": "Send hello to Emmett"})
+        await asyncio.wait_for(brain.active, timeout=3)
+
+        assert [path for path, _ in helper.actions] == ["/ax/act", "/input/type", "/input/key"]
+        assert helper.actions[-1][1] == {"keys": "return"}
+        assert not any("Say yes" in text or "Hold the talk key" in text for text in helper.spoken)
+        assert helper.spoken[-1] == "Sent hello to Emmett."
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_typing_without_send_request_does_not_send(tmp_path):
+    async def run():
+        helper = ReplayHelper(imessage_screen())
+        model = ScriptedModel(
+            ToolCall("a", "type_text", {"id": 12, "text": "hello"}),
+            ToolCall("b", "done", {"summary": "Typed hello."}),
+        )
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
+        await brain.on_event({"type": "stt.final", "text": "Type hello into the iMessage box"})
+        await asyncio.wait_for(brain.active, timeout=3)
+
+        assert [path for path, _ in helper.actions] == ["/ax/act", "/input/type"]
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_send_button_runs_without_confirmation_by_default(tmp_path):
+    async def run():
+        screen = fixture("mail_reply_draft")
+        target = next(item["id"] for item in screen["elements"] if item["label"] == "Send")
+        helper = ReplayHelper(screen)
+        model = ScriptedModel(
+            ToolCall("test-1", "click", {"id": target}),
+            ToolCall("test-2", "done", {"summary": "Sent."}),
+        )
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
+        await brain.on_event({"type": "stt.final", "text": "Send the message"})
+        await asyncio.wait_for(brain.active, timeout=3)
+
+        assert len(helper.actions) == 1
+        assert not any("Say yes" in text for text in helper.spoken)
 
     asyncio.run(run())

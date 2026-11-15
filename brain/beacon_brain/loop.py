@@ -232,6 +232,7 @@ class Brain:
         actions_taken: list[str] = []  # spoken past tense, for honest done summaries
         committed = False  # a confirm-level action (send, delete, ...) actually ran
         fresh_request = True  # no action has run since the user last spoke (grounding.check)
+        last_action = ""  # name of the latest screen action that ran
         # Route once per task from the user's own words: questions to the accurate model,
         # actions to the fast one. Without a question model everything uses the one model.
         if self.question_model is None:
@@ -265,6 +266,12 @@ class Brain:
             acted_at = time.perf_counter()
             screen = snapshot
             call = tools.normalize(call, snapshot)
+            send_call = self.send_typed(call, last_action, committed, memory.all_words, snapshot)
+            if send_call is not None:
+                # "Send hello to Emmett": the 2B model types, then stops or asks. Finish the
+                # request it was given: click the Send button, or press Return in the field.
+                LOGGER.info("Sending the typed message (%s) instead of %s", send_call.name, call.name)
+                call = send_call
             if call.name == "done" and isinstance(call.arguments.get("summary"), str):
                 honest = narrate.honest_summary(call.arguments["summary"], actions_taken, committed)
                 if honest != call.arguments["summary"]:
@@ -304,7 +311,7 @@ class Brain:
                     result = {"ok": False, "error": "Action refused"}
                 elif verdict == "confirm":
                     consecutive_invalid = 0
-                    reply = "yes" if already_confirmed else await self.ask(
+                    reply = "yes" if already_confirmed or not self.config.confirm_sends else await self.ask(
                         proposed_summary.rstrip(".") + ". Say yes to continue.", confirm=True,
                     )
                     reply_command = fastpath.classify(reply or "")
@@ -350,6 +357,7 @@ class Brain:
             act_ms = round((time.perf_counter() - acted_at) * 1000)
             if result["ok"] and call.name in tools.SCREEN_ACTIONS:
                 actions_taken.append(narrate.past_action(call, screen))
+                last_action = call.name
                 committed = committed or verdict == "confirm" or (
                     call.name == "press_key" and risk.normal_keys(call.arguments["keys"]).split("+")[-1] in {"return", "enter"}
                 )  # Return sends in many chat apps, so don't claim "nothing has been sent"
@@ -386,6 +394,23 @@ class Brain:
             task_summary = "I couldn't finish that. Here is where I stopped."
             await self.say(task_summary)
         self.previous_result = memory.summarize(task_summary or "The previous task stopped.")
+
+    @staticmethod
+    def send_typed(call, last_action: str, committed: bool, said: str, snapshot: dict) -> ToolCall | None:
+        """After typing for a send request, the call that sends it, or None to keep the model's call."""
+        if last_action != "type_text" or committed or call.name not in {"done", "ask_user", "confirm", "say"}:
+            return None
+        if not fastpath.wants_send(said):
+            return None
+        buttons = [item for item in snapshot["elements"] if item["role"] == "button"
+                   and "disabled" not in item["states"]
+                   and fastpath.normalize(item.get("label") or "") in {"send", "send message", "reply", "post"}]
+        if len(buttons) == 1:  # Mail and web composers: Return there only adds a new line
+            return ToolCall(call.id, "click", {"id": buttons[0]["id"]}, call.stray_text)
+        focused = next((item for item in snapshot["elements"] if item["id"] == snapshot.get("focused_id")), None)
+        if focused is not None and focused["role"] in {"textfield", "textarea", "combobox"}:
+            return ToolCall(call.id, "press_key", {"keys": "return"}, call.stray_text)
+        return None
 
     async def answer_from_screen(self, snapshot: dict, request: str) -> ToolCall:
         advisory = fastpath.wants_advice(request)
@@ -499,6 +524,8 @@ class Brain:
         if call.name == "ask_user":
             reply = await self.ask(narrate.clean_speech(args["question"]))
             return {"ok": bool(reply), "reply": reply, "end_task": not reply or fastpath.classify(reply) == "stop"}
+        if call.name == "confirm" and not self.config.confirm_sends:
+            return {"ok": True, "approved": True}  # the user's request is the approval
         if call.name == "confirm":
             reply = await self.ask(
                 narrate.clean_speech(args["summary"]).rstrip(".") + ". Say yes to continue.", confirm=True,
