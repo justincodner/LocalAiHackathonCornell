@@ -164,7 +164,7 @@ private final class SelectionView: NSView {
         path.stroke()
         let inner = NSBezierPath(rect: local.insetBy(dx: -1, dy: -1))
         inner.lineWidth = 1.5
-        NSColor(calibratedRed: 1.0, green: 0.76, blue: 0.20, alpha: 1).setStroke()   // HUD question amber
+        NSColor.white.setStroke()   // monochrome, like the HUD
         inner.stroke()
     }
 }

@@ -38,7 +38,7 @@ final class TypedPromptPanel: NSPanel, NSTextFieldDelegate {
         background.layer?.backgroundColor = NSColor(white: 0.09, alpha: 0.96).cgColor
         background.layer?.cornerRadius = 12
         background.layer?.borderWidth = 2
-        background.layer?.borderColor = NSColor(calibratedRed: 1.0, green: 0.76, blue: 0.20, alpha: 1).cgColor
+        background.layer?.borderColor = NSColor.white.cgColor
         background.layer?.masksToBounds = true
         background.appearance = NSAppearance(named: .darkAqua)
 
