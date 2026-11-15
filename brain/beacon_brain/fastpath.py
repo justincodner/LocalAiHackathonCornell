@@ -86,7 +86,9 @@ NO_SEND = re.compile(r"\b(?:dont|do not|not|never|without) (?:\w+ )?(?:send|send
 
 def wants_send(text: str) -> bool:
     """The user asked for a message to go out ("send hello to Emmett", "text Sam I'm late")."""
-    words = normalize(text)
+    words = normalize(text).removeprefix("please ")
+    if re.match(r"(?:click|press|tap|hit|select|open|choose)\b", words):
+        return False  # "click reply" presses a button; it doesn't ask for a message to go out
     return bool(SEND_REQUEST.search(words)) and not NO_SEND.search(words)
 
 

@@ -587,12 +587,12 @@ def test_send_waits_for_confirmation(tmp_path, answer, expected_presses):
     asyncio.run(run())
 
 
-def imessage_screen(value=""):
+def imessage_screen(value="", name="Emmett"):
     return {
-        "snapshot_id": "s_im", "app": "Messages", "window": "Emmett", "focused_id": 12,
-        "text": f'[11] heading "Emmett"\n[12] textarea "iMessage" value="{value}" (focused)',
+        "snapshot_id": "s_im", "app": "Messages", "window": name, "focused_id": 12,
+        "text": f'[11] heading "{name}"\n[12] textarea "iMessage" value="{value}" (focused)',
         "elements": [
-            {"id": 11, "role": "heading", "label": "Emmett", "states": []},
+            {"id": 11, "role": "heading", "label": name, "states": []},
             {"id": 12, "role": "textarea", "label": "iMessage", "value": value, "states": ["focused"]},
         ],
     }
@@ -710,5 +710,79 @@ def test_send_presses_return_when_messages_reports_no_focus(tmp_path):
         await asyncio.wait_for(brain.active, timeout=3)
 
         assert helper.actions[-1] == ("/input/key", {"keys": "return"})
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_send_types_the_message_not_the_request(tmp_path):
+    async def run():
+        helper = ReplayHelper(imessage_screen(name="David"))
+        model = ScriptedModel(
+            ToolCall("a", "type_text", {"id": 12, "text": "Send David a message"}),
+            ToolCall("b", "done", {"summary": "Sent."}),
+            ToolCall("c", "done", {"summary": "Sent."}),
+        )
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
+        await brain.on_event({"type": "stt.final", "text": "Send David a message. Oh, that sucks."})
+        await asyncio.wait_for(brain.active, timeout=3)
+
+        assert ("/input/type", {"text": "Oh, that sucks."}) in helper.actions
+        assert helper.actions[-1] == ("/input/key", {"keys": "return"})
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_send_without_content_asks_and_types_the_answer(tmp_path):
+    async def run():
+        helper = ReplayHelper(imessage_screen(name="David"))
+        model = ScriptedModel(
+            ToolCall("a", "type_text", {"id": 12, "text": "Send a message to David"}),
+            ToolCall("b", "type_text", {"id": 12, "text": "Send a message to David"}),
+            ToolCall("c", "done", {"summary": "Sent."}),
+            ToolCall("d", "done", {"summary": "Sent."}),
+        )
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
+        await brain.on_event({"type": "stt.final", "text": "Send a message to David"})
+        await asyncio.wait_for(helper.clarifying.wait(), timeout=2)
+        assert helper.actions == []
+        await brain.on_event({"type": "stt.final", "text": "Are you free at eight?"})
+        await asyncio.wait_for(brain.active, timeout=3)
+
+        typed = [payload["text"] for path, payload in helper.actions if path == "/input/type"]
+        assert typed == ["Are you free at eight?"]
+        assert helper.actions[-1] == ("/input/key", {"keys": "return"})
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_typing_the_same_message_twice_sends_it_instead(tmp_path):
+    async def run():
+        helper = ReplayHelper(imessage_screen())
+        model = ScriptedModel(*[ToolCall(str(i), "type_text", {"id": 12, "text": "O-Shit"}) for i in range(2)],
+                              ToolCall("z", "done", {"summary": "Sent."}))
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
+        await brain.on_event({"type": "stt.final", "text": "Send O-Shit to David."})
+        await asyncio.wait_for(brain.active, timeout=3)
+
+        typed = [payload for path, payload in helper.actions if path == "/input/type"]
+        assert len(typed) == 1 and helper.actions[-1] == ("/input/key", {"keys": "return"})
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_send_to_someone_whose_chat_is_not_open_types_nothing(tmp_path):
+    async def run():
+        helper = ReplayHelper(imessage_screen(name="Emmett"))
+        model = ScriptedModel(ToolCall("a", "ask_user", {"question": "Who is David?"}))
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
+        await brain.on_event({"type": "stt.final", "text": "Send David a message. Oh, that sucks."})
+        await asyncio.wait_for(helper.clarifying.wait(), timeout=2)
+        assert helper.actions == []
+        assert helper.spoken[0].startswith("Who is David?")
+        await brain.cancel_active()
 
     asyncio.run(run())

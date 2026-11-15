@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import httpx
 
-from . import fastpath, grounding, narrate, page_summary, questions, risk, route, tools
+from . import compose, fastpath, grounding, narrate, page_summary, questions, risk, route, tools
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall
@@ -43,6 +43,7 @@ class Brain:
         self.state = "idle"
         self.active: asyncio.Task | None = None
         self.reply: asyncio.Future | None = None
+        self.awaiting_message = False  # asked "What should the message say?"
         self.speech_events: dict[str, asyncio.Future] = {}
         self.finished_speech: dict[str, bool] = {}
         self.screen_generation = 0
@@ -86,7 +87,9 @@ class Brain:
             await self.set_state("idle")
         elif kind == "stt.final" and isinstance(event.get("text"), str) and event["text"].strip():
             text = event["text"].strip()
-            new_question = self.state != "confirm" and fastpath.is_question(text)
+            # A dictated message ("Are you free tonight?") is the answer, not a new question.
+            new_question = (self.state != "confirm" and not self.awaiting_message
+                            and fastpath.is_question(text))
             if self.reply is not None and not self.reply.done() and not new_question:
                 self.reply.set_result(text)
                 return
@@ -120,6 +123,7 @@ class Brain:
             return None
         reply = asyncio.get_running_loop().create_future()
         self.reply = reply
+        self.awaiting_message = question.startswith(compose.ASK_MESSAGE)
         try:
             if confirm:
                 await self.helper.listen("start")
@@ -132,6 +136,7 @@ class Brain:
                 return None
         finally:
             self.reply = None
+            self.awaiting_message = False
 
     async def handle_utterance(self, text: str, stt_ms: int) -> None:
         command = fastpath.classify(text)
@@ -235,6 +240,7 @@ class Brain:
         committed = False  # a confirm-level action (send, delete, ...) actually ran
         fresh_request = True  # no action has run since the user last spoke (grounding.check)
         last_action = ""  # name of the latest screen action that ran
+        last_typed = ""  # text of the latest type_text that ran
         # "Send hello to Emmett", "decide and do it": a say/done before any action is not the end.
         must_act = not (screen_question or screen_summary) and (
             fastpath.wants_send(text) or fastpath.wants_follow_through(text))
@@ -281,6 +287,18 @@ class Brain:
             acted_at = time.perf_counter()
             screen = snapshot
             call = tools.normalize(call, snapshot)
+            if fastpath.wants_send(text) and committed and call.name == "type_text":
+                # Already sent: typing again would start a duplicate message.
+                call = ToolCall(call.id, "done", {"summary": f"Sent: {last_typed}"}, call.stray_text)
+            if fastpath.wants_send(text) and not committed and not screen_question and not screen_summary:
+                if last_action == "type_text":
+                    if call.name == "type_text":  # typing the message again: send it instead
+                        call = ToolCall(call.id, "done", {"summary": ""}, call.stray_text)
+                elif not tried_action and call.name in {"type_text", "ask_user", "done", "say", "confirm"}:
+                    planned = compose.plan(call, text, memory.answers, snapshot)
+                    if planned is not None:
+                        LOGGER.info("Send request: %s %s instead of %s", planned.name, planned.arguments, call.name)
+                        call = planned
             send_call = self.send_typed(call, last_action, committed, memory.all_words, snapshot)
             if send_call is not None:
                 # "Send hello to Emmett": the 2B model types, then stops or asks. Finish the
@@ -382,6 +400,8 @@ class Brain:
             if result["ok"] and call.name in tools.SCREEN_ACTIONS:
                 actions_taken.append(narrate.past_action(call, screen))
                 last_action = call.name
+                if call.name == "type_text":
+                    last_typed = call.arguments.get("text", "")
                 committed = committed or verdict == "confirm" or (
                     call.name == "press_key" and risk.normal_keys(call.arguments["keys"]).split("+")[-1] in {"return", "enter"}
                 )  # Return sends in many chat apps, so don't claim "nothing has been sent"
