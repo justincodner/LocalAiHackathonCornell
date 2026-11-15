@@ -198,3 +198,22 @@ def plan(call, utterance: str, answers: list[tuple[str, str]], snapshot: dict, *
         return None  # "Text Emmett I'm running late": the model found the message itself
     # Nothing typed, or words the user never said ("Send Emmett a message" -> "hello"): ask.
     return ToolCall(call.id, "ask_user", {"question": ASK_MESSAGE}, call.stray_text)
+
+
+PLACE = re.compile(r"\b(?:go|switch|head|jump)\s+(?:back\s+|over\s+)?to\s+(?P<place>[\w][\w .'-]*?)\s+(?:and|then)\b",
+                   re.IGNORECASE)
+
+
+def place_tab(utterance: str, snapshot: dict) -> dict | None:
+    """ "Go to Discord and message Sam": the one unselected tab named after that place, if any."""
+    match = PLACE.search(utterance)
+    if not match:
+        return None
+    place = match.group("place").strip().casefold()
+    if place in (snapshot.get("window") or "").casefold().split(" - google chrome")[0]:
+        return None  # already there
+    tabs = [item for item in snapshot.get("elements", []) if item.get("role") == "tab"
+            and re.search(rf"\b{re.escape(place)}\b", (item.get("label") or "").casefold())]
+    if len(tabs) != 1 or "selected" in tabs[0].get("states", []):
+        return None
+    return tabs[0]

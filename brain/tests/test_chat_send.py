@@ -130,7 +130,7 @@ def test_go_to_discord_and_send_types_in_the_composer_instead_of_clicking_more(t
         ("/input/type", {"text": "hello"}),
         ("/input/key", {"keys": "return"}),
     ]
-    assert model.requests == 1  # once the DM is open, typing and sending need no model call
+    assert model.requests == 0  # the Discord tab is clicked and the message sent with no model call
     assert helper.spoken[-1] == "Sent to Kingsnipeshot: hello."
     assert not any("memory usage" in text.casefold() or "8623" in text for text in helper.spoken + helper.captions)
 
@@ -203,3 +203,12 @@ def test_send_buttons_skip_a_messages_reply_above_the_composer():
     done = ToolCall("a", "done", {"summary": ""})
     assert Brain.send_typed(done, "type_text", False, "send a message to Sam hi", dm, composer).arguments == {
         "keys": "return"}
+
+
+def test_place_tab_finds_the_named_tab():
+    other = screen("chrome_discord_other_tab")
+    tab = compose.place_tab("go to discord and send a message to Kingsnipeshot hello", other)
+    assert tab is not None and "Discord" in tab["label"]
+    assert compose.place_tab("send a message to Kingsnipeshot hello", other) is None
+    assert compose.place_tab("go to slack and send a message to Sam hi", other) is None
+    assert compose.place_tab("go to discord and send hi to Sam", screen("chrome_discord_dm")) is None

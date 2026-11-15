@@ -287,6 +287,10 @@ class Brain:
                 # in its message field now. The model would only be overridden to do the same.
                 auto_send = compose.plan(ToolCall(f"compose-{step}", "done", {"summary": ""}), text,
                                          memory.answers, snapshot, strict=True)
+            elif sending and not tried_action and not last_typed and (tab := compose.place_tab(text, snapshot)):
+                # "Go to Discord and send ...": the Discord tab is right there. Click it without a
+                # model call; the 2B model sometimes clicks the wrong tab first.
+                auto_send = ToolCall(f"place-{step}", "click", {"id": tab["id"]})
             if auto_send is not None:
                 call = auto_send
             elif screen_question:
