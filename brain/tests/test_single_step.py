@@ -47,7 +47,7 @@ def presses(helper):
 
 @pytest.mark.loop
 def test_repeated_scroll_finishes_instead_of_scrolling_again():
-    helper, model = run(poker_screen(), "Scroll down to the bottom",
+    helper, model = run(poker_screen(), "Scroll down to the comments",
                         ToolCall("a", "scroll", {"direction": "down"}),
                         ToolCall("b", "scroll", {"direction": "down"}),
                         ToolCall("c", "scroll", {"direction": "down"}))

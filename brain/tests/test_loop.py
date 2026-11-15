@@ -37,6 +37,9 @@ class ReplayHelper:
         self.snapshot_calls += 1
         return self.screen
 
+    async def frontmost(self):
+        return {**self.screen, "elements": []}
+
     async def hud(self, state, **fields):
         self.hud_states.append(state)
 

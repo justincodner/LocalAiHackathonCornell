@@ -76,6 +76,9 @@ class FakeHelper:
         self.snapshots += 1
         return copy.deepcopy(self.screen)
 
+    async def frontmost(self):
+        return {**self.screen, "elements": []}
+
     async def hud(self, state, **fields):
         pass
 
@@ -186,6 +189,11 @@ def browsed(h: FakeHelper, first_key: str, typed: str | None) -> str | None:
     return expect(ok, f"asked {h.asked}, keys {keys}, typed {h.typed()!r}, said {h.spoken}")
 
 
+
+def keys_only(h: FakeHelper, expected: list[str]) -> str | None:
+    ok = h.keys() == expected and len(h.actions) == len(expected) and h.asked == 0
+    return expect(ok, f"keys {h.keys()}, actions {h.actions}, said {h.spoken}")
+
 SCENARIOS = [
     # Decide then act: must press exactly one of the three moves, never just hover or ask.
     Scenario("poker decide and press", lambda: load("chrome_poker"),
@@ -252,6 +260,22 @@ SCENARIOS = [
     Scenario("browser go to site", lambda: load("chrome_article"), "Go to youtube.",
              lambda h: browsed(h, "cmd+l", "youtube.com")),
     # Mail and notes.
+    # One-step commands (commands.py): the key or scroll only, nothing typed or clicked.
+    Scenario("command press enter", lambda: load("chrome_poker"), "Press enter.",
+             lambda h: keys_only(h, ["return"])),
+    Scenario("command switch tabs", lambda: load("chrome_article"), "Switch tabs.",
+             lambda h: keys_only(h, ["ctrl+tab"])),
+    Scenario("command next tab", lambda: load("chrome_article"), "Next tab.",
+             lambda h: keys_only(h, ["ctrl+tab"])),
+    Scenario("command go back", lambda: load("chrome_article"), "Go back.",
+             lambda h: keys_only(h, ["cmd+["])),
+    Scenario("command scroll down", lambda: load("chrome_article"), "Scroll down.",
+             lambda h: expect([a[0] for a in h.actions] == ["/input/scroll"] and h.asked == 0,
+                              f"actions {h.actions}, said {h.spoken}")),
+    Scenario("command press tab twice", lambda: messages_screen(), "Press tab twice.",
+             lambda h: keys_only(h, ["tab", "tab"])),
+    Scenario("command button still found", lambda: load("chrome_poker"), "Press call.",
+             lambda h: expect(h.pressed() == ["Call $4"], f"pressed {h.pressed()}")),
     Scenario("read latest email", lambda: load("mail_inbox"), "Read me the latest email.",
              lambda h: expect(not h.pressed() or any("sarah" in l.casefold() for l in h.pressed()),
                               f"pressed {h.pressed()}") or expect("lunch" in h.said(), f"said {h.spoken}")),
