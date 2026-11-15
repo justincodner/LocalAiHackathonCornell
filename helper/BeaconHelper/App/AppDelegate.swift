@@ -20,13 +20,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             moveHUD: { placement in
                 Task { @MainActor in hud.move(to: placement) }
             },
-            restoreHUD: { [weak self] wakeOnly in
+            restoreHUD: { [weak self] greetingReply in
                 Task { @MainActor in
+                    let wakeOnly = greetingReply != nil
                     if wakeOnly { hud.play(.listenStop) }
                     hud.restore(wakeOnly: wakeOnly)
-                    // "Hey Beacon" on its own: greet, shown in the HUD as the spoken caption.
-                    if wakeOnly, let speechOut = self?.services?.speechOut {
-                        _ = speechOut.speak(text: WakePhrase.greeting, interrupt: true, rate: nil)
+                    // A greeting on its own ("What's up"): say it back, shown in the HUD as the spoken caption.
+                    if let greetingReply, let speechOut = self?.services?.speechOut {
+                        _ = speechOut.speak(text: greetingReply, interrupt: true, rate: nil)
                     }
                 }
             },
