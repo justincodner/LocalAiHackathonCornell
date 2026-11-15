@@ -108,6 +108,11 @@ def run_brain(helper, utterance, tmp_path, model=None):
     "In the Amazon search bar search for Christmas gifts.",
     "Search for Christmas gifts in the Amazon search bar.",
     "In the Amazon search bar, search for Christmas gifts and press enter.",
+    # Heard on the live Mac: dictation turns a leading "In" into "and", and drops "bar".
+    "and Amazon Search Bar search for Christmas gifts.",
+    "and Amazon Search Bar, Search for Christmas gifts.",
+    "and Amazon Search for Christmas gifts.",
+    "In Amazon, search for Christmas gifts.",
 ])
 def test_amazon_search_types_and_presses_return_in_code(tmp_path, utterance):
     helper = PageHelper(fixture("chrome_amazon"))
@@ -164,7 +169,7 @@ def test_type_and_press_enter_uses_the_focused_field(tmp_path):
 
 
 @pytest.mark.parametrize("utterance", ["Send hello to Emmett", "search for cats on amazon", "What is in the search bar?",
-                                       "Type hello then click save"])
+                                       "Type hello then click save", "and then search for cats"])
 def test_other_requests_are_not_steps(utterance):
     assert steps.parse(utterance) is None
 
