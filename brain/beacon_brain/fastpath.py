@@ -88,3 +88,22 @@ def wants_send(text: str) -> bool:
     """The user asked for a message to go out ("send hello to Emmett", "text Sam I'm late")."""
     words = normalize(text)
     return bool(SEND_REQUEST.search(words)) and not NO_SEND.search(words)
+
+
+FOLLOW_THROUGH = re.compile(
+    r"\b(?:and|then)\s+(?:then\s+)?(?:do|make|take|press|click|tap|choose|pick|select|play|send|type|open|"
+    r"submit|fill|reply|hit|go)\b|\b(?:do it|do that|go ahead and)\b"
+)
+
+
+def wants_follow_through(text: str) -> bool:
+    """The user asked for a decision or step AND an action ("decide fold or raise and do it")."""
+    return bool(FOLLOW_THROUGH.search(normalize(text)))
+
+
+DECIDE = re.compile(r"\b(?:decide|you (?:choose|pick|decide)|your call|up to you|best (?:move|option|choice|play))\b")
+
+
+def wants_decision(text: str) -> bool:
+    """The user handed the choice to Beacon, so asking them which option is not an answer."""
+    return bool(DECIDE.search(normalize(text)))

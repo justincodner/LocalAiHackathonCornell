@@ -360,7 +360,7 @@ def test_model_confirm_covers_only_the_same_commitment(tmp_path, summary, label,
 def test_requests_are_routed_to_the_right_model(tmp_path, utterance, expected_route, expected_model):
     async def run():
         helper = ReplayHelper(fixture("mail_inbox"))
-        fast = ScriptedModel(ToolCall("f", "done", {"summary": "Done."}))
+        fast = ScriptedModel(ToolCall("f", "done", {"summary": "Done."}), ToolCall("g", "done", {"summary": "Done."}))
         accurate = ScriptedModel(ToolCall("q", "say", {"text": "Mail inbox."}))
         log = tmp_path / "s.jsonl"
         brain = helper.brain = Brain(helper, fast, Config(log_path=log, settle_ms=0), "x", question_model=accurate)
@@ -657,5 +657,58 @@ def test_send_button_runs_without_confirmation_by_default(tmp_path):
 
         assert len(helper.actions) == 1
         assert not any("Say yes" in text for text in helper.spoken)
+
+    asyncio.run(run())
+
+
+def poker_screen():
+    return {
+        "snapshot_id": "s_poker", "app": "Google Chrome", "window": "Poker", "focused_id": None,
+        "text": '[3] text "Your hand: pair of kings. RNG 76"\n[4] button "Fold"\n[5] button "Call"\n[6] button "Raise"',
+        "elements": [
+            {"id": 3, "role": "text", "label": "Your hand: pair of kings. RNG 76", "states": [], "depth": 1},
+            {"id": 4, "role": "button", "label": "Fold", "states": [], "depth": 1},
+            {"id": 5, "role": "button", "label": "Call", "states": [], "depth": 1},
+            {"id": 6, "role": "button", "label": "Raise", "states": [], "depth": 1},
+        ],
+    }
+
+
+@pytest.mark.loop
+def test_decide_then_act_does_both(tmp_path):
+    async def run():
+        helper = ReplayHelper(poker_screen())
+        model = ScriptedModel(
+            ToolCall("a", "say", {"text": "Raise: a pair of kings is strong."}),  # not offered: retried
+            ToolCall("b", "click", {"id": 6}),
+            ToolCall("c", "done", {"summary": "Raised with a pair of kings."}),
+        )
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
+        await brain.on_event({"type": "stt.final", "text": "Should I fold, call or raise? Decide and then do it"})
+        await asyncio.wait_for(brain.active, timeout=3)
+
+        assert helper.actions == [("/ax/act", {"snapshot_id": "s_poker", "element_id": 6, "action": "press"})]
+        assert model.tools[1] == ["click", "set_value"]
+        assert helper.spoken[-1] == "Raised with a pair of kings."
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_send_presses_return_when_messages_reports_no_focus(tmp_path):
+    async def run():
+        screen = imessage_screen()
+        screen["focused_id"] = None
+        helper = ReplayHelper(screen)
+        model = ScriptedModel(
+            ToolCall("a", "type_text", {"id": 12, "text": "Hello"}),
+            ToolCall("b", "done", {"summary": "Typed hello."}),
+            ToolCall("c", "done", {"summary": "Sent hello to Emmett."}),
+        )
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
+        await brain.on_event({"type": "stt.final", "text": "Yep, send Emmit a message. Hello."})
+        await asyncio.wait_for(brain.active, timeout=3)
+
+        assert helper.actions[-1] == ("/input/key", {"keys": "return"})
 
     asyncio.run(run())

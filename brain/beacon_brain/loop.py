@@ -20,6 +20,7 @@ LOGGER = logging.getLogger(__name__)
 TERMINALS = {"say", "done", "read_element"}
 QUESTION_PAUSE_S = 60
 CONNECTION_ERRORS = (HelperError, httpx.HTTPError, OSError, TimeoutError, ValueError, KeyError)
+DECIDE_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] in {"click", "set_value"}]
 SCREEN_SUMMARY_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
 
 
@@ -163,7 +164,8 @@ class Brain:
             await self.set_state("idle")
 
     async def route_request(self, text: str, stt_ms: int) -> None:
-        if fastpath.wants_screen_summary(text) or fastpath.asks_for_action(text) or not fastpath.is_question(text):
+        if (fastpath.wants_screen_summary(text) or fastpath.asks_for_action(text)
+                or fastpath.wants_follow_through(text) or not fastpath.is_question(text)):
             await self.run_task(text, stt_ms)
             return
         if fastpath.needs_screen(text):
@@ -233,6 +235,13 @@ class Brain:
         committed = False  # a confirm-level action (send, delete, ...) actually ran
         fresh_request = True  # no action has run since the user last spoke (grounding.check)
         last_action = ""  # name of the latest screen action that ran
+        # "Send hello to Emmett", "decide and do it": a say/done before any action is not the end.
+        must_act = not (screen_question or screen_summary) and (
+            fastpath.wants_send(text) or fastpath.wants_follow_through(text))
+        early_stops = 0
+        decide_first = must_act and fastpath.wants_decision(text)
+        said_decision = False
+        tried_action = False  # a screen action was attempted, even if it failed
         # Route once per task from the user's own words: questions to the accurate model,
         # actions to the fast one. Without a question model everything uses the one model.
         if self.question_model is None:
@@ -248,6 +257,12 @@ class Brain:
             self.last_answered_by = None  # stays None when code, not a model, wrote the answer
             if screen_question:
                 call = await self.answer_from_screen(snapshot, memory.request)
+            elif decide_first and not tried_action and step <= 2:
+                # "Decide and do it": offer only action tools so the model must commit to one option
+                # instead of weighing them aloud or asking the user to choose.
+                messages = memory.messages(snapshot)
+                messages[-1]["content"] += "\nDecide yourself: pick the best option on SCREEN and act on it now."
+                call, _ = await self.think(messages, DECIDE_TOOLS, filler=step == 1, task_route=task_route)
             elif screen_summary and snapshot["app"].casefold() in page_summary.BROWSERS:
                 call = await self.describe_page(snapshot, memory.request)
             else:
@@ -278,6 +293,14 @@ class Brain:
                     LOGGER.warning("Replaced a done summary that claimed an action Beacon did not take")
                     call = replace(call, arguments={**call.arguments, "summary": honest})
             error = tools.validate(call, snapshot)
+            if (error is None and must_act and not tried_action and call.name == "done"
+                    and early_stops < 2):
+                early_stops += 1
+                error = "The request is not finished: take the action the user asked for"
+            if (error is None and must_act and not tried_action and call.name == "ask_user"
+                    and decide_first and early_stops < 2):
+                early_stops += 1
+                error = "The user asked you to decide: pick the best option on SCREEN yourself and do it"
             grounded = ""
             if error is None:
                 checked = grounding.check(call, snapshot, memory.latest_words,
@@ -355,6 +378,7 @@ class Brain:
                     result = await self.retry_on_fresh_screen(call, screen, snapshot, previous_snapshot) or result
 
             act_ms = round((time.perf_counter() - acted_at) * 1000)
+            tried_action = tried_action or (error is None and call.name in tools.SCREEN_ACTIONS)
             if result["ok"] and call.name in tools.SCREEN_ACTIONS:
                 actions_taken.append(narrate.past_action(call, screen))
                 last_action = call.name
@@ -384,6 +408,11 @@ class Brain:
                 task_summary = "I couldn't find a valid action for that request."
                 await self.say(task_summary)
                 break
+            if (call.name == "say" and result["ok"] and must_act and not tried_action
+                    and not said_decision):
+                said_decision = True  # the decision was spoken; now carry it out
+                memory.done_so_far.append(f"said {call.arguments['text']!r}")
+                continue
             if verdict == "refuse" or result.get("end_task") or (call.name in TERMINALS and result["ok"]):
                 break
             if not result["ok"]:
@@ -407,13 +436,15 @@ class Brain:
                    and fastpath.normalize(item.get("label") or "") in {"send", "send message", "reply", "post"}]
         if len(buttons) == 1:  # Mail and web composers: Return there only adds a new line
             return ToolCall(call.id, "click", {"id": buttons[0]["id"]}, call.stray_text)
+        # Keyboard focus stays in the field we just typed into. Messages often reports no focus
+        # after typing, so only hold back when focus is visibly on something that isn't a field.
         focused = next((item for item in snapshot["elements"] if item["id"] == snapshot.get("focused_id")), None)
-        if focused is not None and focused["role"] in {"textfield", "textarea", "combobox"}:
+        if focused is None or focused["role"] in {"textfield", "textarea", "combobox"}:
             return ToolCall(call.id, "press_key", {"keys": "return"}, call.stray_text)
         return None
 
-    async def answer_from_screen(self, snapshot: dict, request: str) -> ToolCall:
-        advisory = fastpath.wants_advice(request)
+    async def answer_from_screen(self, snapshot: dict, request: str, *, advisory: bool | None = None) -> ToolCall:
+        advisory = fastpath.wants_advice(request) if advisory is None else advisory
         prompt = questions.ADVICE_PROMPT if advisory else questions.SCREEN_PROMPT
         if snapshot["app"].casefold() in page_summary.BROWSERS:
             content = page_summary.visible_content(snapshot, include_display_values=True)
