@@ -182,3 +182,20 @@ final class SpeechQueueTests: XCTestCase {
         XCTAssertTrue(token.isCancelled)
     }
 }
+
+final class StreamingPlayerTests: XCTestCase {
+    func testSoftLimiterKeepsQuietAudioAndTamesPeaks() {
+        let quiet: [Float] = [0, 0.2, -0.5, 0.79]
+        XCTAssertEqual(StreamingPlayer.softLimited(quiet), quiet, "audio under the knee is untouched")
+        let loud = StreamingPlayer.softLimited([1.4, -2.0, 0.9, 1.0])
+        XCTAssertTrue(loud.allSatisfy { abs($0) < 1 }, "nothing reaches full scale: \(loud)")
+        XCTAssertGreaterThan(loud[0], 0.9)
+        XCTAssertLessThan(loud[1], -0.9)
+        XCTAssertGreaterThan(loud[3], loud[2], "louder input stays louder")
+    }
+
+    func testFallsBackAfterTwoSentencesInARowRunDry() {
+        XCTAssertFalse(SpeechOutputService.shouldFallBack(dryStreak: 1))
+        XCTAssertTrue(SpeechOutputService.shouldFallBack(dryStreak: 2))
+    }
+}

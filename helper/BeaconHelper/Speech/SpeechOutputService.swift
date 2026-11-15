@@ -1,8 +1,8 @@
 // Owner: Mac owner (H5). Speech output: one queue in front of TTSKit or the system voice (spec 4.3, 4.6, 9.5).
 //
 // BEACON_TTS=ttskit (default) loads Qwen3-TTS 0.6B from models/ttskit and falls back to AVSpeechSynthesizer if it
-// fails to load, if its warm-up time to first audio exceeds 1 s, or if two sentences in a row take over 1 s to
-// start. Until TTSKit has loaded, speech goes through the system voice so nothing is ever silent.
+// fails to load, if its warm-up time to first audio exceeds 1 s, if two sentences in a row take over 1 s to
+// start, or if playback runs dry (generation slower than real time) in two sentences in a row. Until TTSKit has loaded, speech goes through the system voice so nothing is ever silent.
 import Foundation
 
 final class SpeechOutputService: SpeechOutputProviding, @unchecked Sendable {
@@ -14,6 +14,7 @@ final class SpeechOutputService: SpeechOutputProviding, @unchecked Sendable {
     private let ttskit: TTSKitEngine?
     private let active: LockedValue<SpeechEngine>
     private let slowStreak = LockedValue(0)
+    private let dryStreak = LockedValue(0)
     private var queue: SpeechQueue!
 
     init(events: EventHub, engine: String = Config.tts) {
@@ -33,6 +34,7 @@ final class SpeechOutputService: SpeechOutputProviding, @unchecked Sendable {
             emitStarted: { id, text in events.emit("tts.started", ["speech_id": id], localFields: ["text": text]) },
             emit: { type, fields in events.emit(type, fields) })
         ttskit?.onTimeToFirstAudio = { [weak self] seconds in self?.recordTimeToFirstAudio(seconds) }
+        ttskit?.onSentencePlayed = { [weak self] ranDry in self?.recordSentence(ranDry: ranDry) }
     }
 
     /// For tests: a service around arbitrary engines.
@@ -88,6 +90,16 @@ final class SpeechOutputService: SpeechOutputProviding, @unchecked Sendable {
         Log.warn(String(format: "tts: ttskit time to first audio %.0f ms", seconds * 1000))
         if streak >= 2 { fallBack("ttskit time to first audio over 1 s twice in a row") }
     }
+
+    /// Two sentences in a row that ran dry mean TTSKit can't keep up on this Mac right now (usually the CPU and
+    /// memory are busy with Bonsai): switch to the system voice, which never stutters.
+    private func recordSentence(ranDry: Bool) {
+        let streak = ranDry ? dryStreak.get() + 1 : 0
+        dryStreak.set(streak)
+        if Self.shouldFallBack(dryStreak: streak) { fallBack("ttskit playback ran dry in two sentences in a row") }
+    }
+
+    static func shouldFallBack(dryStreak: Int) -> Bool { dryStreak >= 2 }
 
     private func fallBack(_ reason: String) {
         guard active.get() !== system else { return }
