@@ -64,7 +64,8 @@ enum Config {
         return nil
     }()
 
-    static var tts: String { string("BEACON_TTS", "ttskit") }
+    /// `system` by default: TTSKit renders at only ~0.4-0.8x real time on the 8 GB M1, too slow for render-then-play.
+    static var tts: String { string("BEACON_TTS", "system") }
     static var sttModel: String { string("BEACON_STT_MODEL", "tiny.en") }
     /// Feed visible on-screen words to Whisper as a decoding prompt (BEACON_STT_SCREEN_HINTS=0 turns it off).
     static var sttScreenHints: Bool { bool("BEACON_STT_SCREEN_HINTS", true) }
