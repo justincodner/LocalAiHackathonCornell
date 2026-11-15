@@ -831,7 +831,7 @@ def test_send_without_content_asks_and_types_the_answer(tmp_path):
 @pytest.mark.loop
 def test_typing_the_same_message_twice_sends_it_instead(tmp_path):
     async def run():
-        helper = ReplayHelper(imessage_screen())
+        helper = ReplayHelper(imessage_screen(name="David"))
         model = ScriptedModel(*[ToolCall(str(i), "type_text", {"id": 12, "text": "O-Shit"}) for i in range(2)],
                               ToolCall("z", "done", {"summary": "Sent."}))
         brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
@@ -848,12 +848,13 @@ def test_typing_the_same_message_twice_sends_it_instead(tmp_path):
 def test_send_to_someone_whose_chat_is_not_open_types_nothing(tmp_path):
     async def run():
         helper = ReplayHelper(imessage_screen(name="Emmett"))
-        model = ScriptedModel(ToolCall("a", "ask_user", {"question": "Who is David?"}))
+        model = ScriptedModel()
         brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
         await brain.on_event({"type": "stt.final", "text": "Send David a message. Oh, that sucks."})
-        await asyncio.wait_for(helper.clarifying.wait(), timeout=2)
-        assert helper.actions == []
-        assert helper.spoken[0].startswith("Who is David?")
-        await brain.cancel_active()
+        await asyncio.wait_for(brain.active, timeout=3)
+        # Emmett's chat is open: David's is searched for first, and nothing is typed into Emmett's box.
+        assert ("/input/key", {"keys": "cmd+f"}) in helper.actions
+        assert ("/input/type", {"text": "Oh, that sucks."}) not in helper.actions
+        assert model.requests == []
 
     asyncio.run(run())

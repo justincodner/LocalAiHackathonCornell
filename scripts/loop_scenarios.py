@@ -246,6 +246,7 @@ class FakeHelper:
         self.brain: Brain | None = None
         self.focus = screen.get("focused_id")
         self.press_labels: list[str] = []
+        self.sent_messages: list[str] = []
 
     async def snapshot(self):
         self.snapshots += 1
@@ -309,6 +310,12 @@ class FakeHelper:
             element = self._element(self.focus)
             if element is not None:
                 self._set(self.focus, (element.get("value") or "") + payload["text"])
+        if (path == "/input/key" and payload.get("keys") == "return" and self.screen.get("app") == "Messages"
+                and self.focus is not None and (self._element(self.focus) or {}).get("role") == "textarea"):
+            box = self._element(self.focus)
+            if box.get("value"):
+                self.sent_messages.append(box["value"])  # Return sends in Messages and empties the box
+                self._set(self.focus, "")
         return {"ok": True, "performed_via": "ax"}
 
     def _focus_screen(self, element_id):
@@ -621,6 +628,72 @@ def answered(any_of: tuple[str, ...], none_of: tuple[str, ...] = ()) -> Callable
 NO = ("no", "none", "zero", "0", "not", "aren't", "isn't", "don't", "couldn't", "can't", "cannot")
 NOT_ON_SCREEN = ("couldn't", "can't", "cannot", "don't", "not", "no", "isn't")
 # Screen questions on everyday apps and sites (none of them the demo screens).
+def chat_sent(body: str, chat: str = "Clav", asked: int = 0) -> Callable[[FakeHelper], str | None]:
+    """Exactly this message went out in the open chat (one send), with `asked` questions first."""
+    def check(h: FakeHelper) -> str | None:
+        return (expect(h.sent_messages == [body], f"sent {h.sent_messages}, typed {h.typed()!r}, keys {h.keys()}")
+                or expect(h.asked == asked, f"asked {h.asked} times: {h.spoken}")
+                or expect(any(t.startswith(f"Sent to {chat}") for t in h.spoken), f"said {h.spoken}"))
+    return check
+
+
+def nothing_sent(h: FakeHelper) -> str | None:
+    return expect(not h.sent_messages and "return" not in h.keys(), f"sent {h.sent_messages}, keys {h.keys()}")
+
+
+HACK = "I'm going to the hackathon in the morning"
+clav = lambda: messages_screen("Clav")  # noqa: E731
+# Texting in the open chat, phrased every way Justin says it. Code reads who and what; the model
+# is only consulted for the ones code can't cut ("text him about ...") and for non-sends.
+MESSAGING = [
+    Scenario("msg bare sentence", clav, HACK, chat_sent(HACK)),
+    Scenario("msg bare sentence period", clav, HACK + ".", chat_sent(HACK + ".")),
+    Scenario("msg send this", clav, "Send this: " + HACK, chat_sent(HACK)),
+    Scenario("msg send the following", clav, "Send the following, " + HACK, chat_sent(HACK)),
+    Scenario("msg send the following message", clav, "Send the following message: see you at 8", chat_sent("see you at 8")),
+    Scenario("msg tell him", clav, "Tell him " + HACK, chat_sent(HACK)),
+    Scenario("msg tell her that", clav, "Tell her that the game starts at 8", chat_sent("the game starts at 8")),
+    Scenario("msg tell them", clav, "Tell them I'll be late", chat_sent("I'll be late")),
+    Scenario("msg tell name", clav, "Tell Clav " + HACK, chat_sent(HACK)),
+    Scenario("msg tell name that", clav, "Tell Clav that I'm outside", chat_sent("I'm outside")),
+    Scenario("msg text name", clav, "Text Clav I'm running ten minutes late", chat_sent("I'm running ten minutes late")),
+    Scenario("msg message name", clav, "Message Clav hey what's up", chat_sent("hey what's up")),
+    Scenario("msg reply", clav, "Reply sounds good", chat_sent("sounds good")),
+    Scenario("msg reply with", clav, "Reply with see you there", chat_sent("see you there")),
+    Scenario("msg reply to name", clav, "Reply to Clav, I'm in", chat_sent("I'm in")),
+    Scenario("msg respond saying", clav, "Respond saying I can't make it", chat_sent("I can't make it")),
+    Scenario("msg say", clav, "Say happy birthday", chat_sent("happy birthday")),
+    Scenario("msg say comma", clav, "Say, I'll be there in five", chat_sent("I'll be there in five")),
+    Scenario("msg say to name", clav, "Say good luck to Clav", chat_sent("good luck")),
+    Scenario("msg send to name comma", clav, "Send to Clav, " + HACK, chat_sent(HACK)),
+    Scenario("msg send body to name", clav, "Send see you soon to Clav", chat_sent("see you soon")),
+    Scenario("msg send message saying", clav, "Send a message saying I'm on my way", chat_sent("I'm on my way")),
+    Scenario("msg send name a text", clav, "Send Clav a text saying I'm here", chat_sent("I'm here")),
+    Scenario("msg let him know", clav, "Let him know I'll be there at 8", chat_sent("I'll be there at 8")),
+    Scenario("msg let name know that", clav, "Let Clav know that I'm leaving now", chat_sent("I'm leaving now")),
+    Scenario("msg send bare", clav, "Send on my way", chat_sent("on my way")),
+    Scenario("msg send here", clav, "Send lol here", chat_sent("lol")),
+    Scenario("msg quoted", clav, 'Tell him "see you at 8"', chat_sent("see you at 8")),
+    Scenario("msg polite lead", clav, "Hey Beacon, can you please tell him I'm on my way", chat_sent("I'm on my way")),
+    Scenario("msg tell to", clav, "Tell Clav to call me", chat_sent("Call me")),
+    Scenario("msg question with tell", clav, "Tell him are you coming tonight?", chat_sent("are you coming tonight?")),
+    Scenario("msg send question", clav, "Send, did you find it?", chat_sent("did you find it?")),
+    Scenario("msg chatty bare", clav, "Sounds good, see you then", chat_sent("Sounds good, see you then")),
+    Scenario("msg friend question asks", clav, "Are you coming tonight?", chat_sent("Are you coming tonight?", asked=1),
+             replies=["yes"]),
+    Scenario("msg ambiguous asks no", clav, "Pizza or tacos for dinner", nothing_sent, replies=["no"]),
+    Scenario("msg misheard name asks", clav, "Send the collab, I'm going to hack it on in the morning.",
+             chat_sent("I'm going to hack it on in the morning.", asked=1), replies=["yes"]),
+    Scenario("msg model extracts", clav, "Could you text him about me running late",
+             lambda h: expect(len(h.sent_messages) == 1 and "late" in h.sent_messages[0].casefold(),
+                              f"sent {h.sent_messages}, said {h.spoken}")),
+    # Not messages: must never type into the chat.
+    Scenario("msg not: what did he say", clav, "What did Clav say?", nothing_sent),
+    Scenario("msg not: read last", clav, "Read the last message", nothing_sent),
+    Scenario("msg not: screen", clav, "What's on my screen?", nothing_sent),
+    Scenario("msg not: tell me", clav, "Tell me a joke", nothing_sent),
+]
+
 SCREEN_QA = [
     Scenario("qa youtube what video", youtube_home, "What video is on screen right now?",
              answered(("volcanoes", "lo-fi", "lo", "tiny", "goals", "volcano"), ("email", "sarah"))),
@@ -713,7 +786,7 @@ async def main(filters: list[str]) -> int:
         at = filters.index("--repeat")
         repeat = int(filters[at + 1])
         filters = filters[:at] + filters[at + 2:]
-    chosen = [s for s in SCENARIOS + SCREEN_QA if not filters or any(f.casefold() in s.name for f in filters)]
+    chosen = [s for s in SCENARIOS + MESSAGING + SCREEN_QA if not filters or any(f.casefold() in s.name for f in filters)]
     chosen = [s for s in chosen for _ in range(repeat)]
     failures = 0
     total = 0.0
