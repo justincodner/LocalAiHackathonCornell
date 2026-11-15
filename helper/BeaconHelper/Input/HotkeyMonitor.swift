@@ -38,11 +38,20 @@ final class HotkeyMonitor {
         guard event.keyCode == keyCode else { return }
         let down = event.modifierFlags.contains(flag)
         if down, !isDown {
+            // Control+Option+Space and Control+Option+S: an Option pressed after Control is part of a shortcut.
+            guard Self.startsTalk(flags: event.modifierFlags, talkFlag: flag) else { return }
             isDown = true
             onPress?()
         } else if !down, isDown {
             isDown = false
             onRelease?()
         }
+    }
+
+    /// The talk key starts listening only when no other modifier is already held, so pressing Option as part of
+    /// a Control+Option shortcut does not open the microphone. Pure, so it is unit tested.
+    nonisolated static func startsTalk(flags: NSEvent.ModifierFlags, talkFlag: NSEvent.ModifierFlags) -> Bool {
+        let others = NSEvent.ModifierFlags([.command, .option, .control, .shift]).subtracting(talkFlag)
+        return flags.intersection(others).isEmpty
     }
 }

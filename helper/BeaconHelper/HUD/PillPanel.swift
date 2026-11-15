@@ -66,7 +66,7 @@ enum HUDPlacement: String, CaseIterable {
 }
 
 final class PillPanel: OverlayPanel {
-    static let size = NSSize(width: 410, height: 58)
+    static let size = NSSize(width: 480, height: 58)
     private static let margin: CGFloat = 16
     private static let positionKey = "HUDHeaderPosition"
 

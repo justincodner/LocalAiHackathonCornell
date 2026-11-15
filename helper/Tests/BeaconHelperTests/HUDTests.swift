@@ -312,6 +312,17 @@ final class HUDTests: XCTestCase {
         answering.state = .listening
         answering.pendingQuestion = "Which Sarah do you mean, Sarah Chen or Sarah Lee?"
         try render(answering, to: URL(fileURLWithPath: dir).appendingPathComponent("pill_answering.png"))
+        let selection = HUDModel()
+        selection.selectionPreview = "Invoice 42 Due December 1 Total $118.00 Pay now"
+        try render(selection, to: URL(fileURLWithPath: dir).appendingPathComponent("pill_selection.png"))
+        let typed = TypedPromptPanel()
+        typed.configure(heading: "Type a request for Beacon", placeholder: "For example: what's on my screen?")
+        let typedView = try XCTUnwrap(typed.contentView)
+        typedView.layoutSubtreeIfNeeded()
+        let typedBitmap = try XCTUnwrap(typedView.bitmapImageRepForCachingDisplay(in: typedView.bounds))
+        typedView.cacheDisplay(in: typedView.bounds, to: typedBitmap)
+        try XCTUnwrap(typedBitmap.representation(using: .png, properties: [:]))
+            .write(to: URL(fileURLWithPath: dir).appendingPathComponent("typed_prompt.png"))
         let ring = RingView(frame: NSRect(x: 0, y: 0, width: 160, height: 60))
         let rep = try XCTUnwrap(ring.bitmapImageRepForCachingDisplay(in: ring.bounds))
         ring.cacheDisplay(in: ring.bounds, to: rep)
@@ -324,7 +335,7 @@ final class HUDTests: XCTestCase {
         let replyHeight = PillPanel.replyHeight(for: model.replyText, width: size.width, available: 300,
                                                 question: model.replyLabel != nil)
         let bounds = NSRect(x: 0, y: 0, width: size.width, height: size.height + replyHeight)
-        let host = NSHostingView(rootView: PillView(model: model, minimize: {}, turnOff: {})
+        let host = NSHostingView(rootView: PillView(model: model, minimize: {}, turnOff: {}, typePrompt: {}, askAboutRegion: {})
             .frame(width: bounds.width, height: bounds.height))
         let window = OverlayPanel(contentRect: bounds)
         window.contentView = host

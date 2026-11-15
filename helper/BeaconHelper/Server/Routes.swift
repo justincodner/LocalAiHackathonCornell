@@ -161,7 +161,16 @@ final class HelperServer: @unchecked Sendable {
 
         await route(server, "POST /debug/utterance") { a in
             let text = try a.string("text")
-            s.events.emit("stt.final", ["utterance_id": self.nextUtteranceID(), "text": text, "audio_ms": 0, "stt_ms": 0])
+            var fields: JSONObject = ["utterance_id": self.nextUtteranceID(), "text": text, "audio_ms": 0, "stt_ms": 0]
+            // Optional selection focus, to test "ask about part of the screen" without dragging.
+            if let focus = a.optObject("focus") {
+                guard let focusText = focus["text"] as? String, !focusText.isEmpty else {
+                    throw HelperError(.badRequest, "focus.text must be a non-empty string")
+                }
+                fields["focus"] = focus.merging(["source": focus["source"] as? String ?? "selection",
+                                                 "text": String(focusText.prefix(SelectionFocus.maxChars))]) { _, new in new }
+            }
+            s.events.emit("stt.final", fields)
             return [:]
         }
     }

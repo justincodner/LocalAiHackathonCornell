@@ -30,6 +30,9 @@ final class HUDController: HUDProviding {
     private var newRequestSinceMinimize = false
     /// Called by the Turn off button. Defaults to quitting the app (which runs AppDelegate's terminate cleanup).
     var turnOff: () -> Void = { NSApp.terminate(nil) }
+    /// Keyboard and viewfinder buttons. Set by PromptCoordinator.
+    var typePrompt: () -> Void = {}
+    var askAboutRegion: () -> Void = {}
     /// Number of thinking ticks played so far (for tests and logs).
     private(set) var ticksPlayed = 0
     var pillPanel: PillPanel { pill }
@@ -43,7 +46,9 @@ final class HUDController: HUDProviding {
                 self.pill.dragHeader(with: event) { self.layout() }
             },
             minimize: { [weak self] in self?.minimize() },
-            turnOff: { [weak self] in self?.turnOff() }
+            turnOff: { [weak self] in self?.turnOff() },
+            typePrompt: { [weak self] in self?.typePrompt() },
+            askAboutRegion: { [weak self] in self?.askAboutRegion() }
         ))
         host.sizingOptions = []
         host.frame = NSRect(origin: .zero, size: PillPanel.size)
@@ -117,7 +122,22 @@ final class HUDController: HUDProviding {
         }
     }
 
-    private func announce(_ text: String) {
+    // MARK: Selection (Control+Option+S)
+
+    /// Shows (preview text) or clears (nil) the "Ask about this selection" look.
+    func setSelection(preview: String?) {
+        model.selectionPreview = preview
+        if preview != nil {
+            if isMinimized { placeAtRestoreCorner() }
+            update(state: .idle, transcript: "", caption: "", latencyMS: nil)
+            show()
+        } else {
+            layout()
+        }
+    }
+
+    /// VoiceOver announcement (high priority, interrupts other speech from VoiceOver).
+    func announce(_ text: String) {
         NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
                              userInfo: [.announcement: text,
                                         .priority: NSAccessibilityPriorityLevel.high.rawValue])
@@ -190,6 +210,8 @@ final class HUDController: HUDProviding {
 
     func speechStarted(id: String, text: String) {
         activeSpeechID = id
+        // "Selection ready" prompts keep the selection on screen instead of a speaking caption.
+        if model.showsSelection, model.state == .idle { return }
         if model.state != .confirm, model.state != .asking {
             update(state: .speaking, transcript: nil, caption: nil, latencyMS: nil)
         }
