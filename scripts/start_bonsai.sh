@@ -5,16 +5,20 @@
 #   scripts/start_bonsai.sh            start, wait until ready, stay in the foreground (Ctrl-C stops it)
 #   scripts/start_bonsai.sh --detach   start, wait until ready, return (pid in logs/bonsai.pid)
 #
-# Env: BONSAI_MODEL (2B if installed, otherwise 4B), BONSAI_CTX (16384), BONSAI_DIR (../Bonsai-demo), BEACON_VISION=1 keeps the vision
+# Env: BONSAI_MODEL (2B if installed, otherwise 4B), BONSAI_PORT (8080), BONSAI_CTX (16384), BONSAI_DIR (../Bonsai-demo), BEACON_VISION=1 keeps the vision
 # projector loaded (P2 only; it costs ~0.4-0.6 GB). BONSAI_HOST is never set: the server binds 127.0.0.1.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BONSAI_DIR="${BONSAI_DIR:-$(cd "$ROOT/.." && pwd)/Bonsai-demo}"
 LOG_DIR="$ROOT/logs"
-LOG="$LOG_DIR/bonsai.log"
-PID_FILE="$LOG_DIR/bonsai.pid"
-URL="http://127.0.0.1:8080/v1/models"
+PORT="${BONSAI_PORT:-8080}"
+# The default server keeps the original names; a second one (the 4B question model) gets its own.
+SUFFIX=""
+[[ "$PORT" != "8080" ]] && SUFFIX="-$PORT"
+LOG="$LOG_DIR/bonsai$SUFFIX.log"
+PID_FILE="$LOG_DIR/bonsai$SUFFIX.pid"
+URL="http://127.0.0.1:$PORT/v1/models"
 DETACH=0
 [[ "${1:-}" == "--detach" ]] && DETACH=1
 
@@ -22,7 +26,7 @@ mkdir -p "$LOG_DIR"
 unset BONSAI_HOST
 
 if curl -sf --max-time 2 "$URL" >/dev/null 2>&1; then
-  echo "Bonsai is already running on 127.0.0.1:8080; leaving it alone."
+  echo "Bonsai is already running on 127.0.0.1:$PORT; leaving it alone."
   exit 0
 fi
 if [[ ! -x "$BONSAI_DIR/scripts/start_llama_server.sh" ]]; then
@@ -50,7 +54,7 @@ echo "==> Starting Bonsai $MODEL_SIZE (vision: ${BEACON_VISION:-0}, ctx ${BONSAI
 (
   cd "$BONSAI_DIR"
   if [[ -n "$GGUF_OVERRIDE" ]]; then export BONSAI_GGUF="$GGUF_OVERRIDE"; unset BONSAI_MMPROJ; fi
-  BONSAI_MODEL="$MODEL_SIZE" BONSAI_THINKING=0 BONSAI_CTX="${BONSAI_CTX:-16384}" \
+  PORT="$PORT" BONSAI_MODEL="$MODEL_SIZE" BONSAI_THINKING=0 BONSAI_CTX="${BONSAI_CTX:-16384}" \
     exec ./scripts/start_llama_server.sh
 ) >"$LOG" 2>&1 &
 PID=$!
@@ -81,7 +85,7 @@ until curl -sf --max-time 2 "$URL" >/dev/null 2>&1; do
   sleep 1
 done
 MODEL_ID="$(curl -s "$URL" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])' 2>/dev/null || echo '?')"
-echo "==> Bonsai ready in $(( $(date +%s) - started )) s: model '$MODEL_ID' at http://127.0.0.1:8080/v1 (pid $PID)"
+echo "==> Bonsai ready in $(( $(date +%s) - started )) s: model '$MODEL_ID' at http://127.0.0.1:$PORT/v1 (pid $PID)"
 
 if [[ "$DETACH" == "1" ]]; then exit 0; fi
 trap 'stop; exit 0' INT TERM
