@@ -20,10 +20,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             moveHUD: { placement in
                 Task { @MainActor in hud.move(to: placement) }
             },
-            restoreHUD: { wakeOnly in
+            restoreHUD: { [weak self] wakeOnly in
                 Task { @MainActor in
                     if wakeOnly { hud.play(.listenStop) }
                     hud.restore(wakeOnly: wakeOnly)
+                    // "Hey Beacon" on its own: greet, shown in the HUD as the spoken caption.
+                    if wakeOnly, let speechOut = self?.services?.speechOut {
+                        _ = speechOut.speak(text: WakePhrase.greeting, interrupt: true, rate: nil)
+                    }
                 }
             },
             isHUDMinimized: { minimized.get() })

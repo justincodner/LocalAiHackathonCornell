@@ -2,6 +2,9 @@
 import Foundation
 
 enum WakePhrase: Equatable {
+    /// What Beacon says when the user says only the wake phrase.
+    static let greeting = "Hey, how can I help you?"
+
     /// The utterance was only the wake phrase ("Hey Beacon.").
     case only
     /// The wake phrase followed by a request ("Hey Beacon, open Mail" gives "open Mail").
