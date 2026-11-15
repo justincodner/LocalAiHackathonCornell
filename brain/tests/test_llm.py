@@ -140,8 +140,8 @@ def test_startup_prewarms_every_prompt_family_and_survives_a_failure():
     warmed = []
 
     class Model:
-        slot_count = 8
-        slot_ids = list(range(8))
+        slot_count = len(prompt_families("MAIN"))  # one slot per family, so every family gets warmed
+        slot_ids = list(range(slot_count))
 
         async def prewarm(self, system, family_tools):
             warmed.append((system, [tool["function"]["name"] for tool in family_tools]))

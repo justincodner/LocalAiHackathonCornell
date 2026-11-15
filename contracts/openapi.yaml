@@ -106,6 +106,49 @@ paths:
                     required: [text]
                     properties:
                       text: {type: string}
+  /page/read:
+    post:
+      summary: Read structured content from the active document or browser page
+      description: |
+        Returns the available content independently of the control snapshot. Depth describes containment
+        of rows and cells. Secure field values are masked. An optional direction and page_id scroll that
+        same active page before reading it again. A target mismatch returns stale_snapshot.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              dependentRequired: {direction: [page_id]}
+              properties:
+                app: {type: string, description: Expected active app}
+                window: {type: string, description: Expected active window title}
+                direction: {type: string, enum: [up, down]}
+                page_id: {type: string, description: Opaque identifier from an earlier capture}
+      responses:
+        "200":
+          description: Page content or a Helper error
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - type: object
+                    required: [page_id, source, partial, blocks]
+                    properties:
+                      page_id: {type: string}
+                      source: {type: string, enum: [dom, accessibility, ocr]}
+                      partial: {type: boolean, description: Some text may require scrolling or a different source}
+                      blocks:
+                        type: array
+                        items:
+                          type: object
+                          required: [role, depth, text]
+                          properties:
+                            role: {type: string}
+                            depth: {type: integer, minimum: 0}
+                            text: {type: string}
+                            value: {type: [string, "null"]}
+                            level: {type: integer, minimum: 1, description: Heading level when available}
   /ax/act:
     post:
       summary: Perform an action on a snapshot element

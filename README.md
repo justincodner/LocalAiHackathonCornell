@@ -30,6 +30,20 @@ powershell -ExecutionPolicy Bypass -File scripts\run_windows.ps1            # Bo
 
 Hold Right Alt and speak, or type in the Beacon window. Stop it with `scripts\stop_windows.ps1`.
 
+## Reading a page
+
+Say “read this page” to hear the text in passages, then “continue reading” to move on. Ask questions such as
+“What is the renewal date on this page?” or “Find the cancellation terms on this page.” Beacon can search
+the extracted text, read more passages, and scroll the active page to investigate.
+
+Both Helpers read the native accessibility tree and fall back to local OCR when there is no usable document
+text. OCR covers the active window or browser viewport and needs Screen Recording permission on macOS or an
+installed OCR language on Windows.
+
+For direct DOM extraction on macOS with Safari, Chrome, Chromium, Edge, or Brave, set `BEACON_BROWSER_DOM=1`
+and enable the browser's **Allow JavaScript from Apple Events** developer setting. Rebuild the signed Helper
+and allow the macOS Automation prompt if it appears.
+
 ## Windows quick start (Brain)
 
 Windows development: run `./scripts/setup_windows.ps1`, start Bonsai with `./scripts/start_bonsai.ps1`, then run `uv run --project brain python -m mock_helper` and `uv run --project brain python -m beacon_brain` in separate terminals from the repo root. See [evaluations](evals/README.md) for fixture and scoring commands.

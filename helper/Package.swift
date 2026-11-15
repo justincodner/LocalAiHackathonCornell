@@ -23,7 +23,7 @@ let package = Package(
             ],
             path: "BeaconHelper",
             exclude: ["Info.plist", "BeaconHelper.entitlements"],
-            resources: [.copy("HUD/Sounds")],
+            resources: [.copy("HUD/Sounds"), .copy("Accessibility/ReadPage.js")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(

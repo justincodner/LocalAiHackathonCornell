@@ -57,6 +57,15 @@ final class HelperServer: @unchecked Sendable {
         await route(server, "POST /ax/read") { a in
             ["text": try await s.accessibility.read(snapshotID: try a.string("snapshot_id"), elementID: try a.int("element_id"))]
         }
+        await route(server, "POST /page/read") { a in
+            let direction = a.optString("direction")
+            let pageID = a.optString("page_id")
+            if let direction, !["up", "down"].contains(direction) || pageID == nil {
+                throw HelperError(.badRequest, "page scrolling requires up or down and a page_id")
+            }
+            return try await s.accessibility.page(app: a.optString("app"), window: a.optString("window"),
+                                                  direction: direction, pageID: pageID, input: s.input)
+        }
         await route(server, "POST /ax/act") { a in
             let action = try a.string("action")
             let allowed = ["press", "focus", "set_value", "show_menu", "increment", "decrement"]

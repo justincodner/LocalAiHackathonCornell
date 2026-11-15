@@ -110,7 +110,7 @@ def needs_screen(text: str) -> bool:
     """Fast route for questions that explicitly refer to the user or their screen."""
     words = question_words(text)
     explicit = re.search(
-        r"\b(?:on screen|on (?:the|this|my) screen|this (?:page|tab|website|window|form|dialog)|"
+        r"\b(?:on screen|on (?:the|this|my) screen|this (?:page|tab|website|webpage|document|window|form|dialog)|"
         r"the current (?:page|tab|website|window)|i (?:am|was) (?:viewing|looking at))\b|"
         r"\b(?:here|from this screen)(?: right now)?(?: please)?$",
         words,

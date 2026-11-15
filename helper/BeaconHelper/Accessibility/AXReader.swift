@@ -129,19 +129,26 @@ enum AX {
     }
 
     /// Same, reporting why the read failed when it returns nil.
-    static func readNode(_ el: AXUIElement, focused: AXUIElement?, error: inout AXError?) -> (AXNode, [AXUIElement])? {
+    static func readNode(_ el: AXUIElement, focused: AXUIElement?, error: inout AXError?,
+                         document: Bool = false) -> (AXNode, [AXUIElement])? {
         var errors: [String: AXError] = [:]
-        let result = attributes(el, nodeAttributes, errors: &errors)
+        let names = document ? nodeAttributes + ["AXHeadingLevel", "AXARIARole"] : nodeAttributes
+        let result = attributes(el, names, errors: &errors)
         if case .failed(let e) = result { error = e }
         guard case .ok(let a) = result else { return nil }
         var n = AXNode(string(a["AXRole"]) ?? "AXUnknown")
         n.subrole = string(a["AXSubrole"])
+        n.ariaRole = string(a["AXARIARole"])
+        n.headingLevel = (a["AXHeadingLevel"] as? NSNumber)?.intValue
+        if document, n.axRole == "AXHeading", n.headingLevel == nil {
+            n.headingLevel = (a["AXValue"] as? NSNumber)?.intValue
+        }
         n.title = string(a["AXTitle"])
         n.desc = string(a["AXDescription"])
         n.help = string(a["AXHelp"])
         n.identifier = string(a["AXIdentifier"])
         n.placeholder = string(a["AXPlaceholderValue"])
-        n.value = scalar(a["AXValue"])
+        n.value = n.isSecure ? nil : scalar(a["AXValue"])
         n.enabled = bool(a["AXEnabled"]) ?? true
         n.selected = bool(a["AXSelected"]) ?? false
         n.expanded = bool(a["AXExpanded"])
@@ -170,6 +177,7 @@ final class AXWalker {
     let prune: Bool
     let rowCap: Int
     let focused: AXUIElement?
+    let document: Bool
     private(set) var refs: [AXUIElement] = []
     private(set) var truncated = false
     private(set) var nodeCount = 0
@@ -181,13 +189,14 @@ final class AXWalker {
                                          "AXValueIndicator", "AXScrollBar", "AXProgressIndicator", "AXIncrementor"]
 
     init(deadline: Date, maxNodes: Int, maxDepth: Int, prune: Bool, rowCap: Int = SnapshotBuilder.rowCap,
-         focused: AXUIElement?) {
+         focused: AXUIElement?, document: Bool = false) {
         self.deadline = deadline
         self.maxNodes = maxNodes
         self.maxDepth = maxDepth
         self.prune = prune
         self.rowCap = rowCap
         self.focused = focused
+        self.document = document
     }
 
     func walk(_ el: AXUIElement, depth: Int = 0, clip: CGRect?) -> AXNode? {
@@ -197,12 +206,12 @@ final class AXWalker {
         }
         nodeCount += 1
         var readError: AXError?
-        var result = AX.readNode(el, focused: focused, error: &readError)
+        var result = AX.readNode(el, focused: focused, error: &readError, document: document)
         if result == nil, AX.isTransient(readError) {
             // The app did not answer in time (a web view building its tree, a busy main thread). Retry once if the
             // deadline allows a full messaging timeout; otherwise report the snapshot as incomplete.
             if Date().addingTimeInterval(Double(AX.messagingTimeout) + 0.05) < deadline {
-                result = AX.readNode(el, focused: focused, error: &readError)
+                result = AX.readNode(el, focused: focused, error: &readError, document: document)
             }
             if result == nil { truncated = true }
         }
@@ -213,10 +222,13 @@ final class AXWalker {
         if childRefs.isEmpty, node.axRole == "AXWebArea", !node.isZeroSize {
             childRefs = waitForWebContent(el)
         }
+        if document, childRefs.isEmpty, ["AXTable", "AXGrid"].contains(node.axRole) {
+            childRefs = AX.elements(AX.attribute(el, "AXRows"))
+        }
         node.ref = refs.count
         refs.append(el)
 
-        if RoleMap.dropped.contains(node.axRole) || Self.leafRoles.contains(node.axRole) { return node }
+        if node.isSecure || RoleMap.dropped.contains(node.axRole) || Self.leafRoles.contains(node.axRole) { return node }
         if depth >= maxDepth {
             if !childRefs.isEmpty { truncated = true }
             return node
@@ -227,7 +239,7 @@ final class AXWalker {
             childClip = clip.map { $0.intersection(f) } ?? f
         }
 
-        if Self.listRoles.contains(node.axRole) {
+        if Self.listRoles.contains(node.axRole) && !document {
             walkList(el, &node, childRefs: childRefs, depth: depth, clip: childClip)
         } else {
             for c in childRefs {

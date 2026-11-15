@@ -69,6 +69,13 @@ class HelperClient:
         """The frontmost app with only its focused element: ~10 ms, where a window read takes 100-500."""
         return await self.request("/ax/snapshot", {"scope": "focused", "max_elements": 1})
 
+    async def page(self, snapshot: dict | None = None, *, direction: str | None = None,
+                   page_id: str | None = None) -> dict:
+        payload = {"app": snapshot["app"], "window": snapshot["window"]} if snapshot is not None else {}
+        if direction is not None:
+            payload.update(direction=direction, page_id=page_id)
+        return await self.request("/page/read", payload)
+
     async def apps(self) -> dict:
         """Running and installed app names (/app/list, a few ms)."""
         return await self.request("/app/list")

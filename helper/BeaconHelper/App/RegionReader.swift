@@ -236,6 +236,11 @@ enum RegionReader {
         }
     }
 
+    static func recognizePage(_ image: CGImage) async -> [SelectionFocus.OCRLine] {
+        if case let .success(lines)? = await run(image, level: .fast, budget: 3) { return lines }
+        return []
+    }
+
     /// Runs one recognition request on a background queue. Nil if it did not finish within `budget` seconds.
     private static func run(_ image: CGImage, level: VNRequestTextRecognitionLevel,
                             budget: TimeInterval) async -> Result<[SelectionFocus.OCRLine], Error>? {
