@@ -86,6 +86,10 @@ class MessagesHelper:
     async def frontmost(self):
         return {"app": self.app, "window": self.window, "elements": [], "snapshot_id": "s_front"}
 
+    async def apps(self):
+        return {"running": ["Messages", "Google Chrome", "Notes"],
+                "installed": ["Messages", "Google Chrome", "Notes", "Calculator", "Clock", "Calendar", "Discord"]}
+
     async def snapshot(self):
         elements = [{"id": 1, "role": "textfield", "label": "Search", "value": self.query or "",
                      "states": ["focused"] if self.focus == "search" else []}]
@@ -315,3 +319,42 @@ def test_send_to_this_chat_types_and_sends_without_asking():
 def test_send_a_message_without_text_still_asks():
     assert chats.here_send("Send Emmett a message.", chat_screen("Emmett")) is None
     assert chats.here_send("send a text", chat_screen()) is None
+
+
+@pytest.mark.parametrize("utterance, name, message", [
+    ("Switch to Clav", "Clav", None), ("Please switch the clav", "clav", None),
+    ('Can you go to Clav and send, "How are you doing?"', "Clav", "How are you doing?"),
+    ("go to Kai and say on my way", "Kai", "on my way"),
+])
+def test_bare_switch_names_a_chat(utterance, name, message):
+    assert chats.bare_switch(utterance) == chats.Request(name, None, message, message is not None)
+
+
+@pytest.mark.parametrize("utterance", [
+    "switch to the next tab", "go to the top", "go back", "Go to discord and send a message to KingSneapeshot.hello",
+    "switch to messages", "go to the inbox",
+])
+def test_bare_switch_leaves_places_and_apps_alone(utterance):
+    assert chats.bare_switch(utterance) is None
+
+
+def test_a_conversation_row_is_spoken_by_its_name():
+    from beacon_brain import labels
+    assert labels.short("Clav, Damn, 1:18 AM Mostly White People, Sure, 1:18 AM David, How are you doing?") == "Clav"
+    assert labels.short("Fold") == "Fold"
+    assert chats.is_conversation_list({"label": "David, How are you?, 11:45 PM Kai Kuriyama, alr, 10:46 PM"})
+
+
+@pytest.mark.loop
+def test_switch_to_clav_in_messages_uses_search():
+    async def go():
+        helper = MessagesHelper()
+        helper.CHATS = [*MessagesHelper.CHATS, "Clav"]
+        helper.app, helper.window = "Messages", "David"
+        brain = helper.brain = Brain(helper, None, Config(log_path=Path("/dev/null"), settle_ms=0), "Test")
+        await brain.on_event({"type": "stt.final", "text": "Switch to Clav", "stt_ms": 0})
+        await brain.active
+        return helper
+
+    helper = asyncio.run(go())
+    assert helper.window == "Clav" and helper.spoken == ["Opened the Clav chat."]

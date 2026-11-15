@@ -434,6 +434,16 @@ class Brain:
             # "Open messages", "switch to chrome": open or bring the app to the front.
             if await self.run_open_app(text, stt_ms):
                 return
+        bare = None if screen_question or screen_summary or chat else chats.bare_switch(text)
+        if bare is not None:
+            # "Switch to Clav" with Messages in front: the chat, through the same search path.
+            try:
+                front = await self.helper.frontmost()
+            except HelperError:
+                front = {}
+            if chats.in_chat_app(front):
+                await self.run_chat(bare, text, stt_ms)
+                return
         try:
             snapshot = await self.helper.snapshot()
         except HelperError as error:
@@ -608,6 +618,9 @@ class Brain:
                     and not str(call.arguments.get("question", "")).rstrip().endswith("?")):
                 # "Search for Christmas gifts on Amazon." is not a question: the model lost the thread.
                 error = "ask_user needs a real question ending in ?; otherwise take the next step"
+            if error is None and call.name == "click" and chats.is_conversation_list(tools.element_for(call, snapshot)):
+                # Clicking the whole Messages chat list opens nothing in particular: say which chat instead.
+                error = "That is the whole conversation list, not one chat: ask which chat, or say you couldn't find it"
             if (error is None and call.name == "click" and not memory.answers and not decide_first
                     and unrelated_click(call, snapshot, memory.all_words)):
                 # A long label that shares no word with the request (a chat line, a PR title on

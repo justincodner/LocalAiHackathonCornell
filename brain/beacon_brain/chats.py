@@ -299,3 +299,41 @@ def here_send(utterance: str, snapshot: dict) -> Request | None:
     window = re.sub(r"\s+-\s+(?:Google Chrome|Safari|Arc|Brave|Microsoft Edge|Firefox)$", "", snapshot.get("window") or "")
     window = re.sub(r"^(?:\(\d+\)\s*)?(?:Discord|Slack)\s*[|:-]\s*[@#]?", "", window).strip()
     return Request(window or "this chat", snapshot.get("app"), message, True)
+
+
+BARE_SWITCH = re.compile(r"^(?:switch|change|go|move|jump|flip|head)\s+(?:over\s+|back\s+)*(?:to|into|the)\s+"
+                         r"(?:the\s+|my\s+)?(?P<name>[\w&'.@ -]+?)"
+                         r"(?:\s*,?\s+(?:and|then)\s+(?:then\s+)?(?:send|say|text|tell\s+(?:them|him|her)|ask|write)\s*"
+                         r"[,:]?\s*(?P<body>.+))?$", I)
+
+
+def bare_switch(utterance: str) -> Request | None:
+    """ "Switch to Clav", "please switch the clav", "go to Clav and send how are you": a chat name with no
+    "chat" word. Only a chat when a chat app is in front (the loop checks); None if it isn't this shape."""
+    text = " ".join(re.sub(r"[\"“”]", "", utterance).split()).rstrip(" .!")
+    text = re.sub(r"(?i)^(?:(?:hey\s+)?beacon|ok(?:ay)?|so|um)\s*[,.]\s*", "", text)
+    text = re.sub(r"(?i)[\s,]+please$", "", LEAD_ANY_CASE.sub("", text)).strip()
+    match = BARE_SWITCH.match(text)
+    if not match:
+        return None
+    body = (match.group("body") or "").strip(" ,.") or None
+    name = match.group("name").casefold()
+    if (re.search(r"\b(?:tab|tabs|page|window|top|bottom|site|website|link|inbox|settings|home|start|end|next|"
+                  r"previous|last|first|line|bar|field|menu|folder|messages?|imessage|discord|slack|app)\b", name)
+            or (body and re.match(r"(?i)(?:a|an|the)\s+(?:message|text|dm)\b|to\s+", body))):
+        return None  # a place on screen or an app, or "send a message to Sam" after it: not a chat name
+    return _request(re.sub(r"(?i)\s+(?:chat|conversation)$", "", match.group("name")), None, body, send=body is not None)
+
+
+def in_chat_app(front: dict) -> bool:
+    app = (front.get("app") or "").casefold()
+    window = (front.get("window") or "").casefold()
+    return app in {"messages", "discord", "slack"} or (app in BROWSERS and ("discord" in window or "slack" in window))
+
+
+TIMESTAMP = re.compile(r"\b\d{1,2}:\d{2}\s*[AP]M\b", re.IGNORECASE)
+
+
+def is_conversation_list(element: dict | None) -> bool:
+    """Messages' whole chat list as one text element ("David, How are you?, 11:45 PM Kai, alr, 10:46 PM ...")."""
+    return bool(element) and len(TIMESTAMP.findall(element.get("label") or "")) >= 2
