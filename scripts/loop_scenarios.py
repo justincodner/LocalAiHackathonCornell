@@ -59,6 +59,27 @@ def messages_screen(name: str = "Emmett", value: str = "") -> dict:
     }
 
 
+def discord_screen() -> dict:
+    title = "(8623) Discord | @Kingsnipeshot - Memory usage - 383 MB"
+    return {
+        "snapshot_id": "s_dc", "app": "Google Chrome", "window": title, "focused_id": 12,
+        "text": (f'APP Google Chrome | WINDOW "{title}" | FOCUS [12]\n'
+                 '[2] tab "(8623) Discord | @Kingsnipeshot"\n[10] list "Direct Messages"\n'
+                 '  [3] row "Kingsnipeshot"\n  [4] row "Krillion"\n[11] heading "kingsnipeshot"\n'
+                 '[13] text "Kingsnipeshot: gg wp"\n'
+                 '[12] textarea "Message @Kingsnipeshot" value="" (focused)'),
+        "elements": [
+            {"id": 2, "role": "tab", "label": "(8623) Discord | @Kingsnipeshot", "states": []},
+            {"id": 10, "role": "list", "label": "Direct Messages", "states": []},
+            {"id": 3, "role": "row", "label": "Kingsnipeshot", "states": []},
+            {"id": 4, "role": "row", "label": "Krillion", "states": []},
+            {"id": 11, "role": "heading", "label": "kingsnipeshot", "states": []},
+            {"id": 13, "role": "text", "label": "Kingsnipeshot: gg wp", "states": []},
+            {"id": 12, "role": "textarea", "label": "Message @Kingsnipeshot", "value": "", "states": ["focused"]},
+        ],
+    }
+
+
 class FakeHelper:
     """Serves one screen, applies typed text to it, and records everything Beacon does."""
 
@@ -230,6 +251,12 @@ SCENARIOS = [
     Scenario("send asks for text", lambda: messages_screen(), "Send Emmett a message.",
              lambda h: expect("on my way" in h.typed().casefold() and sent(h),
                               f"typed {h.typed()!r}, keys {h.keys()}"), replies=["On my way"]),
+    # Misheard names: speech-to-text spelling of a name that is on screen.
+    Scenario("misheard name send", discord_screen, "Send a message to KingSneapeshot.hello.",
+             lambda h: expect(h.typed().strip().casefold().rstrip(".!") == "hello" and sent(h),
+                              f"typed {h.typed()!r}, keys {h.keys()}, pressed {h.pressed()}")),
+    Scenario("misheard name click", discord_screen, "Click crillion.",
+             lambda h: expect(h.pressed() == ["Krillion"], f"pressed {h.pressed()}, said {h.spoken}")),
     # Mail and notes.
     Scenario("read latest email", lambda: load("mail_inbox"), "Read me the latest email.",
              lambda h: expect(not h.pressed() or any("sarah" in l.casefold() for l in h.pressed()),
