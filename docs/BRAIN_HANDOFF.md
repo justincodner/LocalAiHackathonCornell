@@ -172,6 +172,39 @@ Live results, Bonsai 2 2B on the Windows laptop:
 - `scripts/loop_scenarios.py follow-up` covers a pronoun, an ellipsis and a follow-up on the screen. All 3 pass;
   the screen one needs `BEACON_LLM_TIMEOUT_S=60` on this laptop, because cold prompts there take about 20 s.
 
+## Color filters for color blindness (`color_filter.py`, Helper `Display/ColorFilterService.swift`)
+
+Users can say "help me distinguish red and green", "turn on the deuteranopia filter", "try the other one",
+"turn off the color filter" or "put my colors back". All of this runs in code: no model call and no window read.
+
+- **Mechanism.** macOS has no public API for Color Filters. The Mac Helper calls the private
+  MediaAccessibility functions that System Settings uses, `MADisplayFilterPrefSetType` and
+  `MADisplayFilterPrefSetCategoryEnabled` with category 1. It resolves them with `dlsym`, so a macOS version
+  without them gets `action_unsupported` rather than a crash. Each change is verified by re-reading
+  `com.apple.mediaaccessibility` (`__Color__-MADisplayFilterCategoryEnabled`, `__Color__-MADisplayFilterType`).
+  If the setting doesn't read back as asked, the Helper returns `action_failed`.
+  Type values are protanopia=2 (Red/Green), deuteranopia=4 (Green/Red), tritanopia=8, grayscale=1 and tint=16.
+  **The function signatures, category and type values come from reverse-engineering notes. None of them has been
+  run on a Mac yet.** See `helper/TESTING.md` section 8.
+- **Why not System Settings UI automation:** the pane was redesigned in Ventura. Labels are localized, so
+  automation breaks across versions and languages. It also steals focus, takes seconds and shows the user
+  a window. It would also need Accessibility to drive another app. It stays a possible fallback if the private
+  functions disappear. For now Beacon points the user to System Settings instead.
+- **Contract:** `GET/POST /display/color_filter` in `contracts/openapi.yaml` (additive; contract version unchanged).
+  The Mock Helper implements it. The Windows Helper does not. The Brain treats a 404 as "not available on this
+  computer".
+- **No diagnosis.** A general red-green request asks "deuteranopia or protanopia?". "Either" starts with
+  deuteranopia and says so, and makes no claim about which works better. "Try the other one" swaps between the
+  two red-green filters. When no red-green filter is on, it asks instead.
+- **Reversible.** Beacon records the setting before its first change. "Turn off the color filter" turns the filter
+  off and restores the filter type selected before. If the user already had a filter on, "put my colors back"
+  restores that filter. Intensity, tint and other accessibility settings are never written.
+- **Bare follow-ups** ("try the other one", "turn it off") count as color-filter requests only right after one.
+  Otherwise they go to the normal loop.
+- **"Stop the color filter"** is still the spec-9.5 "stop" command, so it doesn't turn the filter off. Say "turn off".
+- Tests: `brain/tests/test_color_filter.py` (intent, choice, switching, disabling, restore, failures, Brain flow,
+  Mock Helper) and `helper/Tests/BeaconHelperTests/ColorFilterTests.swift` (fake OS backend).
+
 ## Review (subagent, two rounds)
 
 An independent review found 6 bugs that the tests missed, then re-probed the fixes and found 4 more. All are now fixed,

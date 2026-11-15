@@ -116,6 +116,15 @@ final class HelperServer: @unchecked Sendable {
             return ["running": r.running, "installed": r.installed]
         }
 
+        await route(server, "GET /display/color_filter") { _ in try await s.colorFilter.state() }
+        await route(server, "POST /display/color_filter") { a in
+            // A JSON true/false only: JSONSerialization would also let 0 and 1 through `as? Bool`.
+            guard let flag = a.raw["enabled"] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID() else {
+                throw HelperError(.badRequest, "'enabled' must be true or false")
+            }
+            return try await s.colorFilter.set(enabled: flag.boolValue, filter: a.optString("filter"))
+        }
+
         await route(server, "POST /tts/speak") { a in
             let text = try a.string("text")
             let priority = a.optString("priority") ?? "normal"

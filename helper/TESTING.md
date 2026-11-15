@@ -71,6 +71,33 @@ Reset first to test a clean machine: `tccutil reset Microphone dev.beacon.helper
 - [ ] Search the logs for download or connection errors: `grep -riE "download|connection|unreachable|offline" logs/` shows none that matter.
 - [ ] `grep -rE "https?://" brain/ helper/ --include=*.py --include=*.swift` shows only loopback addresses (and the SwiftPM dependency URLs in `Package.swift`, which is not matched by the include filter).
 
+## 8. Color filters (`Display/ColorFilterService.swift`)
+
+Beacon changes the macOS Color Filters setting through private MediaAccessibility functions, the ones System
+Settings itself calls. The Helper never reports success unless the saved setting reads back, but that check can't
+see pixels, so check the screen by eye. This was written and unit-tested on Windows and has **not** been run on a Mac yet.
+
+Setup: no extra permission. The Helper is not sandboxed, which this needs. Before you start, note your own setting in
+System Settings > Accessibility > Display > Color Filters so you can put it back.
+
+- [ ] `swift test --filter ColorFilterTests` passes.
+- [ ] `curl -s localhost:8765/display/color_filter` returns `ok: true` with `enabled` and `filter`, and no
+      `action_unsupported` error. Run it on each macOS version you demo on.
+- [ ] `curl -s -X POST localhost:8765/display/color_filter -d '{"enabled":true,"filter":"deuteranopia"}'`
+      changes the screen colors within a second. System Settings then shows Color Filters on with
+      **Green/Red filter (Deuteranopia)** selected. If it shows Red/Green, the type values in
+      `ColorFilterKind` are swapped. Fix them before the demo.
+- [ ] The same call with `"protanopia"` selects **Red/Green filter (Protanopia)**.
+- [ ] `-d '{"enabled":false}'` turns the filter off and leaves the Filter type and Intensity sliders unchanged.
+- [ ] Voice flow: "Help me distinguish red and green", then "deuteranopia", then "try the other one",
+      then "turn off the color filter". Beacon says each change, and the screen matches it.
+- [ ] Start with Grayscale on in System Settings. Then say "turn on deuteranopia", then "turn off the color filter",
+      then "put my colors back". Grayscale comes back on.
+- [ ] Failure path: if `GET` returns `action_unsupported`, Beacon says it can't change color filters and points
+      to System Settings. It never says it turned the filter on.
+- [ ] Settings lag: if System Settings is open on the Color Filters pane during a change, close and reopen
+      the pane before you judge it, because it may not refresh while open.
+
 ## Results log
 
 | Date | Build | Tester | Result / notes |
