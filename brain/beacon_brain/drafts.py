@@ -131,7 +131,7 @@ class DraftRun:
 
     async def finish(self, summary: str) -> bool:
         await self.brain.say(summary)
-        self.brain.previous_result = f"Previous request: {self.text[:300]}\nPrevious result: {summary}"
+        self.brain.remember(self.text, summary, self.app)
         return True
 
     async def send(self, snapshot: dict) -> bool:
@@ -199,6 +199,8 @@ def flow_for(text: str, snapshot: dict) -> str | None:
         return None
     if not wants_reply(text):
         return None
+    if not compose.command_and_content(text)[1]:
+        return None  # "Reply to her": the model has the conversation to work out what to say
     name = compose.recipient(text)
     if name and not compose.on_screen(name, snapshot):
         return None  # "Reply to David" while Sarah's email is open: let the model look
@@ -213,8 +215,10 @@ async def run(brain, text: str, snapshot: dict, stt_ms: int) -> bool:
     if flow is None:
         return False
     draft = DraftRun(brain, text, stt_ms)
+    draft.app = snapshot.get("app", "")
     if flow == "nothing":
-        sent = "Previous result: Sent" in brain.previous_result  # "Reply that ...", then "Send it"
+        last = brain.conversation.last  # "Reply that ...", then "Send it"
+        sent = last is not None and last.reply.startswith("Sent")
         return await draft.finish("That's already sent." if sent else "There's no draft open to send.")
     if flow == "send":
         return await draft.send(snapshot)

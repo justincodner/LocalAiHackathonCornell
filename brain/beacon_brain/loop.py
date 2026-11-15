@@ -8,12 +8,12 @@ from dataclasses import replace
 
 import httpx
 
-from . import browser, compose, fastpath, grounding, locate, narrate, page_summary, questions, risk, route, tools
+from . import browser, compose, fastpath, followup, grounding, locate, narrate, page_summary, questions, risk, route, tools
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall
 from .log import append_step
-from .memory import TaskMemory
+from .memory import Conversation, TaskMemory
 from . import drafts  # Mail replies and "send it" on a draft, run in code
 
 
@@ -58,7 +58,8 @@ class Brain:
         self.finished_speech: dict[str, bool] = {}
         self.screen_generation = 0
         self.task_number = 0
-        self.previous_result = ""
+        self.conversation = Conversation(config.memory_tokens, config.memory_turns, config.memory_idle_s)
+        self.heard = ""  # the user's own words for the current request, before resolve()
         self.last_speech = ""
         self.rate = 1.0
 
@@ -164,8 +165,13 @@ class Brain:
                     delta = -0.1 if command == "slower" else 0.1
                     self.rate = max(0.5, min(1.5, round(self.rate + delta, 1)))
                     await self.say(f"Speaking {command}.")
+                elif command == "forget":
+                    self.conversation.forget()
+                    await self.say("Okay. I've forgotten our conversation.")
                 else:
-                    await self.route_request(text, stt_ms)
+                    self.heard = text
+                    request, context = await self.resolve(text)
+                    await self.route_request(request, stt_ms, context=context)
         except (TimeoutError, BonsaiError) as error:
             LOGGER.warning("Task ended: %s", error)
             apology = (
@@ -182,20 +188,56 @@ class Brain:
         finally:
             await self.set_state("idle")
 
-    async def route_request(self, text: str, stt_ms: int) -> None:
+    async def resolve(self, text: str) -> tuple[str, str]:
+        """Return (the request to carry out, the earlier conversation it still depends on).
+
+        Only follow-ups pay for memory. A follow-up question is rewritten once to stand alone
+        ("How old is he?" -> "How old is Emmanuel Macron?"), so routing and the question
+        prompts never need the history. A follow-up action keeps its words and gets the
+        history in its task prompt instead, where it is cached for every later step.
+        """
+        if not self.conversation.exchanges or not followup.is_follow_up(text):
+            return text, ""
+        context = self.conversation.text()
+        if not followup.asks(text):
+            return text, context
+        await self.set_state("thinking", transcript=text)
+        try:
+            call, _ = await self.think(followup.messages(context, text), followup.REWRITE_TOOLS,
+                                       filler=True, task_route=route.ACTION)
+        except BonsaiError:
+            LOGGER.warning("Could not rewrite a follow-up; answering it with the conversation", exc_info=True)
+            return text, context
+        rewritten = followup.checked(call, text, context)
+        if rewritten is None:
+            LOGGER.info("Rejected follow-up rewrite %s", call.arguments)
+            return text, context
+        LOGGER.info("Follow-up %r -> %r", text, rewritten)
+        return rewritten, context
+
+    def remember(self, request: str, reply: str, app: str = "") -> None:
+        self.conversation.remember(request, reply, app)
+
+    async def route_request(self, text: str, stt_ms: int, *, context: str = "") -> None:
+        # "And his wife?" opens with no question word, but as a follow-up it is still a question.
+        question = fastpath.is_question(text) or bool(context and followup.asks(text))
         if (fastpath.wants_screen_summary(text) or fastpath.asks_for_action(text)
-                or fastpath.wants_follow_through(text) or not fastpath.is_question(text)):
-            await self.run_task(text, stt_ms)
+                or fastpath.wants_follow_through(text) or not question):
+            await self.run_task(text, stt_ms, context=context)
             return
-        if fastpath.needs_screen(text):
-            await self.run_task(text, stt_ms, screen_question=True)
+        last = self.conversation.last
+        if fastpath.needs_screen(text) or (context and last is not None and last.app):
+            # A follow-up to an exchange about the screen ("And the tax?") is about it too.
+            await self.run_task(text, stt_ms, screen_question=True, context=context)
             return
 
         await self.set_state("thinking", transcript=text)
         started = time.perf_counter()
+        unresolved = bool(context) and text == self.heard
         messages = [
             {"role": "system", "content": questions.ROUTING_PROMPT},
-            {"role": "user", "content": text},
+            # A rewritten follow-up already carries what it needs; an unresolved one gets the history.
+            {"role": "user", "content": f"EARLIER CONVERSATION:\n{context}\n\nQUESTION: {text}" if unresolved else text},
         ]
         advisory = fastpath.wants_advice(text)
         route_tools = questions.ROUTE_TOOLS[:1] if advisory else questions.ROUTE_TOOLS
@@ -227,15 +269,17 @@ class Brain:
         started_speaking = time.perf_counter()
         reply = answer or "I couldn't answer that. Try asking another way."
         await self.say(reply)
+        if answer:
+            self.remember(text, answer)
         append_step(self.config.log_path, task_id=f"t_{self.task_number}", step=1,
-                    utterance=text, kind="general", route=route.QUESTION, model=answered_by, snapshot_id=None, snapshot_tokens=0,
+                    utterance=text, heard=self.heard if self.heard != text else None, kind="general", route=route.QUESTION, model=answered_by, snapshot_id=None, snapshot_tokens=0,
                     tool="say", args={"text": reply}, valid=bool(answer), risk="allow", ok=bool(answer),
                     ms={"stt": stt_ms, "snapshot": 0, "llm": model_ms,
                         "act": round((time.perf_counter() - started_speaking) * 1000)})
 
-    async def run_task(self, text: str, stt_ms: int, *, screen_question: bool = False) -> None:
+    async def run_task(self, text: str, stt_ms: int, *, screen_question: bool = False, context: str = "") -> None:
         screen_summary = fastpath.wants_screen_summary(text)
-        memory = TaskMemory(self.prompt, text, "" if screen_summary or screen_question else self.previous_result)
+        memory = TaskMemory(self.prompt, text, "" if screen_summary or screen_question else context)
         available_tools = SCREEN_SUMMARY_TOOLS if screen_summary else tools.TOOL_DEFINITIONS
         task_id = f"t_{self.task_number}"
         generation = self.screen_generation
@@ -453,7 +497,8 @@ class Brain:
                         result["value"] = field.get("value")
             append_step(
                 self.config.log_path,
-                task_id=task_id, step=step, utterance=text, kind="screen", snapshot_id=screen["snapshot_id"],
+                task_id=task_id, step=step, utterance=text, heard=self.heard if self.heard != text else None,
+                kind="screen", snapshot_id=screen["snapshot_id"],
                 snapshot_tokens=(len(screen["text"]) + 3) // 4, tool=call.name, args=call.arguments,
                 valid=error is None, risk=verdict, ok=result["ok"], stray_chars=len(call.stray_text),
                 grounded=grounded or None, route=task_route, model=self.last_answered_by,
@@ -485,7 +530,9 @@ class Brain:
         else:
             task_summary = "I couldn't finish that. Here is where I stopped."
             await self.say(task_summary)
-        self.previous_result = memory.summarize(task_summary or "The previous task stopped.")
+        self.remember(memory.one_line,
+                      task_summary or (narrate.did(actions_taken) if actions_taken else "The task stopped."),
+                      snapshot["app"])
 
     async def run_browser_plan(self, plan: "browser.Plan", text: str, snapshot: dict, stt_ms: int) -> None:
         """Open a tab, search or go to a site with keyboard steps (browser.py), no model call."""
@@ -510,7 +557,7 @@ class Brain:
                 # The new tab or address bar takes a moment to take keyboard focus.
                 await asyncio.sleep(min(self.config.settle_ms, 300) / 1000)
         await self.say(summary)
-        self.previous_result = f"Previous request: {text[:300]}\nPrevious result: {summary}"
+        self.remember(text, summary, snapshot["app"])
 
     @staticmethod
     def finished_summary(call, result: dict, text: str, target: dict | None, *, was_fresh: bool,

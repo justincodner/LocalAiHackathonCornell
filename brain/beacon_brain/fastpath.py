@@ -12,6 +12,10 @@ COMMANDS = {
         "yes", "yeah", "yep", "yes please", "send it", "do it", "go ahead", "confirm", "ok", "okay",
     }),
     "no": frozenset({"no", "no thanks", "nope", "no cancel", "dont", "do not", "no dont", "no stop"}),
+    "forget": frozenset({
+        "forget that", "forget everything", "forget our conversation", "forget the conversation",
+        "new topic", "change of topic", "change the subject", "clear the conversation", "start a new conversation",
+    }),
 }
 
 

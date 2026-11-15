@@ -121,11 +121,10 @@ def test_reply_reads_the_draft_back_when_confirmations_are_on(tmp_path, answer, 
     assert helper.spoken[-1] == ("Sent to Sarah Chen." if sends else "Okay, cancelled. The reply is still open.")
 
 
-def test_reply_without_text_asks_once_and_types_the_answer(tmp_path):
-    helper = MailHelper(fixture("mail_inbox"), ["See you at noon"])
-    run_brain(helper, "Reply to this email", tmp_path)
-    assert helper.typed() == ["See you at noon"]
-    assert helper.sends == 1
+def test_reply_without_text_is_left_to_the_model():
+    # "Reply to her" has no text: the model has the conversation (memory.Conversation) to work it out.
+    assert drafts.flow_for("Reply to this email", fixture("mail_inbox")) is None
+    assert drafts.flow_for("Reply to her", fixture("mail_inbox")) is None
 
 
 @pytest.mark.parametrize("utterance", ["Send it", "send this", "Send the email", "okay, send it now"])
