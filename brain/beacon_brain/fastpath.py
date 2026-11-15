@@ -61,6 +61,14 @@ def wants_advice(text: str) -> bool:
     ))
 
 
+UI_VERBS = (r"(?:pay|check ?out|buy|purchase|place (?:my |the |an )?order|order|submit|sign (?:in|up|out)|"
+            r"log (?:in|out)|login|register|search|send|reply|click|press|tap|type|enter|find|go)")
+LOCATE = re.compile(
+    rf"^(?:please )?(?:(?:where|how) (?:do|can|should) i (?:go to |click to )?{UI_VERBS}\b"
+    r"|where(?:s| is| are) (?:the |a |an )?.+ (?:button|link|field|box|menu|tab|option)$)"
+)
+
+
 def needs_screen(text: str) -> bool:
     """Fast route for questions that explicitly refer to the user or their screen."""
     words = normalize(text)
@@ -73,7 +81,7 @@ def needs_screen(text: str) -> bool:
     personal = re.match(r"^(?:what(?:s| is| are)|where(?:s| is| are)|how (?:much|many)\b.*?)\s+my\b", words)
     choice = re.search(r"\b(?:what should i do|which option should i (?:pick|choose)|"
                        r"(?:should i|whether i should) (?:\w+ ){1,4}or \w+(?: \d+)?)(?: please)?$", words)
-    return bool(explicit or personal or choice)
+    return bool(explicit or personal or choice or LOCATE.match(words))
 
 
 def asks_for_action(text: str) -> bool:

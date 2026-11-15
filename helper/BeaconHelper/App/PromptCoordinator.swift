@@ -125,7 +125,7 @@ final class PromptCoordinator {
                     self.fail("I couldn't read any text in that area. Try selecting a larger area.")
                     return
                 }
-                self.selectionReady(focus: focus, text: text)
+                self.selectionReady(focus: focus, text: text, image: result.image)
             } catch {
                 guard let self else { return }
                 Log.error("selection read failed: \(error)")
@@ -134,9 +134,9 @@ final class PromptCoordinator {
         }
     }
 
-    private func selectionReady(focus: JSONObject, text: String) {
+    private func selectionReady(focus: JSONObject, text: String, image: CGImage) {
         focusID = services.events.setPendingFocus(focus)
-        hud.setSelection(preview: SelectionFocus.preview(text))
+        hud.setSelection(preview: SelectionFocus.preview(text), image: image)
         hud.play(.listenStop)
         notify("Selection ready. Hold \(hud.model.talkKey) and ask about it, or press \(hud.model.typeShortcut) to type.",
                speak: true)

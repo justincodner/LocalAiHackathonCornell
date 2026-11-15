@@ -8,12 +8,13 @@ from dataclasses import replace
 
 import httpx
 
-from . import browser, commands, compose, fastpath, followup, grounding, narrate, page_summary, questions, risk, route, tools
+from . import browser, commands, compose, fastpath, followup, grounding, locate, narrate, page_summary, questions, risk, route, tools
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall
 from .log import append_step
 from .memory import Conversation, TaskMemory
+from . import drafts  # Mail replies and "send it" on a draft, run in code
 
 
 LOGGER = logging.getLogger(__name__)
@@ -339,6 +340,8 @@ class Brain:
         if quick is not None:
             await self.run_browser_plan(quick, text, snapshot, stt_ms)
             return
+        if not (screen_question or screen_summary) and await drafts.run(self, text, snapshot, stt_ms):
+            return
         previous_snapshot = None
         task_summary = ""
         consecutive_invalid = 0
@@ -524,6 +527,7 @@ class Brain:
                     last_typed = call.arguments.get("text", "")
                 committed = committed or verdict == "confirm" or (
                     call.name == "press_key" and risk.normal_keys(call.arguments["keys"]).split("+")[-1] in {"return", "enter"}
+                    and compose.return_sends(screen)
                 )  # Return sends in many chat apps, so don't claim "nothing has been sent"
                 fresh_request = False
             target = tools.element_for(call, screen) if "id" in call.arguments else None
@@ -654,6 +658,10 @@ class Brain:
         return None
 
     async def answer_from_screen(self, snapshot: dict, request: str, *, advisory: bool | None = None) -> ToolCall:
+        located = locate.where(snapshot, request)
+        if located:  # "Where do I pay?": ring the control and say where it is, no model call
+            await self.set_state("speaking", caption=located[0], highlight=tools.element_ref(snapshot, located[1]))
+            return ToolCall("screen-locate", "say", {"text": located[0]})
         advisory = fastpath.wants_advice(request) if advisory is None else advisory
         prompt = questions.ADVICE_PROMPT if advisory else questions.SCREEN_PROMPT
         if snapshot["app"].casefold() in page_summary.BROWSERS:
@@ -759,8 +767,7 @@ class Brain:
             await self.say(narrate.clean_speech(args.get("text") or args["summary"]))
             return {"ok": True, "spoken": True}
         if call.name == "read_element":
-            text = await self.helper.read(snapshot["snapshot_id"], args["id"])
-            await self.say(text)
+            text = await locate.read_aloud(self, snapshot, args["id"])
             return {"ok": True, "text": text[:1500]}
         if call.name == "ask_user":
             reply = await self.ask(narrate.clean_speech(args["question"]))

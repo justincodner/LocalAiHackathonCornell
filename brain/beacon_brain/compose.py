@@ -56,9 +56,17 @@ def command_and_content(utterance: str) -> tuple[str, str | None]:
 
 
 def message_for(utterance: str, answers: list[tuple[str, str]]) -> str | None:
-    """What to type: the user's latest answer to a question, else the text in the request."""
+    """What to type: the user's latest answer to a question, else the text in the request.
+
+    "Yes", "send it" or "stop" answering a confirmation is not the message, unless it
+    answers "What should the message say?".
+    """
+    from . import fastpath
+
     if answers:
-        return answers[-1][1].strip() or None
+        question, reply = answers[-1]
+        if question.startswith(ASK_MESSAGE) or fastpath.classify(reply) not in {"yes", "no", "stop"}:
+            return reply.strip() or None
     return command_and_content(utterance)[1]
 
 
@@ -81,10 +89,52 @@ FIELD_LABEL = re.compile(r"^(?:i?message|text message|send a message|write a mes
                          re.IGNORECASE)
 
 
-def recipient(utterance: str) -> str | None:
+ADDRESS_LABEL = re.compile(r"^(?:to|recipients?)\s*:?$", re.IGNORECASE)
+WROTE = re.compile(r"(?:^|,\s)(?:at [\d:]+\s*[AP]M,\s*)?(?P<name>[^,<>]+?)\s*<[^>]+>\s*wrote:", re.IGNORECASE)
+REPLY_HEADING = re.compile(r"^(?:reply|re|message) to\s+(?P<name>.+)$", re.IGNORECASE)
+# Mail apps where Return in the body only adds a new line: only the Send button sends.
+MULTILINE_APPS = {"mail", "microsoft outlook", "outlook", "spark", "thunderbird", "airmail", "mimestream"}
+
+
+def addressee(snapshot: dict) -> str | None:
+    """Who an open draft goes to: its To field, a "Reply to Sarah Chen" heading, the quoted
+    "Sarah Chen <sarah@...> wrote:", else the sender of the selected email ("Sarah Chen - ...")."""
+    elements = snapshot.get("elements", [])
+    for item in elements:
+        value = (item.get("value") or "").strip()
+        if item["role"] in {"textfield", "textarea", "combobox", "tokenfield"} and value and (
+                ADDRESS_LABEL.match((item.get("label") or "").strip())):
+            name = re.sub(r"\s*<[^>]*>", "", value).replace("\ufffc", "").strip(" ,;")
+            if name:  # Mail shows a contact token as U+FFFC: then read the quoted "... wrote:"
+                return name
+    for item in elements:
+        heading = REPLY_HEADING.match((item.get("label") or "").strip()) if item["role"] == "heading" else None
+        if heading:
+            return heading.group("name").strip()
+    for item in elements:
+        quoted = WROTE.search(item.get("label") or "")  # "... Sarah Chen <sarah@x.com> wrote:"
+        if quoted:
+            return quoted.group("name").strip()
+    selected = next((item for item in elements if item["role"] == "row" and "selected" in item.get("states", [])), None)
+    if selected and " - " in (selected.get("label") or ""):
+        return selected["label"].split(" - ", 1)[0].strip() or None
+    return None
+
+
+def recipient(utterance: str, snapshot: dict | None = None) -> str | None:
+    """Who the message goes to: the draft's To field when a snapshot is given, else the name
+    in the request ("send hello to Emmett")."""
+    found = addressee(snapshot) if snapshot is not None else None
+    if found:
+        return found
     command, _ = command_and_content(utterance)
     match = next((m for m in RECIPIENT.finditer(command) if m.group("name") not in NOT_NAMES), None)
     return match.group("name") if match else None
+
+
+def return_sends(snapshot: dict) -> bool:
+    """Return sends the message (Messages, chat apps), not just a new line (Mail)."""
+    return snapshot["app"].casefold() not in MULTILINE_APPS
 
 
 def message_field(snapshot: dict) -> dict | None:

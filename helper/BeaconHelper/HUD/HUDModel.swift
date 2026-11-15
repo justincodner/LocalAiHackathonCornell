@@ -17,6 +17,8 @@ final class HUDModel: ObservableObject {
     @Published var reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
     /// Short preview of a screen region the user selected (Control+Option+S), while it waits for a question.
     @Published var selectionPreview: String?
+    /// The captured region itself, drawn as a small preview instead of the selected text.
+    @Published var selectionImage: NSImage?
     /// Name of the push-to-talk key as people say it ("Option").
     var talkKey = HUDStatusText.talkKeyName(Config.pttKey)
     /// Spoken names of the global shortcuts ("Control Option Space", "Control Option S").
@@ -29,6 +31,11 @@ final class HUDModel: ObservableObject {
     /// True while a selected region waits for the user's question (it takes over the idle and asking looks).
     var showsSelection: Bool {
         selectionPreview != nil && [.idle, .asking, .listening, .error].contains(state)
+    }
+
+    /// True while the reply area shows the selection's thumbnail rather than text.
+    var showsSelectionThumbnail: Bool {
+        showsSelection && selectionImage != nil && replyText == selectionPreview
     }
 
     /// True while the user is speaking an answer to Beacon's question.
@@ -118,8 +125,9 @@ struct HUDStyle {
     // Dark translucent surfaces keep even the secondary text readable over white content.
     static let header = Color(white: 0.09)
     static let secondaryText = Color(white: 0.80)
-    /// Amber marks a question waiting for the user (asking, and listening for the answer).
-    static let question = Color(red: 1.0, green: 0.76, blue: 0.20)
+    /// A question waiting for the user (asking, and listening for the answer) stands out in solid white,
+    /// keeping the HUD monochrome.
+    static let question = Color.white
 
     static func of(_ state: HUDState) -> HUDStyle {
         switch state {
