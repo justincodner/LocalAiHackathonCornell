@@ -31,6 +31,12 @@ WHERE = (r"(?:in|into|inside|on|at|using|onto)\s+(?:the\s+|a\s+|this\s+|that\s+)
          rf"(?P<kind>{FIELD_WORDS})")
 # "In the Amazon search bar, search for Christmas gifts" / "in the search box type hello".
 WHERE_FIRST = re.compile(rf"^{WHERE}\s*,?\s*(?:(?:and|then)\s+)?(?P<verb>{SUBMIT_VERB}|{TYPE_VERB})\s+(?P<text>.+)$")
+# Dictation hears a leading "In" as "and" or "an" ("and Amazon search bar, search for X").
+MISHEARD_IN = re.compile(r"^(?:and|an|end|n)\s+")
+# "Amazon search for X", "in Amazon, search for X", "Amazon search bar search for X": that site's search.
+SITE_FIRST = re.compile(r"^(?:(?:in|on|at)\s+)?(?:the\s+)?(?P<site>" + "|".join(browser.SITE_SEARCH) +
+                        r")(?:\.com)?(?:'s)?\s*,?\s+(?:search\s+(?:bar|box|field)\s*,?\s+)?"
+                        rf"(?P<verb>{SUBMIT_VERB})\s*,?\s+(?P<text>.+)$")
 # "Search for Christmas gifts in the Amazon search bar" / "type hello into the name field".
 WHERE_LAST = re.compile(rf"^(?P<verb>{SUBMIT_VERB}|{TYPE_VERB})\s+(?P<text>.+?)\s*,?\s+{WHERE}$")
 # "Type hello and press enter": the focused field.
@@ -67,6 +73,13 @@ def parse(utterance: str) -> Request | None:
         return Request(_strip_quotes(enter.group("text")), "", True, focused=True)
     pressed_enter = bool(AND_ENTER.search(text))
     text = AND_ENTER.sub("", text)
+    if MISHEARD_IN.match(text) and (WHERE_FIRST.match(MISHEARD_IN.sub("in ", text))
+                                    or SITE_FIRST.match(MISHEARD_IN.sub("in ", text))):
+        text = MISHEARD_IN.sub("in ", text)
+    site_first = SITE_FIRST.match(text)
+    if site_first and not WHERE_FIRST.match(text):
+        typed = site_first.group("text").strip(" ,")
+        return Request(_strip_quotes(typed), f"{site_first.group('site')} search", True) if typed else None
     match = WHERE_FIRST.match(text) or WHERE_LAST.match(text)
     if match:
         typed = match.group("text").strip(" ,")
