@@ -33,6 +33,11 @@ class Config:
     # Prompt processing is the bottleneck (~170 tok/s for the 4B on the M1), so ask the
     # Helper for fewer elements than its 250 default; tune from docs/bench.md.
     snapshot_max_elements: int = 120
+    # Conversation memory (memory.Conversation): at most this many tokens of earlier exchanges,
+    # sent only with follow-ups ("how old is he?"). 0 turns it off.
+    memory_tokens: int = 240
+    memory_turns: int = 4
+    memory_idle_s: float = 300
     prewarm: bool = True
     thinking_filler_ms: int = 1500
     prompt_path: Path = ROOT / "brain" / "prompts" / "system_v3.txt"
@@ -72,6 +77,9 @@ class Config:
             max_tokens=int(get("MAX_TOKENS", str(cls.max_tokens))),
             cache_prompt=get("CACHE_PROMPT", "1").lower() in {"1", "true", "yes"},
             snapshot_max_elements=int(get("SNAPSHOT_MAX_ELEMENTS", str(cls.snapshot_max_elements))),
+            memory_tokens=int(get("MEMORY_TOKENS", str(cls.memory_tokens))),
+            memory_turns=int(get("MEMORY_TURNS", str(cls.memory_turns))),
+            memory_idle_s=float(get("MEMORY_IDLE_S", str(cls.memory_idle_s))),
             prewarm=get("PREWARM", "1").lower() in {"1", "true", "yes"},
             thinking_filler_ms=int(get("THINKING_FILLER_MS", str(cls.thinking_filler_ms))),
             prompt_path=ROOT / get("PROMPT_PATH", str(cls.prompt_path)),  # relative paths are repo-relative
