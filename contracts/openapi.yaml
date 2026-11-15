@@ -267,6 +267,51 @@ paths:
                     properties:
                       running: {type: array, items: {type: string}}
                       installed: {type: array, items: {type: string}}
+  /display/color_filter:
+    get:
+      summary: The macOS Color Filters setting (Accessibility > Display > Color Filters)
+      description: |
+        `action_unsupported` when this macOS version does not expose the display-filter functions, or the Helper
+        is not on macOS. A Helper without this endpoint (Windows) answers 404; the Brain treats that the same way.
+      responses:
+        "200":
+          description: Current state
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - $ref: "#/components/schemas/ColorFilterState"
+    post:
+      summary: Turn the color filter on (with a filter type) or off, then verify it reads back
+      description: |
+        Changes only the color-filter on/off flag and filter type; intensity, tint and other accessibility
+        settings are untouched. `filter` is required when `enabled` is true; with `enabled: false` it optionally
+        restores the selected type. Answers `ok: true` only after the saved setting reads back as requested;
+        otherwise `action_failed` with the state that was read in `error.state`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: {type: boolean}
+                filter: {type: string, enum: [grayscale, protanopia, deuteranopia, tritanopia, tint]}
+      responses:
+        "200":
+          description: Verified state after the change
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Ok"
+                  - $ref: "#/components/schemas/ColorFilterState"
+                  - type: object
+                    required: [previous, verified]
+                    properties:
+                      previous: {$ref: "#/components/schemas/ColorFilterState"}
+                      verified: {type: boolean, const: true}
   /tts/speak:
     post:
       summary: Queue speech. interrupt flushes the queue first.
@@ -380,6 +425,17 @@ components:
         application/json:
           schema: {$ref: "#/components/schemas/Ok"}
   schemas:
+    ColorFilterState:
+      type: object
+      required: [enabled, filter]
+      properties:
+        enabled: {type: boolean}
+        filter:
+          type: string
+          enum: [grayscale, protanopia, deuteranopia, tritanopia, tint, unknown]
+          description: "protanopia = System Settings' Red/Green filter; deuteranopia = Green/Red; tritanopia = Blue/Yellow"
+        type_value: {type: integer, description: "Raw MADisplayFilterType preference value"}
+        available: {type: boolean}
     Ok:
       type: object
       required: [ok]

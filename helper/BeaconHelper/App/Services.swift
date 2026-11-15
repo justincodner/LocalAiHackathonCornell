@@ -152,16 +152,18 @@ final class Services: @unchecked Sendable {
     let speechOut: SpeechOutputProviding
     let events: EventHub
     let hud: HUDProviding
+    let colorFilter: ColorFilterProviding  // Display/ColorFilterService.swift
 
     @MainActor
     init(accessibility: AccessibilityProviding, input: InputProviding,
          speechIn: SpeechInputProviding, speechOut: SpeechOutputProviding,
-         events: EventHub, hud: HUDProviding) {
+         events: EventHub, hud: HUDProviding, colorFilter: ColorFilterProviding = ColorFilterService()) {
         self.accessibility = accessibility
         self.input = input
         self.speechIn = speechIn
         self.speechOut = speechOut
         self.events = events
         self.hud = hud
+        self.colorFilter = colorFilter
     }
 }

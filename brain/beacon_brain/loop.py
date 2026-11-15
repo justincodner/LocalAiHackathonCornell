@@ -9,8 +9,8 @@ from dataclasses import replace
 
 import httpx
 
-from . import (browser, chats, commands, compose, document, fastpath, followup, grounding, locate, messaging, narrate,
-               page_summary, questions, risk, route, screen_words, steps, tools)
+from . import (browser, chats, color_filter, commands, compose, document, fastpath, followup, grounding, locate,
+               messaging, narrate, page_summary, questions, risk, route, screen_words, steps, tools)
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall, has_tool_markup, strip_tool_markup
@@ -128,6 +128,7 @@ class Brain:
         self.last_speech = ""
         self.rate = 1.0
         self.reading: tuple[document.Document, int] | None = None
+        self.color_filter = color_filter.Controller(helper)  # macOS Color Filters, run in code
 
     async def set_state(self, state: str, **fields) -> None:
         self.state = state
@@ -230,6 +231,7 @@ class Brain:
         if len(text.split()) < 3:
             return False  # "Fold", "the blue one", "yes please"
         return bool(commands.plan(text, None) or commands.continuous_scroll(text) or browser.plan(text, "google chrome") or chats.parse(text)
+                    or color_filter.parse(text) is not None
                     or commands.app_request(text) and len(text.split()) <= 6 and not fastpath.classify(text))
 
     async def speak(self, text: str, *, wait: bool = True) -> bool:
@@ -305,6 +307,9 @@ class Brain:
                     answer = commands.clock_answer(text)
                     await self.say(answer)
                     self.remember(text, answer)
+                elif focus is None and (color := color_filter.parse(
+                        text, recent=self.color_filter.recent(self.task_number))) is not None:
+                    await self.run_color_filter(color, text, stt_ms)
                 elif focus is not None:
                     await self.answer_about_selection(text, focus, stt_ms)
                 elif reading_intent in {"read", "continue"}:
@@ -904,6 +909,20 @@ class Brain:
         self.remember(memory.one_line,
                       task_summary or (narrate.did(actions_taken) if actions_taken else "The task stopped."),
                       snapshot["app"])
+
+    async def run_color_filter(self, intent: "color_filter.Intent", text: str, stt_ms: int) -> None:
+        """Turn macOS Color Filters on, off or over (color_filter.py); no model call and no window read."""
+        started = time.perf_counter()
+        await self.set_state("acting", transcript=text, caption=color_filter.CAPTIONS[intent.kind])
+        message = await self.color_filter.run(intent, self.ask)
+        self.color_filter.last_task = self.task_number
+        append_step(self.config.log_path, task_id=f"t_{self.task_number}", step=1, utterance=text,
+                    kind="color_filter", route="color_filter", model=None, tool="color_filter",
+                    args={"intent": intent.kind, "filter": intent.filter, "applied": self.color_filter.applied},
+                    valid=True, risk="allow", ok=not self.color_filter.failed,
+                    ms={"stt": stt_ms, "snapshot": 0, "llm": 0, "act": round((time.perf_counter() - started) * 1000)})
+        await self.say(message)
+        self.remember(text, message)
 
     async def run_message(self, heard: str, text: str, snapshot: dict, stt_ms: int) -> bool:
         """Send a chat message read in code (messaging.py). False leaves the request to the other paths."""

@@ -69,6 +69,11 @@ class ListenArgs(BaseModel):
     mode: Literal["start", "stop"]
 
 
+class ColorFilterArgs(BaseModel):
+    enabled: bool
+    filter: Literal["grayscale", "protanopia", "deuteranopia", "tritanopia", "tint"] | None = None
+
+
 class HUDArgs(BaseModel):
     state: Literal["idle", "listening", "thinking", "acting", "speaking", "confirm", "error"]
     transcript: str | None = None
@@ -271,6 +276,23 @@ def create_app(fixtures_dir: Path | None = None, initial_fixture: str = "mail_in
         if args.highlight is not None:
             replay.element(args.highlight.snapshot_id, args.highlight.element_id)
         return {"ok": True}
+
+    # Color filters (helper/BeaconHelper/Display/ColorFilterService.swift), kept in memory.
+    color_filter = {"enabled": False, "filter": "grayscale"}
+
+    @app.get("/display/color_filter")
+    async def get_color_filter() -> dict:
+        return {"ok": True, **color_filter, "available": True}
+
+    @app.post("/display/color_filter")
+    async def set_color_filter(args: ColorFilterArgs) -> dict:
+        if args.enabled and args.filter is None:
+            raise HelperError("bad_request", "turning a color filter on needs 'filter'")
+        previous = dict(color_filter)
+        color_filter["enabled"] = args.enabled
+        if args.filter is not None:
+            color_filter["filter"] = args.filter
+        return {"ok": True, **color_filter, "previous": previous, "verified": True}
 
     @app.post("/screen/capture")
     async def capture() -> dict:
