@@ -173,7 +173,8 @@ def test_clicking_another_dm_in_the_sidebar_is_kept(tmp_path):
     emmett = element(dm, "Emmett (direct message)")["id"]
     model = ScriptedModel(
         ToolCall("a", "click", {"id": emmett}),
-        ToolCall("b", "ask_user", {"question": "What should I say?"}),
+        ToolCall("b", "ask_user", {"question": "What should I say?"}),  # the message is given: rejected
+        ToolCall("c", "done", {"summary": "Stopped."}),
     )
 
     async def go():

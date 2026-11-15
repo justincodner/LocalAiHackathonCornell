@@ -67,7 +67,19 @@ def is_question(text: str) -> bool:
     )) or (text.rstrip().endswith("?") and not COMMAND_START.match(words))
 
 
+ASKS_WHAT_TO_DO = re.compile(r"\bwhat (?:do|should|would|shall|can) i do\b|\bwhat(?:s| is) (?:my |the )?best (?:move|play|option)\b"
+                             r"|\bwhat would you do\b")
+
+
 def wants_advice(text: str) -> bool:
+    """Asks what to do or which option to take ("do I raise or call?", "What do I do here? Fold or raise")."""
+    if ASKS_WHAT_TO_DO.search(normalize(text)):
+        return True
+    sentences = [part for part in re.split(r"[.?!]+\s*", text) if part.strip()]
+    return any(_advice_sentence(part) for part in sentences[1:]) or _advice_sentence(text)
+
+
+def _advice_sentence(text: str) -> bool:
     words = question_words(text)
     return bool(re.match(
         r"^(?:(?:(?:can|could|would) you |give me |i (?:want|need) )?"
@@ -97,7 +109,9 @@ def needs_screen(text: str) -> bool:
     choice = re.search(r"\b(?:what should i do|which option should i (?:pick|choose)|"
                        r"(?:should i|whether i should) (?:\w+ ){1,4}or \w+(?: \d+)?)(?: please)?$"
                        r"|^(?:should|do|can|shall) i (?:\w+ ){0,3}\w+ or \w+\b", words)
-    return bool(explicit or personal or choice or LOCATE.match(words))
+    # "Look at my poker situation. What do I do here?": advice about what is on screen.
+    situation = wants_advice(text) and re.search(r"\b(?:here|this|my|screen|situation|hand|now|page|game)\b", words)
+    return bool(explicit or personal or choice or situation or LOCATE.match(words))
 
 
 def asks_for_action(text: str) -> bool:

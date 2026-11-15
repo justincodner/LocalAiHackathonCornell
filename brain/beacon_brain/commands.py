@@ -242,3 +242,40 @@ def match_app(spoken: str, running: list[str], installed: list[str]) -> str | No
     # One misheard letter or two ("discored", "safary").
     close = difflib.get_close_matches(key, list(by_key), n=1, cutoff=0.85 if len(key) >= 6 else 0.9)
     return by_key[close[0]] if close else None
+
+
+WINDOW_CONTROLS = {"close", "close window", "minimize window", "full screen", "zoom", "minimize", "new tab",
+                   "back", "forward", "reload"}
+PRESSABLE = {"button", "link", "menuitem", "tab", "radio", "checkbox", "popup"}
+PRESS_WORDS = re.compile(r"^(?:(?:press|click|tap|hit|push|select|choose|pick|do|go\s+with|i'?ll|i\s+will|let'?s)\s+)?"
+                         r"(?:on\s+)?(?:the\s+)?(?P<name>.+?)(?:\s+(?:button|option|link))?$")
+
+
+def named_button(words: str, snapshot: dict, *, bare: bool = False) -> dict | None:
+    """The one visible control that "Fold", "press call" or "check" names, or None.
+
+    The name must be the whole label ("Fold") or its first words before an amount ("Call" for
+    "Call $4", "Raise" for "Raise 2.3"), and only one control may fit.
+    """
+    text = " ".join(re.sub(r"[^\w.' ]", " ", words.casefold()).split()).strip(" .")
+    text = re.sub(r"^(?:ok(?:ay)?|yes|yeah|um|uh|so|then|please)\s+|\s+(?:please|now|then)$", "", text)
+    match = PRESS_WORDS.match(text)
+    if not match or (bare and match.group("name") != text):
+        return None  # bare: only a label said on its own ("Fold"), not "click reply"
+    name = match.group("name").strip(" .")
+    if not name or len(name.split()) > 4:
+        return None
+    exact, leading = [], []
+    for item in snapshot.get("elements", []):
+        if item.get("role") not in PRESSABLE or {"disabled", "inferred"} & set(item.get("states", [])):
+            continue
+        label = " ".join(re.sub(r"[^\w.' ]", " ", (item.get("label") or "").casefold()).split()).strip(" .")
+        if not label or label in WINDOW_CONTROLS:
+            continue
+        if label == name:
+            exact.append(item)
+        elif label.startswith(name + " ") and re.fullmatch(r"(?:to\s+)?[\d.,]+\s*\w{0,3}|\(\d+\)",
+                                                          label[len(name) + 1:].strip()):
+            leading.append(item)
+    found = exact or leading
+    return found[0] if len(found) == 1 else None

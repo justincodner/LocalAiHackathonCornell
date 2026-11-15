@@ -276,8 +276,10 @@ class Brain:
     async def route_request(self, text: str, stt_ms: int, *, context: str = "") -> None:
         # "And his wife?" opens with no question word, but as a follow-up it is still a question.
         question = fastpath.is_question(text) or bool(context and followup.asks(text))
+        # "Send to this chat, did you find it?" ends in a question mark but asks for a send.
+        sends_message = fastpath.wants_send(text) and bool(compose.command_and_content(text)[1])
         if (fastpath.wants_screen_summary(text) or fastpath.asks_for_action(text)
-                or fastpath.wants_follow_through(text) or not question):
+                or fastpath.wants_follow_through(text) or sends_message or not question):
             await self.run_task(text, stt_ms, context=context)
             return
         last = self.conversation.last
@@ -395,6 +397,16 @@ class Brain:
             LOGGER.info("Heard %r; on screen that is %r", heard, text)
             append_step(self.config.log_path, task_id=task_id, step=0, kind="heard", utterance=heard, corrected=text)
             memory.utterance = text
+        button = None if (screen_question or screen_summary or fastpath.wants_send(text)
+                          or fastpath.is_question(text)) else commands.named_button(text, snapshot, bare=True)
+        if button is not None:
+            click = ToolCall("command-1", "click", {"id": button["id"]})
+            if risk.check(click, snapshot) == "allow":
+                # "Fold", "press call": the one control the words name, with no model call.
+                label = (button.get("label") or "").strip()
+                await self.run_browser_plan(browser.Plan([click], f"Pressing {label}", f"I pressed {label}."), text,
+                                            snapshot, stt_ms, kind="command")
+                return
         quick = None if screen_question or screen_summary else (
             browser.named_tab(text, snapshot) or browser.plan(text, snapshot["app"]))
         if quick is not None:
@@ -404,11 +416,17 @@ class Brain:
         if elsewhere is not None:
             await self.run_chat(elsewhere, text, stt_ms)
             return
+        here = None if screen_question or screen_summary else chats.here_send(text, snapshot)
+        if here is not None:
+            # "Send to this chat, did you find it?": the open chat's box, typed and sent in code.
+            await self.send_in_chat(snapshot, here, text, f"t_{self.task_number}", time.perf_counter(), stt_ms)
+            return
         if not (screen_question or screen_summary) and await drafts.run(self, text, snapshot, stt_ms):
             return
         previous_snapshot = None
         task_summary = ""
         consecutive_invalid = 0
+        answers_used = 0  # answers to ask_user already checked for a button they name ("Fold")
         failures = []
         confirmed_screen = None
         actions_taken: list[str] = []  # spoken past tense, for honest done summaries
@@ -487,6 +505,13 @@ class Brain:
             acted_at = time.perf_counter()
             screen = snapshot
             call = tools.normalize(call, snapshot)
+            if len(memory.answers) > answers_used:
+                answers_used = len(memory.answers)
+                named = commands.named_button(memory.latest_words, snapshot)
+                if named is not None and (call.name, call.arguments.get("id")) != ("click", named["id"]):
+                    # "Fold" answering "Fold or raise?": press exactly that, whatever the model picked.
+                    LOGGER.info("The answer names %r: clicking it instead of %s", named.get("label"), call.name)
+                    call = ToolCall(call.id, "click", {"id": named["id"]}, call.stray_text)
             if (call.name in tools.SCREEN_ACTIONS and last_success == (call.name, call.arguments)
                     and not fastpath.wants_repeat(memory.all_words)):
                 # The 2B model often repeats the step it just took (types the number again, scrolls
@@ -531,6 +556,13 @@ class Brain:
                 # "How do I access messages in this app?" asks the user how to do what they asked for.
                 LOGGER.info("ask_user asked how to do the request; treating it as a failed step")
                 error = "Don't ask the user how to do it: take the step yourself with a tool"
+            if (error is None and call.name == "ask_user" and fastpath.wants_send(text) and not committed
+                    and compose.message_for(text, memory.answers)
+                    and not re.search(r"\b(?:who|which|whom)\b", str(call.arguments.get("question", "")).casefold())):
+                # "Did you find the private token for this chat?": the message is given, so a question
+                # back is the model misreading it. Only who-to-send-to is worth asking about.
+                LOGGER.info("ask_user on a send whose message is given; treating it as a failed step")
+                error = "The user gave the message: type it into the message field and send it"
             if (error is None and must_act and call.name == "done" and early_stops < 2
                     and (not tried_action or (sending and not last_typed and not committed
                                              and compose.message_for(text, memory.answers)))):
@@ -726,6 +758,14 @@ class Brain:
             await self.say(summary)
             self.remember(text, summary, app)
             return
+        await self.send_in_chat(snapshot, chats.Request(shown, app, chat.message, True), text, task_id, started,
+                                stt_ms)
+
+
+    async def send_in_chat(self, snapshot: dict, chat: "chats.Request", text: str, task_id: str, started: float,
+                           stt_ms: int) -> None:
+        """Type the message into the open chat's box and press Return (asks for it when missing)."""
+        shown, app = chat.name, chat.app
         message = chat.message
         if message is None:
             message = await self.ask(compose.ASK_MESSAGE)
@@ -744,7 +784,7 @@ class Brain:
         append_step(self.config.log_path, task_id=task_id, step=2, utterance=text, kind="chat", route="chat",
                     model=None, tool="send", args={"app": app, "name": shown}, valid=True, risk="allow", ok=True,
                     ms={"stt": stt_ms, "snapshot": 0, "llm": 0, "act": round((time.perf_counter() - started) * 1000)})
-        summary = f"Sent {message} to {shown}."
+        summary = f"Sent: {message}." if shown == "this chat" else f"Sent to {shown}: {message}."
         await self.say(summary)
         self.remember(text, summary, app)
 

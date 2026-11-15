@@ -269,3 +269,33 @@ def person_send(utterance: str, snapshot: dict) -> Request | None:
     if not name or not message:
         return None
     return Request(name, "Messages", message, True)
+
+
+def here_send(utterance: str, snapshot: dict) -> Request | None:
+    """ "Send to this chat, did you find it?", "send hello" with a chat open: type it there and send.
+
+    Only when the open chat is clearly the target: the user said here / this chat, named no one,
+    or named the person whose chat is open. Mail is left to drafts.py.
+    """
+    from . import fastpath
+
+    here = compose.here_content(utterance)
+    if not (fastpath.wants_send(utterance) or here) or not compose.return_sends(snapshot):
+        return None
+    field = compose.message_field(snapshot)
+    if field is None or (field.get("value") or "").strip():
+        return None  # no chat box, or a draft is already there ("send it" sends that)
+    message = here
+    if message is None:
+        message = compose.command_and_content(utterance)[1]
+        bare = re.match(r"(?i)^(?:please\s+|can\s+you\s+)?send\s+(?P<body>.+?)[.!]?$", utterance.strip())
+        if message is None and bare and not compose.recipient(utterance) and not re.search(
+                r"(?i)\b(?:message|text|note|dm|reply)\b", bare.group("body")) and not re.match(r"(?i)(?:the|a|an|my|this|that|it|them|him|her|to)\b|"
+                                                     r".*\bto\s+\w+$", bare.group("body")):
+            message = bare.group("body")  # "send hello" with a chat open
+        name = compose.recipient(utterance)
+        if not message or (name and not compose.chat_open(name, snapshot, field)):
+            return None
+    window = re.sub(r"\s+-\s+(?:Google Chrome|Safari|Arc|Brave|Microsoft Edge|Firefox)$", "", snapshot.get("window") or "")
+    window = re.sub(r"^(?:\(\d+\)\s*)?(?:Discord|Slack)\s*[|:-]\s*[@#]?", "", window).strip()
+    return Request(window or "this chat", snapshot.get("app"), message, True)

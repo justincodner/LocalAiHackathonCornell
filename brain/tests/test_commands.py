@@ -227,3 +227,63 @@ def test_asking_the_user_how_to_do_the_request_is_a_failed_step():
                         ToolCall("b", "ask_user", {"question": "How do I open the inbox?"}),
                         ToolCall("c", "done", {"summary": "stopped"}))
     assert not any("How do I" in text for text in helper.spoken)
+
+
+def poker():
+    import json
+    root = Path(__file__).resolve().parents[2]
+    return json.loads((root / "scripts" / "fixtures" / "chrome_poker.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("words, label", [
+    ("Fold.", "Fold"), ("Fold,", "Fold"), ("fold", "Fold"), ("Call", "Call $4"), ("press call", "Call $4"),
+    ("Raise", "Raise to $11"), ("raise to 11", "Raise to $11"), ("I'll fold", "Fold"), ("click the fold button", "Fold"),
+])
+def test_named_button(words, label):
+    assert commands.named_button(words, poker())["label"] == label
+
+
+@pytest.mark.parametrize("words", ["check", "Fold or raise", "close", "reply", "raise to 20"])
+def test_named_button_needs_one_visible_match(words):
+    assert commands.named_button(words, poker()) is None
+
+
+def test_bare_only_takes_a_label_said_on_its_own():
+    assert commands.named_button("press call", poker(), bare=True) is None
+    assert commands.named_button("Fold.", poker(), bare=True)["label"] == "Fold"
+
+
+@pytest.mark.loop
+def test_one_word_fold_presses_fold_with_no_model_call():
+    helper, model = run(poker(), "Fold.")
+    assert helper.actions == [("/ax/act", {"snapshot_id": poker()["snapshot_id"], "element_id": 17, "action": "press"})]
+    assert model.requests == []
+
+
+@pytest.mark.loop
+def test_an_answer_naming_a_button_overrides_the_models_pick():
+    async def go():
+        helper = ReplayHelper(poker())
+        model = ScriptedModel(ToolCall("a", "ask_user", {"question": "Fold or raise?"}),
+                              ToolCall("b", "click", {"id": 19}),  # the model picks Raise
+                              ToolCall("c", "done", {"summary": "Done."}))
+        brain = helper.brain = Brain(helper, model, Config(log_path=Path("/dev/null"), settle_ms=0,
+                                                           reply_timeout_s=2), "Test")
+        await brain.on_event({"type": "stt.final", "text": "Make a move in this hand", "stt_ms": 0})
+        await helper.clarifying.wait()
+        await brain.on_event({"type": "stt.final", "text": "Fold,", "stt_ms": 0})
+        await brain.active
+        return helper
+
+    helper = asyncio.run(go())
+    pressed = [p["element_id"] for path, p in helper.actions if path == "/ax/act" and p.get("action") == "press"]
+    assert pressed == [17]
+
+
+@pytest.mark.parametrize("utterance", [
+    "Look at my poker situation. What do I do here? Fold or raise 2.3.", "Do I raise or do I call?",
+    "do i raise or do i call", "What should I do here?",
+])
+def test_choice_questions_get_advice_from_the_screen(utterance):
+    from beacon_brain import fastpath
+    assert fastpath.wants_advice(utterance) and fastpath.needs_screen(utterance) and fastpath.is_question(utterance)

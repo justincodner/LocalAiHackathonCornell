@@ -114,7 +114,9 @@ class MessagesHelper:
 
     async def request(self, path, payload=None):
         self.actions.append((path, payload))
-        if path == "/app/open":
+        if path == "/ax/act" and payload.get("action") == "focus" and payload["element_id"] == 99:
+            self.focus = "message"
+        elif path == "/app/open":
             self.app = payload["name"]
             if self.app == "Messages":
                 self.window = "David"
@@ -166,7 +168,7 @@ def test_switch_to_the_poker_chat_from_chrome():
 def test_send_to_the_poker_chat_from_another_window():
     helper = run("Send hello to the poker chat")
     assert helper.sent == [("Poker", "hello")]
-    assert helper.spoken == ["Sent hello to Poker."]
+    assert helper.spoken == ["Sent to Poker: hello."]
 
 
 @pytest.mark.loop
@@ -258,3 +260,58 @@ def test_discord_dm_through_its_browser_tab():
     helper = asyncio.run(go())
     assert helper.on_discord and helper.switcher_opened == "Emmett"
     assert helper.sent == [("Emmett", "see you at 5")]
+
+
+JUSTIN = "No, I'm asking, I want you to send to this chat, did you find the pirate token?"
+
+
+def chat_screen(name="Big Kizaru"):
+    return {"snapshot_id": "s_c", "app": "Messages", "window": name, "focused_id": 12, "text": "",
+            "elements": [{"id": 11, "role": "heading", "label": name, "states": []},
+                         {"id": 13, "role": "text", "label": "Private channels", "states": []},
+                         {"id": 12, "role": "textfield", "label": "Message", "value": "", "states": ["focused"]}]}
+
+
+@pytest.mark.parametrize("utterance, message", [
+    (JUSTIN, "did you find the pirate token?"),
+    ("Can you send, did you guys really find the pirate token?", "did you guys really find the pirate token?"),
+    ("send on my way in this chat", "on my way"),
+    ("send hello here", "hello"),
+    ("post to this chat: who is in tonight?", "who is in tonight?"),
+    ("send hello", "hello"),
+    ("Send hello to Big Kizaru", "hello"),
+])
+def test_here_send_types_into_the_open_chat(utterance, message):
+    assert chats.here_send(utterance, chat_screen()) == chats.Request("Big Kizaru", "Messages", message, True)
+
+
+def test_here_send_leaves_other_requests_alone():
+    assert chats.here_send("Send hello to Emmett", chat_screen()) is None  # someone else's chat is open
+    assert chats.here_send("send a message to this chat", chat_screen()) is None  # no message yet: ask
+    assert chats.here_send("what's in this chat", chat_screen()) is None
+    assert chats.here_send(JUSTIN, {**chat_screen(), "app": "Mail"}) is None
+
+
+def test_the_message_is_not_respelled_from_the_screen():
+    from beacon_brain import screen_words
+    assert "pirate token" in screen_words.correct(JUSTIN, chat_screen())
+
+
+@pytest.mark.loop
+def test_send_to_this_chat_types_and_sends_without_asking():
+    async def go():
+        helper = MessagesHelper()
+        helper.app, helper.window = "Messages", "Big Kizaru"
+        brain = helper.brain = Brain(helper, None, Config(log_path=Path("/dev/null"), settle_ms=0), "Test")
+        await brain.on_event({"type": "stt.final", "text": JUSTIN, "stt_ms": 0})
+        await brain.active
+        return helper
+
+    helper = asyncio.run(go())
+    assert helper.sent == [("Big Kizaru", "did you find the pirate token?")]
+    assert not any("?" in text and "Sent" not in text for text in helper.spoken)
+
+
+def test_send_a_message_without_text_still_asks():
+    assert chats.here_send("Send Emmett a message.", chat_screen("Emmett")) is None
+    assert chats.here_send("send a text", chat_screen()) is None
