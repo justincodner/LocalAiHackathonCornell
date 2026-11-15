@@ -40,10 +40,20 @@ protocol AccessibilityProviding: AnyObject, Sendable {
     func find(query: String, limit: Int) async throws -> [JSONObject]
     /// Full untruncated text of an element and its descendants.
     func read(snapshotID: String, elementID: Int) async throws -> String
+    /// Unclipped document blocks for the active page, optionally after scrolling that same page.
+    func page(app: String?, window: String?, direction: String?, pageID: String?,
+              input: InputProviding) async throws -> JSONObject
     /// Performs `press`, `focus`, `set_value`, `show_menu`, `increment`, `decrement`. Returns `ax` or `click`.
     func act(snapshotID: String, elementID: Int, action: String, value: Any?) async throws -> String
     /// Screen-space frame (top-left origin, points) of a snapshot element, for the highlight ring and scrolling.
     func frame(snapshotID: String, elementID: Int) async throws -> CGRect
+}
+
+extension AccessibilityProviding {
+    func page(app: String?, window: String?, direction: String?, pageID: String?,
+              input: InputProviding) async throws -> JSONObject {
+        throw HelperError(.actionUnsupported, "Document reading is unavailable")
+    }
 }
 
 // MARK: - Input and apps (H3)

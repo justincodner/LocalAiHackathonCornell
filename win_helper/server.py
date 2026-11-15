@@ -47,6 +47,13 @@ class FindArgs(BaseModel):
     limit: int = Field(default=10, ge=1)
 
 
+class PageArgs(BaseModel):
+    app: str | None = None
+    window: str | None = None
+    direction: Literal["up", "down"] | None = None
+    page_id: str | None = None
+
+
 class ActionArgs(ElementRef):
     action: Literal["press", "focus", "set_value", "show_menu", "increment", "decrement"]
     value: str | int | float | bool | None = None
@@ -274,6 +281,12 @@ def create_app(talk_key: str = "right_alt", with_hud: bool = True, with_voice: b
     @app.post("/ax/read")
     async def read(args: ElementRef) -> dict:
         return {"ok": True, "text": await run(reader.read, args.snapshot_id, args.element_id)}
+
+    @app.post("/page/read")
+    async def page(args: PageArgs) -> dict:
+        if args.direction and not args.page_id:
+            raise HelperError("bad_request", "page scrolling requires a page_id")
+        return await run(reader.page, args.app, args.window, args.direction, args.page_id)
 
     @app.post("/ax/act")
     async def act(args: ActionArgs) -> dict:

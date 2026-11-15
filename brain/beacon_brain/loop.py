@@ -9,8 +9,8 @@ from dataclasses import replace
 
 import httpx
 
-from . import (browser, chats, commands, compose, fastpath, followup, grounding, locate, narrate, page_summary, questions,
-               risk, route, screen_words, tools)
+from . import (browser, chats, commands, compose, document, fastpath, followup, grounding, locate, narrate,
+               page_summary, questions, risk, route, screen_words, tools)
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall
@@ -28,6 +28,7 @@ DECIDE_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["nam
 # Focus on one of these means Return would press it, not send the typed message.
 PRESSABLE = {"button", "link", "checkbox", "radio", "menuitem", "tab", "row", "cell", "popup", "slider", "menu", "list"}
 SCREEN_SUMMARY_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
+DOCUMENT_TOOLS = SCREEN_SUMMARY_TOOLS + document.TOOLS
 
 
 def prompt_families(prompt: str) -> list[tuple[str, list[dict]]]:
@@ -45,6 +46,7 @@ def prompt_families(prompt: str) -> list[tuple[str, list[dict]]]:
         (questions.SCREEN_PROMPT, SCREEN_SUMMARY_TOOLS),  # questions about the screen
         (questions.ADVICE_PROMPT, SCREEN_SUMMARY_TOOLS),  # "What should I do?" about the screen
         (page_summary.PROMPT, SCREEN_SUMMARY_TOOLS),  # "What's on my screen?" in a browser
+        (document.PROMPT, DOCUMENT_TOOLS),
         (followup.PROMPT, followup.REWRITE_TOOLS),  # follow-up rewrites
     ]
 
@@ -91,6 +93,7 @@ class Brain:
         self.heard = ""  # the user's own words for the current request, before resolve()
         self.last_speech = ""
         self.rate = 1.0
+        self.reading: tuple[document.Document, int] | None = None
 
     async def set_state(self, state: str, **fields) -> None:
         self.state = state
@@ -136,6 +139,7 @@ class Brain:
         kind = event["type"]
         if kind == "app.changed":
             self.screen_generation += 1
+            self.reading = None
         elif kind == "tts.finished" and isinstance(event.get("speech_id"), str):
             speech_id = event["speech_id"]
             interrupted = bool(event.get("interrupted"))
@@ -155,6 +159,7 @@ class Brain:
             # The HUD's X on a screenshot: stop whatever is running and start a fresh conversation.
             await self.cancel_active()
             self.conversation.forget()
+            self.reading = None
             await self.set_state("idle")
         elif kind == "listen.started" and self.state == "idle":
             await self.set_state("listening")
@@ -172,7 +177,7 @@ class Brain:
                 return
             # A dictated message ("Are you free tonight?") is the answer, not a new question.
             new_question = (self.state != "confirm" and not self.awaiting_message
-                            and fastpath.is_question(text))
+                            and (fastpath.is_question(text) or document.intent(text) is not None))
             if self.reply is not None and not self.reply.done() and not new_question:
                 self.reply.set_result(text)
                 return
@@ -227,8 +232,12 @@ class Brain:
 
     async def handle_utterance(self, text: str, stt_ms: int, focus: dict | None = None) -> None:
         command = fastpath.classify(text)
+        reading_intent = document.intent(text) if focus is None else None
+        timeout = self.config.task_timeout_s
+        if reading_intent in {"read", "continue"}:
+            timeout = max(timeout, 150)  # a full passage can take longer to speak than an action task
         try:
-            async with asyncio.timeout(self.config.task_timeout_s):
+            async with asyncio.timeout(timeout):
                 if command == "stop":
                     await self.helper.stop_speech()
                 elif command == "repeat":
@@ -239,9 +248,12 @@ class Brain:
                     await self.say(f"Speaking {command}.")
                 elif command == "forget":
                     self.conversation.forget()
+                    self.reading = None
                     await self.say("Okay. I've forgotten our conversation.")
                 elif focus is not None:
                     await self.answer_about_selection(text, focus, stt_ms)
+                elif reading_intent in {"read", "continue"}:
+                    await self.read_document(text, stt_ms, resume=reading_intent == "continue")
                 else:
                     self.heard = text
                     request, context = await self.resolve(text)
@@ -293,6 +305,9 @@ class Brain:
         self.conversation.remember(request, reply, app)
 
     async def route_request(self, text: str, stt_ms: int, *, context: str = "") -> None:
+        if document.intent(text) == "lookup":
+            await self.run_task(text, stt_ms, screen_question=True, context=context)
+            return
         # "And his wife?" opens with no question word, but as a follow-up it is still a question.
         question = fastpath.is_question(text) or bool(context and followup.asks(text))
         # "Send to this chat, did you find it?" ends in a question mark but asks for a send.
@@ -930,7 +945,14 @@ class Brain:
             return ToolCall("screen-locate", "say", {"text": located[0]})
         advisory = fastpath.wants_advice(request) if advisory is None else advisory
         prompt = questions.ADVICE_PROMPT if advisory else questions.SCREEN_PROMPT
-        if snapshot["app"].casefold() in page_summary.BROWSERS:
+        is_browser = snapshot["app"].casefold() in page_summary.BROWSERS
+        refers_to_document = (document.DOCUMENT_REFERENCE.search(fastpath.normalize(request))
+                              or document.intent(request) == "lookup")
+        if is_browser or refers_to_document:
+            page = await self.load_document(snapshot)
+            if page is not None and page.chunks:
+                return await self.investigate_page(snapshot, page, request, advisory=advisory)
+        if is_browser:
             content = page_summary.visible_content(snapshot, include_display_values=True)
             messages = page_summary.messages(snapshot, content, request, prompt=prompt)
             evidence = list(content)
@@ -966,7 +988,137 @@ class Brain:
             LOGGER.warning("Could not answer from the active screen", exc_info=True)
         return unavailable
 
+    async def load_document(self, snapshot: dict | None = None, **scroll) -> document.Document | None:
+        reader = getattr(self.helper, "page", None)
+        if reader is not None:
+            try:
+                return document.Document.from_payload(await reader(snapshot, **scroll))
+            except CONNECTION_ERRORS:
+                LOGGER.debug("Page content unavailable", exc_info=True)
+        return None
+
+    async def read_document(self, request: str, stt_ms: int, *, resume: bool) -> None:
+        await self.set_state("thinking", transcript=request)
+        generation = self.screen_generation
+        page = await self.load_document()
+        previous = self.reading
+        if not resume:
+            self.reading = None
+        index = 0
+        if not page or not page.chunks:
+            await self.say("I couldn't read document text in the active window.")
+            return
+        if resume:
+            if (previous is None or previous[0].page_id != page.page_id
+                    or previous[0].chunks[:previous[1]] != page.chunks[:previous[1]]):
+                await self.say("Say read this page to start reading the active page.")
+                return
+            index = previous[1]
+        if index >= len(page.chunks):
+            if page.partial:
+                more = await self.load_document(direction="down", page_id=page.page_id)
+                if more and more.page_id == page.page_id and more.chunks and more != page:
+                    # Lazy-loaded sections can extend the entire tree. Skip any unchanged leading passages.
+                    index = next((i for i, (old, new) in enumerate(zip(page.chunks, more.chunks))
+                                  if old != new), len(page.chunks))
+                    page = more
+            else:
+                await self.say("That's the end of the page.")
+                return
+            if index >= len(page.chunks):
+                await self.say("I couldn't find any more text after scrolling.")
+                return
+        if generation != self.screen_generation:
+            return
+        passage = page.chunks[index].text
+        spoken = passage
+        if index + 1 < len(page.chunks):
+            spoken += "\nSay continue reading for the next passage."
+        elif page.partial:
+            spoken += "\nSay continue reading to look for more text below."
+        await self.set_state("speaking", caption=spoken)
+        if await self.speak(spoken) and generation == self.screen_generation:
+            self.reading = (page, index + 1)
+        append_step(self.config.log_path, task_id=f"t_{self.task_number}", step=1, kind="document",
+                    utterance=request, tool="read_page", args={"chunk": index + 1}, ok=True,
+                    ms={"stt": stt_ms})
+
+    async def investigate_page(self, snapshot: dict, page: document.Document, request: str,
+                               *, advisory: bool) -> ToolCall:
+        """Read-only model tools over the capture, with at most two viewport advances."""
+        seen = page.start(request)
+        recent = seen
+        status = ""
+        scrolls = 0
+        failed_answer = False
+        generation = self.screen_generation
+        unavailable = ToolCall("page-question", "say", {
+            "text": "I couldn't read enough of the page to answer that."
+        })
+        for step in range(max(1, min(self.config.max_steps, 6))):
+            if generation != self.screen_generation:
+                return unavailable
+            available = DOCUMENT_TOOLS if scrolls < 2 else DOCUMENT_TOOLS[:-1]
+            messages = [
+                {"role": "system", "content": document.PROMPT},
+                {"role": "user", "content": f"ACTIVE PAGE: {json.dumps(snapshot['window'], ensure_ascii=False)}\n"
+                 f"{page.describe()} {status}\n{page.quote(recent)}\n\nREQUEST: {request}"},
+            ]
+            try:
+                call, _ = await self.think(messages, available, filler=step == 0, task_route=route.QUESTION)
+            except BonsaiError:
+                LOGGER.warning("Could not answer from the active page", exc_info=True)
+                break
+            if generation != self.screen_generation:
+                return unavailable
+            args = call.arguments
+            if call.name == "say" and tools.validate(call, {}) is None:
+                answer = args["text"].strip()
+                evidence = [line for i in seen for line in page.chunks[i - 1].evidence().splitlines()]
+                allowed = None if advisory else questions.reference_numbers(request, evidence)
+                missing = questions.missing_betting_context(request, evidence) if advisory else None
+                if missing:
+                    return ToolCall("page-question", "say", {"text": missing})
+                if (answer and not questions.is_question_only(answer)
+                        and fastpath.normalize(answer) != fastpath.normalize(request)
+                        and (allowed is None or questions.numbers(answer) <= allowed)):
+                    return call
+                if failed_answer:
+                    break
+                failed_answer = True
+                status = questions.SCREEN_RETRY
+            elif call.name == "search_page" and set(args) == {"query"} and 0 < len(
+                    query := document.clean(args["query"])) <= 120:
+                matches = page.search(query)
+                recent = matches[:document.MAX_CHUNKS_PER_SEARCH] or recent
+                status = (f"Search found {len(matches)} matching passages. "
+                          f"Passage numbers: {', '.join(map(str, matches[:12]))}." if matches
+                          else "No passages matched. Try another term or read another passage.")
+            elif (call.name == "read_page" and set(args) == {"chunk"}
+                  and type(args["chunk"]) is int and 1 <= args["chunk"] <= len(page.chunks)):
+                recent = [args["chunk"], *[i for i in recent if i != args["chunk"]][:1]]
+                status = ""
+            elif (call.name == "scroll_page" and set(args) == {"direction"}
+                  and args["direction"] in ("up", "down") and scrolls < 2):
+                scrolls += 1
+                next_page = await self.load_document(snapshot, direction=args["direction"], page_id=page.page_id)
+                if next_page and next_page.page_id == page.page_id and next_page.chunks and next_page != page:
+                    page = next_page
+                    recent = page.start(request)
+                    seen = []
+                    status = "Scrolled. Passage numbers refer to this new capture."
+                else:
+                    status = "Scrolling did not reveal new text in the active page."
+            else:
+                status = "Use one of the offered page tools with valid arguments."
+            seen = list(dict.fromkeys([*seen, *recent]))
+        return unavailable
+
     async def describe_page(self, snapshot: dict, request: str) -> ToolCall:
+        page = await self.load_document(snapshot)
+        if page is not None and page.chunks:
+            return await self.investigate_page(snapshot, page, f"{request}\nGive a brief overview with concrete details.",
+                                               advisory=False)
         content = page_summary.visible_content(snapshot)
         if content:
             try:

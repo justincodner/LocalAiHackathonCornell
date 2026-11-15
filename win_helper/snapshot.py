@@ -35,6 +35,7 @@ class Node:
     rect: tuple[float, float, float, float] | None = None
     children: list["Node"] = field(default_factory=list)
     ref: int | None = None
+    heading_level: int | None = None
 
     @property
     def zero_size(self) -> bool:
@@ -190,6 +191,41 @@ def value_for(node: Node, role: str) -> str | None:
     if role in {"textfield", "textarea"}:
         return clean(node.value) or ""
     return clean(node.value)
+
+
+def page_blocks(root: Node) -> list[dict]:
+    """Use the raw document subtree, keeping cell boundaries and complete field values."""
+    blocks: list[dict] = []
+    containers = {"table", "row", "cell", "columnheader", "rowheader"}
+    labeled = INTERACTIVE | {"heading", "text", "image", "document"} | containers
+
+    def visit(node: Node, depth: int) -> None:
+        if node.role in {"drop", "menu", "toolbar"}:
+            return
+        role = node.role
+        has_content = any(child.role not in {"drop", "image"} for child in node.children)
+        label = (node.name or node.value or "") if role == "text" else (node.name or node.help)
+        if role == "document" and has_content:
+            label = ""
+        if role in {"row", "cell", "columnheader", "rowheader"} and has_content:
+            label = ""  # providers may expose the same content as the cell name and its children
+        if role in labeled and (label or role in containers or role in VALUED):
+            block = {"role": role, "depth": depth, "text": label}
+            if role in VALUED:
+                block["value"] = ("(hidden)" if node.password else
+                                  value_for(node, role) if role in {"checkbox", "radio"} else node.value)
+            if node.heading_level:
+                block["level"] = node.heading_level
+            blocks.append(block)
+        if node.password or role in VALUED:
+            return
+        for child in node.children:
+            if not (role in {"heading", "link", "button"} and label and child.role == "text"
+                    and clean(child.name or child.value) == clean(label)):
+                visit(child, depth + 1)
+
+    visit(root, 0)
+    return blocks
 
 
 def is_checked(node: Node, role: str) -> bool:

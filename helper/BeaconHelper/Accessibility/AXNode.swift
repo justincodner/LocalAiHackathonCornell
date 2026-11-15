@@ -42,6 +42,8 @@ struct AXNode {
     var focused: Bool = false
     var selected: Bool = false
     var expanded: Bool? = nil
+    var headingLevel: Int? = nil
+    var ariaRole: String? = nil
     var frame: CGRect? = nil
     var children: [AXNode] = []
     /// For list-like containers: the total number of rows (`AXRows` count), including ones not walked.

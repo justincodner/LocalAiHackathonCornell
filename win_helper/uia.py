@@ -9,6 +9,7 @@ import sys
 sys.coinit_flags = 0  # COINIT_MULTITHREADED, before comtypes is imported anywhere
 
 import ctypes  # noqa: E402
+import hashlib  # noqa: E402
 import itertools  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
@@ -159,7 +160,7 @@ class Reader:
         except (comtypes.COMError, KeyError):
             return None
 
-    def to_node(self, el, raw: list, budget: dict) -> snap.Node:
+    def to_node(self, el, raw: list, budget: dict, *, page: bool = False, depth: int = 0) -> snap.Node:
         g = lambda k: self.prop(el, k)  # noqa: E731
         ctype = g("ctype") or 0
         role = ROLE_BY_TYPE.get(ctype, "group")
@@ -168,18 +169,24 @@ class Reader:
         offscreen = bool(g("offscreen"))
         children_arr = el.GetCachedChildren()
         kids = []
-        if children_arr:
+        if children_arr and (not page or depth < 120):
             for i in range(children_arr.Length):
                 if budget["n"] >= MAX_RAW_NODES:
                     budget["truncated"] = True
                     break
                 budget["n"] += 1
                 kids.append(children_arr.GetElement(i))
+        elif children_arr and children_arr.Length:
+            budget["truncated"] = True
         heading = g("heading") if HEADING else None
         aria = (g("aria") or "") if P_ARIA else ""
         if heading and heading != HEADING_NONE or aria == "heading":
             role = "heading"
-        if role == "document":
+        if page and aria in {"table", "grid", "treegrid", "row", "cell", "gridcell", "columnheader", "rowheader"}:
+            role = {"grid": "table", "treegrid": "table", "gridcell": "cell"}.get(aria, aria)
+        elif page and ctype in {50035, 50036}:
+            role = "columnheader" if ctype == 50035 else "table"
+        if role == "document" and not page:
             # Notepad/RichEdit documents are leaf editors; a browser's page root has children (and its URL as value).
             url = str(g("value") or "")
             is_page = "://" in url[:16] or url.startswith(("about:", "chrome:", "edge:"))
@@ -188,23 +195,30 @@ class Reader:
                 g = (lambda base: lambda k: None if k == "value" else base(k))(g)  # noqa: E731
         if role == "textfield" and (rect and rect[3] > 60) and aria != "textbox":
             role = "textarea" if not g("readonly") else role
-        if offscreen:
+        if offscreen and not page:
             role = "transparent" if role in snap.CONTAINERS | {"document"} else "drop"
-        value = g("value")
+        password = bool(g("password"))
+        value = None if password else g("value")
         if value is None and role == "slider" and g("has_range"):
             r = g("range")
             value = None if r is None else (str(int(r)) if float(r).is_integer() else f"{r:g}")
         expand = g("expand")
         node = snap.Node(
             role=role, name=g("name") or "", help=g("help") or "", automation_id=g("aid") or "",
-            value=None if value is None else str(value), password=bool(g("password")),
+            value=None if value is None else str(value), password=password,
             enabled=g("enabled") is not False, focused=bool(g("focus")), selected=bool(g("selected")),
             toggle=g("toggle"), expanded=expand == 1, rect=rect, ref=len(raw),
+            heading_level=heading - HEADING_NONE if page and heading and HEADING_NONE < heading <= HEADING_NONE + 9
+            else None,
         )
         raw.append(el)
-        node.children = [self.to_node(k, raw, budget) for k in kids]
-        if role == "textarea" and not node.value and not node.password and g("has_text"):
-            node.value = self.text_of(el, 200)
+        if not (page and password):
+            node.children = [self.to_node(k, raw, budget, page=page, depth=depth + 1) for k in kids]
+        if (role == "textarea" or (page and role in {"document", "textfield"} and not kids)) \
+                and not node.value and not password and g("has_text"):
+            node.value = self.text_of(el, -1 if page else 200)
+            if page and role == "document" and node.value:
+                node.children = [snap.Node("text", name=node.value)]
         return node
 
     @staticmethod
@@ -228,6 +242,68 @@ class Reader:
         if len(raw) < 3 and onscreen:
             return self.read_tree(hwnd, onscreen=False)
         return tree, raw, budget["truncated"]
+
+    def active_document(self, root):
+        """Find a visible document before requesting any offscreen nodes."""
+        pending = [root]
+        while pending:
+            el = pending.pop()
+            if self.prop(el, "ctype") == 50030 and not self.prop(el, "offscreen"):
+                return el
+            children = el.GetCachedChildren()
+            if children:
+                pending.extend(children.GetElement(i) for i in reversed(range(children.Length)))
+        return None
+
+    def page(self, app: str | None, window: str | None, direction: str | None, page_id: str | None) -> dict:
+        target = self.target()
+        if (app is not None and app != target.app) or (window is not None and window != target.window):
+            raise HelperError("stale_snapshot", "The active window changed")
+        try:
+            active = self.active_document(self.root(target.hwnd))
+            url = self.prop(active, "value") if active is not None else ""
+            url = url if isinstance(url, str) else ""
+            runtime_id = tuple(active.GetRuntimeId() or ()) if active is not None else ()
+        except (comtypes.COMError, HelperError):
+            active, url, runtime_id = None, "", ()
+        identity = hashlib.sha256(repr((target.hwnd, target.window, runtime_id, url)).encode()).hexdigest()
+        if direction:
+            if page_id != identity or win32.foreground() != target.hwnd:
+                raise HelperError("stale_snapshot", "The active page changed")
+            bounds = self.prop(active, "rect") if active is not None else None
+            x, y, width, height = bounds if bounds and bounds[2] and bounds[3] else win32.window_rect(target.hwnd)
+            win32.wheel(x + width / 2, y + height / 2, 5 if direction == "up" else -5, False)
+            time.sleep(0.25)
+            return self.page(target.app, target.window, None, identity)
+        if page_id is not None and page_id != identity:
+            raise HelperError("stale_snapshot", "The active page changed")
+
+        blocks = []
+        if active is not None:
+            try:
+                document = active.BuildUpdatedCache(self.cache_request(onscreen=False))
+                tree = self.to_node(document, [], {"n": 0, "truncated": False}, page=True)
+                blocks = snap.page_blocks(tree)
+            except comtypes.COMError:
+                pass
+        source = "accessibility"
+        if not any(block["role"] in {"text", "cell", "document", "textarea"} and
+                   (block["text"] or block.get("value")) for block in blocks):
+            from .page_ocr import read_window
+
+            lines = read_window(target.hwnd)
+            if lines:
+                source = "ocr"
+                blocks.extend({"role": "text", "depth": 0, "text": line} for line in lines)
+        try:
+            current_url = active.GetCurrentPropertyValue(P["value"]) if active is not None else ""
+            current_url = current_url if isinstance(current_url, str) else ""
+        except comtypes.COMError:
+            raise HelperError("stale_snapshot", "The active page changed") from None
+        if self.target() != target or current_url != url:
+            raise HelperError("stale_snapshot", "The active window changed")
+        # UIA does not report articles or virtualized rows that have yet to be loaded.
+        return {"ok": True, "page_id": identity, "source": source, "partial": True, "blocks": blocks}
 
     def snapshot(self, scope: str, max_elements: int) -> dict:
         started = time.perf_counter()
