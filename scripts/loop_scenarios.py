@@ -62,8 +62,9 @@ def messages_screen(name: str = "Emmett", value: str = "") -> dict:
 class FakeHelper:
     """Serves one screen, applies typed text to it, and records everything Beacon does."""
 
-    def __init__(self, screen: dict, replies: list[str]):
+    def __init__(self, screen: dict, replies: list[str], after_press: dict[str, Callable[[], dict]] | None = None):
         self.screen = copy.deepcopy(screen)
+        self.after_press = dict(after_press or {})  # pressed label containing this -> next screen
         self.replies = list(replies)
         self.spoken: list[str] = []
         self.actions: list[tuple[str, dict]] = []
@@ -71,6 +72,7 @@ class FakeHelper:
         self.snapshots = 0
         self.brain: Brain | None = None
         self.focus = screen.get("focused_id")
+        self.press_labels: list[str] = []
 
     async def snapshot(self):
         self.snapshots += 1
@@ -110,6 +112,16 @@ class FakeHelper:
         self.actions.append((path, payload))
         if path == "/ax/act" and payload.get("action") == "focus":
             self.focus = payload["element_id"]
+            self._focus_screen(self.focus)
+        if path == "/ax/act" and payload.get("action") == "press":
+            label = (self._element(payload["element_id"]) or {}).get("label") or ""
+            self.press_labels.append(label)
+            nxt = next((make for part, make in self.after_press.items() if part in label), None)
+            if nxt is not None:
+                self.actions.append(("screen", {"from": label}))
+                self.screen = copy.deepcopy(nxt())
+                self.focus = self.screen.get("focused_id")
+                return {"ok": True, "performed_via": "ax"}
         if path == "/ax/act" and payload.get("action") == "set_value":
             self._set(payload["element_id"], str(payload["value"]))
         if path == "/input/type" and self.focus is not None:
@@ -117,6 +129,21 @@ class FakeHelper:
             if element is not None:
                 self._set(self.focus, (element.get("value") or "") + payload["text"])
         return {"ok": True, "performed_via": "ax"}
+
+    def _focus_screen(self, element_id):
+        """Keyboard focus moves to the focused field, as it does in a real app."""
+        if self._element(element_id) is None:
+            return
+        old = self.screen.get("focused_id")
+        for element in self.screen["elements"]:
+            states = [st for st in element.get("states", []) if st != "focused"]
+            element["states"] = states + (["focused"] if element["id"] == element_id else [])
+        self.screen["focused_id"] = element_id
+        text = re.sub(r"FOCUS (?:\[\d+\]|none)", f"FOCUS [{element_id}]", self.screen["text"], count=1)
+        if old is not None:
+            text = re.sub(rf"^(\s*\[{old}\] [^\n]*?) \(focused\)$", r"\1", text, flags=re.M)
+            text = re.sub(rf"^(\s*\[{old}\] [^\n]*?\()focused, ", r"\1", text, flags=re.M)
+        self.screen["text"] = re.sub(rf"^(\s*\[{element_id}\] [^\n]*)$", r"\1 (focused)", text, count=1, flags=re.M)
 
     def _element(self, element_id):
         return next((e for e in self.screen["elements"] if e["id"] == element_id), None)
@@ -133,11 +160,7 @@ class FakeHelper:
 
     # Convenience views for the checks.
     def pressed(self) -> list[str]:
-        labels = []
-        for path, payload in self.actions:
-            if path == "/ax/act" and payload.get("action") == "press":
-                labels.append((self._element(payload["element_id"]) or {}).get("label") or "")
-        return labels
+        return list(self.press_labels)  # as labelled when pressed, before any screen change
 
     def typed(self) -> str:
         return " ".join(p["text"] for path, p in self.actions if path == "/input/type")
@@ -160,6 +183,7 @@ class Scenario:
     utterance: str
     check: Callable[[FakeHelper], str | None]  # None = pass, else what went wrong
     replies: list[str] = field(default_factory=list)
+    after_press: dict[str, Callable[[], dict]] = field(default_factory=dict)
 
 
 def expect(condition: bool, message: str) -> str | None:
@@ -176,6 +200,17 @@ SEND_LABELS = {"send", "send message", "reply", "post"}
 
 def sent(h: FakeHelper) -> bool:
     return "return" in h.keys() or any(label.casefold() in SEND_LABELS for label in h.pressed())
+
+
+def discord_sent(h: FakeHelper, body: str = "hello") -> str | None:
+    """Typed just the message into Kingsnipeshot's composer and pressed Return; no stray clicks."""
+    field = next(e for e in h.screen["elements"] if e["label"] == "Message @Kingsnipeshot")
+    stray = [label for label in h.pressed() if "Discord" not in label]
+    return (expect(h.typed().strip().casefold().rstrip(".!") == body and field.get("value", "").strip() == h.typed().strip(),
+                   f"typed {h.typed()!r} into {field.get('value')!r}")
+            or expect(h.keys()[-1:] == ["return"], f"keys {h.keys()}, pressed {h.pressed()}")
+            or expect(not stray, f"also pressed {stray}")
+            or expect("memory usage" not in h.said() and "8623" not in h.said(), f"said tab noise: {h.spoken}"))
 
 
 SCENARIOS = [
@@ -230,6 +265,16 @@ SCENARIOS = [
     Scenario("send asks for text", lambda: messages_screen(), "Send Emmett a message.",
              lambda h: expect("on my way" in h.typed().casefold() and sent(h),
                               f"typed {h.typed()!r}, keys {h.keys()}"), replies=["On my way"]),
+    # Web chat apps: go to the conversation, type the message in its composer, press Return.
+    # Speech heard "KingSneapeshot" for Kingsnipeshot and glued the message on with a period.
+    Scenario("send discord dm open", lambda: load("chrome_discord_dm"),
+             "Go to discord and send a message to KingSneapeshot.hello.", discord_sent),
+    Scenario("send discord from other tab", lambda: load("chrome_discord_other_tab"),
+             "go to discord and send a message to KingSneapeshot hello", discord_sent,
+             after_press={"Discord": lambda: load("chrome_discord_dm")}),
+    Scenario("send discord longer message", lambda: load("chrome_discord_dm"),
+             "Send a message to Kingsnipeshot saying I'm on in ten minutes",
+             lambda h: discord_sent(h, "i'm on in ten minutes")),
     # Mail and notes.
     Scenario("read latest email", lambda: load("mail_inbox"), "Read me the latest email.",
              lambda h: expect(not h.pressed() or any("sarah" in l.casefold() for l in h.pressed()),
@@ -242,7 +287,7 @@ SCENARIOS = [
 
 
 async def run_one(scenario: Scenario, config: Config, prompt: str, model, question_model) -> tuple[str | None, float, FakeHelper]:
-    helper = FakeHelper(scenario.screen(), scenario.replies)
+    helper = FakeHelper(scenario.screen(), scenario.replies, scenario.after_press)
     brain = helper.brain = Brain(helper, model, config, prompt, question_model)
     started = time.perf_counter()
     await brain.on_event({"type": "stt.final", "text": scenario.utterance, "stt_ms": 0})

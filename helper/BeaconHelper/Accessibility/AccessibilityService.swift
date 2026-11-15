@@ -114,7 +114,7 @@ final class AccessibilityService: AccessibilityProviding, @unchecked Sendable {
             windowTitle = "menu"
         } else {
             let window = try focusedWindow(target.app, appName: target.name)
-            windowTitle = AX.string(AX.attribute(window, "AXTitle")) ?? ""
+            windowTitle = Labels.withoutTabNoise(AX.string(AX.attribute(window, "AXTitle")) ?? "")
             root = window
             if let sheet = AX.elements(AX.attribute(window, "AXChildren")).first(where: { AX.role($0) == "AXSheet" }) {
                 root = sheet
