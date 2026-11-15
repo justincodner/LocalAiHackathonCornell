@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import httpx
 
-from . import compose, fastpath, followup, grounding, narrate, page_summary, questions, risk, route, screen_words, tools
+from . import browser, compose, fastpath, followup, grounding, narrate, page_summary, questions, risk, route, screen_words, tools
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall
@@ -24,6 +24,15 @@ DECIDE_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["nam
 # Focus on one of these means Return would press it, not send the typed message.
 PRESSABLE = {"button", "link", "checkbox", "radio", "menuitem", "tab", "row", "cell", "popup", "slider", "menu", "list"}
 SCREEN_SUMMARY_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
+
+
+TALK_KEY_NAMES = {"right_command": "Command", "right_cmd": "Command", "right_control": "Control",
+                  "right_ctrl": "Control", "right_shift": "Shift", "fn": "Fn", "function": "Fn"}
+
+
+def answer_hint(ptt_key: str) -> str:
+    """How to answer a question. The talk key is push-to-talk: held while speaking (HotkeyMonitor)."""
+    return f"Hold the {TALK_KEY_NAMES.get(ptt_key.casefold(), 'Option')} key and say your answer."
 
 
 def snapshot_summary(snapshot: dict) -> ToolCall:
@@ -90,6 +99,14 @@ class Brain:
             await self.set_state("idle")
         elif kind == "stt.final" and isinstance(event.get("text"), str) and event["text"].strip():
             text = event["text"].strip()
+            focus = questions.selection_focus(event)
+            if focus is not None:
+                # A question about a screen region the user just selected is always a new request,
+                # even while Beacon waits for an answer to something else.
+                await self.cancel_active()
+                self.task_number += 1
+                self.active = asyncio.create_task(self.handle_utterance(text, event.get("stt_ms", 0), focus=focus))
+                return
             # A dictated message ("Are you free tonight?") is the answer, not a new question.
             new_question = (self.state != "confirm" and not self.awaiting_message
                             and fastpath.is_question(text))
@@ -119,10 +136,14 @@ class Brain:
         await self.speak(text)
 
     async def ask(self, question: str, *, confirm: bool = False) -> str | None:
-        if not confirm:
-            question += " Hold the talk key to answer."
-        await self.set_state("confirm" if confirm else "speaking", caption=question)
-        if not await self.speak(question):
+        if confirm:
+            await self.set_state("confirm", caption=question)
+            spoken = question
+        else:
+            # The HUD shows the question in its "asking" look, with its own answer prompt.
+            await self.set_state("asking", caption=question)
+            spoken = f"{question} {answer_hint(self.config.ptt_key)}"
+        if not await self.speak(spoken):
             return None
         reply = asyncio.get_running_loop().create_future()
         self.reply = reply
@@ -141,7 +162,7 @@ class Brain:
             self.reply = None
             self.awaiting_message = False
 
-    async def handle_utterance(self, text: str, stt_ms: int) -> None:
+    async def handle_utterance(self, text: str, stt_ms: int, focus: dict | None = None) -> None:
         command = fastpath.classify(text)
         try:
             async with asyncio.timeout(self.config.task_timeout_s):
@@ -156,6 +177,8 @@ class Brain:
                 elif command == "forget":
                     self.conversation.forget()
                     await self.say("Okay. I've forgotten our conversation.")
+                elif focus is not None:
+                    await self.answer_about_selection(text, focus, stt_ms)
                 else:
                     self.heard = text
                     request, context = await self.resolve(text)
@@ -265,6 +288,39 @@ class Brain:
                     ms={"stt": stt_ms, "snapshot": 0, "llm": model_ms,
                         "act": round((time.perf_counter() - started_speaking) * 1000)})
 
+    async def answer_about_selection(self, text: str, focus: dict, stt_ms: int) -> None:
+        """Answer a question about the screen region the user selected. Its text is the primary context."""
+        await self.set_state("thinking", transcript=text)
+        started = time.perf_counter()
+        answered_by = None
+        if questions.wants_selection_read(text):
+            answer = questions.selection_text(focus)
+        else:
+            messages = questions.selection_messages(text, focus)
+            answer = ""
+            for attempt in range(2):
+                call, answered_by = await self.think(messages, SCREEN_SUMMARY_TOOLS, filler=attempt == 0,
+                                                     task_route=route.QUESTION)
+                if call.name == "say" and tools.validate(call, {}) is None:
+                    candidate = narrate.clean_speech(call.arguments["text"])
+                    if (candidate and not questions.is_question_only(candidate)
+                            and fastpath.normalize(candidate) != fastpath.normalize(text)):
+                        answer = candidate
+                        break
+                messages[0]["content"] = f"{questions.SELECTION_PROMPT}\n{questions.SELECTION_RETRY}"
+        model_ms = round((time.perf_counter() - started) * 1000)
+        started_speaking = time.perf_counter()
+        reply = answer or questions.SELECTION_FALLBACK
+        await self.say(reply)
+        if answer:
+            self.remember(text, answer)
+        append_step(self.config.log_path, task_id=f"t_{self.task_number}", step=1,
+                    utterance=text, kind="selection", route=route.QUESTION, model=answered_by, snapshot_id=None,
+                    snapshot_tokens=0, focus_chars=len(questions.selection_text(focus)),
+                    tool="say", args={"text": reply}, valid=bool(answer), risk="allow", ok=bool(answer),
+                    ms={"stt": stt_ms, "snapshot": 0, "llm": model_ms,
+                        "act": round((time.perf_counter() - started_speaking) * 1000)})
+
     async def run_task(self, text: str, stt_ms: int, *, screen_question: bool = False, context: str = "") -> None:
         screen_summary = fastpath.wants_screen_summary(text)
         memory = TaskMemory(self.prompt, text, "" if screen_summary or screen_question else context)
@@ -282,6 +338,10 @@ class Brain:
             LOGGER.info("Heard %r; on screen that is %r", heard, text)
             append_step(self.config.log_path, task_id=task_id, step=0, kind="heard", utterance=heard, corrected=text)
             memory.utterance = text
+        quick = None if screen_question or screen_summary else browser.plan(text, snapshot["app"])
+        if quick is not None:
+            await self.run_browser_plan(quick, text, snapshot, stt_ms)
+            return
         previous_snapshot = None
         task_summary = ""
         consecutive_invalid = 0
@@ -548,6 +608,31 @@ class Brain:
         self.remember(memory.one_line,
                       task_summary or (narrate.did(actions_taken) if actions_taken else "The task stopped."),
                       snapshot["app"])
+
+    async def run_browser_plan(self, plan: "browser.Plan", text: str, snapshot: dict, stt_ms: int) -> None:
+        """Open a tab, search or go to a site with keyboard steps (browser.py), no model call."""
+        task_id = f"t_{self.task_number}"
+        await self.set_state("acting", caption=plan.caption)
+        summary = plan.summary
+        for step, call in enumerate(plan.steps, 1):
+            started = time.perf_counter()
+            try:
+                result = await tools.execute(self.helper, call, snapshot, None)
+            except HelperError as failure:
+                result = {"ok": False, "error": {"code": failure.code, "message": str(failure)}}
+            append_step(self.config.log_path, task_id=task_id, step=step, utterance=text, kind="browser",
+                        route="browser", model=None, snapshot_id=snapshot["snapshot_id"], snapshot_tokens=0,
+                        tool=call.name, args=call.arguments, valid=True, risk="allow", ok=bool(result.get("ok")),
+                        ms={"stt": stt_ms, "snapshot": snapshot.get("build_ms", 0), "llm": 0,
+                            "act": round((time.perf_counter() - started) * 1000)})
+            if not result.get("ok"):
+                summary = "I couldn't do that in the browser. Please try again."
+                break
+            if call.name == "press_key" and step < len(plan.steps):
+                # The new tab or address bar takes a moment to take keyboard focus.
+                await asyncio.sleep(min(self.config.settle_ms, 300) / 1000)
+        await self.say(summary)
+        self.remember(text, summary, snapshot.get("app") or "")
 
     @staticmethod
     def finished_summary(call, result: dict, text: str, target: dict | None, *, was_fresh: bool,

@@ -108,7 +108,7 @@ class FakeHelper:
     async def speak(self, text, rate):
         self.spoken.append(text)
         speech_id = f"sp_{len(self.spoken)}"
-        asked = text.endswith("Hold the talk key to answer.") or text.endswith("Say yes to continue.")
+        asked = text.endswith("say your answer.") or text.endswith("Say yes to continue.")
         await self.brain.on_event({"type": "tts.finished", "speech_id": speech_id, "interrupted": False})
         if asked:
             self.asked += 1
@@ -235,6 +235,13 @@ def discord_sent(h: FakeHelper, body: str = "hello") -> str | None:
             or expect("memory usage" not in h.said() and "8623" not in h.said(), f"said tab noise: {h.spoken}"))
 
 
+def browsed(h: FakeHelper, first_key: str, typed: str | None) -> str | None:
+    keys = h.keys()
+    ok = (h.asked == 0 and keys[:1] == [first_key] and h.typed() == (typed or "")
+          and (typed is None or keys[-1:] == ["return"]))
+    return expect(ok, f"asked {h.asked}, keys {keys}, typed {h.typed()!r}, said {h.spoken}")
+
+
 SCENARIOS = [
     # Decide then act: must press exactly one of the three moves, never just hover or ask.
     Scenario("poker decide and press", lambda: load("chrome_poker"),
@@ -303,6 +310,19 @@ SCENARIOS = [
     Scenario("send discord longer message", lambda: load("chrome_discord_dm"),
              "Send a message to Kingsnipeshot saying I'm on in ten minutes",
              lambda h: discord_sent(h, "i'm on in ten minutes")),
+    # Send with no message: the one real gap, so ask what it should say (no reply: nothing typed).
+    Scenario("send no content asks", lambda: messages_screen(), "Send a message to Emmett.",
+             lambda h: expect(h.asked == 1 and "what should the message say" in h.said() and not h.typed(),
+                              f"asked {h.asked}, typed {h.typed()!r}, said {h.spoken}")),
+    # Simple browser requests run straight away: keyboard steps, no question.
+    Scenario("browser new tab and search", lambda: load("chrome_article"), "Open a new tab and search amazon",
+             lambda h: browsed(h, "cmd+t", "amazon")),
+    Scenario("browser new tab", lambda: load("chrome_article"), "Open a new tab.",
+             lambda h: browsed(h, "cmd+t", None)),
+    Scenario("browser search", lambda: load("chrome_article"), "Search for cats.",
+             lambda h: browsed(h, "cmd+l", "cats")),
+    Scenario("browser go to site", lambda: load("chrome_article"), "Go to youtube.",
+             lambda h: browsed(h, "cmd+l", "youtube.com")),
     # Mail and notes.
     Scenario("read latest email", lambda: load("mail_inbox"), "Read me the latest email.",
              lambda h: expect(not h.pressed() or any("sarah" in l.casefold() for l in h.pressed()),

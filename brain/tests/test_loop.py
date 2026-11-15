@@ -42,7 +42,7 @@ class ReplayHelper:
 
     async def speak(self, text, rate):
         self.spoken.append(text)
-        if text.endswith("Hold the talk key to answer."):
+        if text.endswith("say your answer."):
             self.clarifying.set()
         speech_id = f"sp_{len(self.spoken)}"
         await self.brain.on_event({"type": "tts.finished", "speech_id": speech_id, "interrupted": False})
@@ -618,7 +618,7 @@ def test_send_request_types_and_sends_in_one_go(tmp_path, model_after_typing):
 
         assert [path for path, _ in helper.actions] == ["/ax/act", "/input/type", "/input/key"]
         assert helper.actions[-1][1] == {"keys": "return"}
-        assert not any("Say yes" in text or "Hold the talk key" in text for text in helper.spoken)
+        assert not any("Say yes" in text or "say your answer" in text for text in helper.spoken)
         assert helper.spoken[-1] == "Sent to Emmett: hello."
 
     asyncio.run(run())
