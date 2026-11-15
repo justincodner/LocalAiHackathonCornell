@@ -1,40 +1,63 @@
 import XCTest
 @testable import BeaconHelper
 
-/// Engine that "plays" each sentence for a fixed time, honouring cancellation like a real player.
+/// Engine that "renders" each sentence as a clip of `sentenceSeconds` of audio after `renderSeconds`,
+/// honouring cancellation like a real engine.
 final class FakeSpeechEngine: SpeechEngine, @unchecked Sendable {
     let name: String
     let sentenceSeconds: Double
+    let renderSeconds: Double
     let failing: Bool
+    let rendersRate = true
+    var speedFactor: Double { 10 }
     private let lock = NSLock()
     private(set) var spoken: [String] = []
     private(set) var rates: [Double] = []
-    private(set) var stopAllCount = 0
 
-    init(name: String = "fake", sentenceSeconds: Double = 0.2, failing: Bool = false) {
+    init(name: String = "fake", sentenceSeconds: Double = 0.2, renderSeconds: Double = 0, failing: Bool = false) {
         self.name = name
         self.sentenceSeconds = sentenceSeconds
+        self.renderSeconds = renderSeconds
         self.failing = failing
     }
 
     func prepare() async throws {}
 
-    func speak(_ sentence: String, rate: Double, token: SpeechCancelToken,
-               onFirstAudio: @escaping @Sendable () -> Void) async throws {
+    func render(_ sentences: [String], rate: Double, token: SpeechCancelToken) async throws -> [[Float]] {
         if failing { throw HelperError(.actionFailed, "fake failure") }
-        lock.withLock { spoken.append(sentence); rates.append(rate) }
-        onFirstAudio()
-        let deadline = Date().addingTimeInterval(sentenceSeconds)
+        let deadline = Date().addingTimeInterval(renderSeconds)
+        while Date() < deadline {
+            if token.isCancelled { return [] }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        lock.withLock { spoken.append(contentsOf: sentences); rates.append(rate) }
+        return sentences.map { _ in [Float](repeating: 0.1, count: Int(sentenceSeconds * SpeechAudio.sampleRate)) }
+    }
+
+    var spokenSnapshot: [String] { lock.withLock { spoken } }
+    var ratesSnapshot: [Double] { lock.withLock { rates } }
+}
+
+/// Output that "plays" a clip for its real duration, honouring cancellation like ClipPlayer.
+final class FakeAudioOutput: AudioOutput, @unchecked Sendable {
+    private let lock = NSLock()
+    private var played: [(samples: Int, rate: Double)] = []
+    private var stopCount = 0
+
+    func play(_ samples: [Float], rate: Double, token: SpeechCancelToken, onStart: @escaping @Sendable () -> Void) async {
+        lock.withLock { played.append((samples.count, rate)) }
+        onStart()
+        let deadline = Date().addingTimeInterval(Double(samples.count) / SpeechAudio.sampleRate / rate)
         while Date() < deadline {
             if token.isCancelled { return }
             try? await Task.sleep(nanoseconds: 5_000_000)
         }
     }
 
-    func stopAll() { lock.withLock { stopAllCount += 1 } }
+    func stop() { lock.withLock { stopCount += 1 } }
 
-    var spokenSnapshot: [String] { lock.withLock { spoken } }
-    var ratesSnapshot: [Double] { lock.withLock { rates } }
+    var playedSnapshot: [(samples: Int, rate: Double)] { lock.withLock { played } }
+    var stopCountSnapshot: Int { lock.withLock { stopCount } }
 }
 
 /// Collects emitted events in order.
@@ -61,34 +84,51 @@ final class EventRecorder: @unchecked Sendable {
 }
 
 final class SpeechQueueTests: XCTestCase {
-    private func makeQueue(_ engine: FakeSpeechEngine, fallback: FakeSpeechEngine? = nil)
-        -> (SpeechQueue, EventRecorder) {
+    private func makeQueue(_ engines: [FakeSpeechEngine], renderTimeout: Double = SpeechQueue.renderTimeout)
+        -> (SpeechQueue, EventRecorder, FakeAudioOutput) {
         let rec = EventRecorder()
-        let queue = SpeechQueue(engineProvider: { engine },
-                                fallback: { _, _ in fallback },
+        let output = FakeAudioOutput()
+        let queue = SpeechQueue(engines: { _ in engines }, player: output, renderTimeout: renderTimeout,
                                 emit: { rec.record($0, $1) })
-        return (queue, rec)
+        return (queue, rec, output)
     }
 
-    func testSpeaksSentenceBySentenceAndFinishes() {
+    private func makeQueue(_ engine: FakeSpeechEngine) -> (SpeechQueue, EventRecorder, FakeAudioOutput) {
+        makeQueue([engine])
+    }
+
+    func testRendersWholeUtteranceThenPlaysItAsOneClip() {
         let engine = FakeSpeechEngine(sentenceSeconds: 0.02)
-        let (queue, rec) = makeQueue(engine)
+        let (queue, rec, output) = makeQueue(engine)
         let id = queue.enqueue(text: "One. Two! Three?", interrupt: false, rate: nil)
         XCTAssertEqual(id, "sp_0001")
         XCTAssertTrue(queue.isSpeaking)
         rec.waitFor { rec.finished(id) != nil }
         XCTAssertEqual(engine.spokenSnapshot, ["One.", "Two!", "Three?"])
+        // One play call: three 20 ms clips plus two sentence pauses.
+        let clip = Int(0.02 * SpeechAudio.sampleRate), pause = Int(SpeechAudio.sentencePause * SpeechAudio.sampleRate)
+        XCTAssertEqual(output.playedSnapshot.map(\.samples), [3 * clip + 2 * pause])
         XCTAssertTrue(rec.started(id))
         XCTAssertEqual(rec.finished(id)?["interrupted"] as? Bool, false)
         XCTAssertFalse(queue.isSpeaking)
         // started precedes finished, and is emitted once.
-        let types = rec.all.map(\.0)
-        XCTAssertEqual(types, ["tts.started", "tts.finished"])
+        XCTAssertEqual(rec.all.map(\.0), ["tts.started", "tts.finished"])
+    }
+
+    func testStartedOnlyWhenAudioStartsNotWhileRendering() {
+        let engine = FakeSpeechEngine(sentenceSeconds: 0.02, renderSeconds: 0.3)
+        let (queue, rec, _) = makeQueue(engine)
+        let id = queue.enqueue(text: "Takes a moment.", interrupt: false, rate: nil)
+        usleep(150_000)
+        XCTAssertFalse(rec.started(id), "nothing plays until the render is complete")
+        XCTAssertTrue(queue.isSpeaking)
+        rec.waitFor { rec.finished(id) != nil }
+        XCTAssertTrue(rec.started(id))
     }
 
     func testQueuesInOrder() {
         let engine = FakeSpeechEngine(sentenceSeconds: 0.03)
-        let (queue, rec) = makeQueue(engine)
+        let (queue, rec, _) = makeQueue(engine)
         let a = queue.enqueue(text: "First.", interrupt: false, rate: nil)
         let b = queue.enqueue(text: "Second.", interrupt: false, rate: nil)
         rec.waitFor { rec.finished(b) != nil }
@@ -99,7 +139,7 @@ final class SpeechQueueTests: XCTestCase {
 
     func testInterruptFlushesQueueAndStopsCurrent() {
         let engine = FakeSpeechEngine(sentenceSeconds: 0.5)
-        let (queue, rec) = makeQueue(engine)
+        let (queue, rec, _) = makeQueue(engine)
         let a = queue.enqueue(text: "Long one. Still going.", interrupt: false, rate: nil)
         let b = queue.enqueue(text: "Queued.", interrupt: false, rate: nil)
         rec.waitFor { rec.started(a) }
@@ -109,12 +149,12 @@ final class SpeechQueueTests: XCTestCase {
         XCTAssertEqual(rec.finished(b)?["interrupted"] as? Bool, true)
         XCTAssertFalse(rec.started(b))
         XCTAssertEqual(rec.finished(c)?["interrupted"] as? Bool, false)
-        XCTAssertEqual(engine.spokenSnapshot, ["Long one.", "Urgent."])
+        XCTAssertEqual(engine.spokenSnapshot, ["Long one.", "Still going.", "Urgent."])
     }
 
     func testStopSilencesWithin100msAndFlushes() {
         let engine = FakeSpeechEngine(sentenceSeconds: 2)
-        let (queue, rec) = makeQueue(engine)
+        let (queue, rec, output) = makeQueue(engine)
         let a = queue.enqueue(text: "Talking for a while.", interrupt: false, rate: nil)
         let b = queue.enqueue(text: "Never heard.", interrupt: false, rate: nil)
         rec.waitFor { rec.started(a) }
@@ -124,15 +164,29 @@ final class SpeechQueueTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(t0), 0.1)
         XCTAssertEqual(rec.finished(a)?["interrupted"] as? Bool, true)
         XCTAssertEqual(rec.finished(b)?["interrupted"] as? Bool, true)
-        XCTAssertGreaterThanOrEqual(engine.stopAllCount, 1)
+        XCTAssertGreaterThanOrEqual(output.stopCountSnapshot, 1)
         rec.waitFor { !queue.isSpeaking }
         XCTAssertFalse(queue.isSpeaking)
         XCTAssertEqual(engine.spokenSnapshot, ["Talking for a while."])
     }
 
+    func testStopDuringRenderFinishesWithin100msWithoutAudio() {
+        let engine = FakeSpeechEngine(sentenceSeconds: 1, renderSeconds: 2)
+        let (queue, rec, output) = makeQueue(engine)
+        let a = queue.enqueue(text: "Still rendering.", interrupt: false, rate: nil)
+        usleep(100_000)
+        let t0 = Date()
+        queue.stop()
+        rec.waitFor { rec.finished(a) != nil }
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 0.1)
+        XCTAssertEqual(rec.finished(a)?["interrupted"] as? Bool, true)
+        XCTAssertFalse(rec.started(a))
+        XCTAssertTrue(output.playedSnapshot.isEmpty)
+    }
+
     func testStopWhenIdleIsHarmless() {
         let engine = FakeSpeechEngine()
-        let (queue, rec) = makeQueue(engine)
+        let (queue, rec, _) = makeQueue(engine)
         queue.stop()
         XCTAssertFalse(queue.isSpeaking)
         XCTAssertTrue(rec.all.isEmpty)
@@ -144,31 +198,48 @@ final class SpeechQueueTests: XCTestCase {
 
     func testRateIsClampedPerItem() {
         let engine = FakeSpeechEngine(sentenceSeconds: 0.01)
-        let (queue, rec) = makeQueue(engine)
+        let (queue, rec, output) = makeQueue(engine)
         _ = queue.enqueue(text: "Slow.", interrupt: false, rate: 0.1)
         _ = queue.enqueue(text: "Normal.", interrupt: false, rate: nil)
         let last = queue.enqueue(text: "Fast.", interrupt: false, rate: 7)
         rec.waitFor { rec.finished(last) != nil }
         XCTAssertEqual(engine.ratesSnapshot, [0.5, 1.0, 1.5])
+        // The fake renders at the requested rate, so the player never time-stretches.
+        XCTAssertEqual(output.playedSnapshot.map(\.rate), [1, 1, 1])
     }
 
     func testEmptyTextFinishesWithoutStarting() {
         let engine = FakeSpeechEngine()
-        let (queue, rec) = makeQueue(engine)
+        let (queue, rec, _) = makeQueue(engine)
         let id = queue.enqueue(text: "   ", interrupt: false, rate: nil)
         rec.waitFor { rec.finished(id) != nil }
         XCTAssertFalse(rec.started(id))
         XCTAssertEqual(rec.finished(id)?["interrupted"] as? Bool, false)
     }
 
-    func testFallsBackToOtherEngineOnFailure() {
+    func testFallsBackToNextEngineOnFailureBeforePlaying() {
         let broken = FakeSpeechEngine(name: "ttskit", failing: true)
         let system = FakeSpeechEngine(name: "system", sentenceSeconds: 0.01)
-        let (queue, rec) = makeQueue(broken, fallback: system)
-        let id = queue.enqueue(text: "Still heard.", interrupt: false, rate: nil)
+        let (queue, rec, output) = makeQueue([broken, system])
+        let id = queue.enqueue(text: "Still heard. Twice.", interrupt: false, rate: nil)
         rec.waitFor { rec.finished(id) != nil }
-        XCTAssertEqual(system.spokenSnapshot, ["Still heard."])
+        XCTAssertEqual(system.spokenSnapshot, ["Still heard.", "Twice."])
+        XCTAssertEqual(output.playedSnapshot.count, 1)
         XCTAssertTrue(rec.started(id))
+    }
+
+    func testFallsBackWhenRenderExceedsTimeout() {
+        let slow = FakeSpeechEngine(name: "ttskit", sentenceSeconds: 0.01, renderSeconds: 5)
+        let system = FakeSpeechEngine(name: "system", sentenceSeconds: 0.01)
+        let (queue, rec, output) = makeQueue([slow, system], renderTimeout: 0.2)
+        let t0 = Date()
+        let id = queue.enqueue(text: "Too slow for TTSKit.", interrupt: false, rate: nil)
+        rec.waitFor { rec.finished(id) != nil }
+        XCTAssertLessThan(Date().timeIntervalSince(t0), 1)
+        XCTAssertTrue(slow.spokenSnapshot.isEmpty)
+        XCTAssertEqual(system.spokenSnapshot, ["Too slow for TTSKit."])
+        XCTAssertEqual(output.playedSnapshot.count, 1)
+        XCTAssertEqual(rec.finished(id)?["interrupted"] as? Bool, false)
     }
 
     func testCancelTokenRunsLateHandlersImmediately() {
@@ -180,22 +251,5 @@ final class SpeechQueueTests: XCTestCase {
         token.onCancel { calls += 10 }
         XCTAssertEqual(calls, 11)
         XCTAssertTrue(token.isCancelled)
-    }
-}
-
-final class StreamingPlayerTests: XCTestCase {
-    func testSoftLimiterKeepsQuietAudioAndTamesPeaks() {
-        let quiet: [Float] = [0, 0.2, -0.5, 0.79]
-        XCTAssertEqual(StreamingPlayer.softLimited(quiet), quiet, "audio under the knee is untouched")
-        let loud = StreamingPlayer.softLimited([1.4, -2.0, 0.9, 1.0])
-        XCTAssertTrue(loud.allSatisfy { abs($0) < 1 }, "nothing reaches full scale: \(loud)")
-        XCTAssertGreaterThan(loud[0], 0.9)
-        XCTAssertLessThan(loud[1], -0.9)
-        XCTAssertGreaterThan(loud[3], loud[2], "louder input stays louder")
-    }
-
-    func testFallsBackAfterTwoSentencesInARowRunDry() {
-        XCTAssertFalse(SpeechOutputService.shouldFallBack(dryStreak: 1))
-        XCTAssertTrue(SpeechOutputService.shouldFallBack(dryStreak: 2))
     }
 }

@@ -43,28 +43,44 @@ enum Config {
         return ["1", "true", "yes", "on"].contains(v)
     }
 
-    /// The repository root: BEACON_ROOT, or the nearest ancestor of the executable or CWD holding `contracts/`.
+    /// The repository root: BEACON_ROOT, or the nearest ancestor of the executable or CWD holding `contracts/`,
+    /// or else the root remembered from the last launch that knew it. The remembered root matters when Beacon
+    /// Helper is reopened from /Applications or the Dock: then there is no BEACON_ROOT and no repo above the app,
+    /// and without the root the Helper cannot find the Whisper model, so every recording was rejected.
     static let repoRoot: URL? = {
-        if let explicit = ProcessInfo.processInfo.environment["BEACON_ROOT"] {
-            return URL(fileURLWithPath: explicit)
-        }
-        let starts = [
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
-            Bundle.main.executableURL?.deletingLastPathComponent(),
-        ].compactMap { $0 }
+        let found = resolveRoot(environment: ProcessInfo.processInfo.environment["BEACON_ROOT"],
+                                starts: [URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+                                         Bundle.main.executableURL?.deletingLastPathComponent()].compactMap { $0 },
+                                remembered: UserDefaults.standard.string(forKey: rememberedRootKey))
+        if let found { UserDefaults.standard.set(found.path, forKey: rememberedRootKey) }
+        return found
+    }()
+
+    static let rememberedRootKey = "BeaconRepoRoot"
+
+    /// Pure lookup for `repoRoot`, so the order can be tested.
+    static func resolveRoot(environment: String?, starts: [URL], remembered: String?,
+                            isRepo: (URL) -> Bool = { FileManager.default.fileExists(
+                                atPath: $0.appendingPathComponent("contracts").path) }) -> URL? {
+        if let environment, !environment.isEmpty { return URL(fileURLWithPath: environment) }
         for start in starts {
             var dir = start.standardizedFileURL
             for _ in 0..<8 {
-                if FileManager.default.fileExists(atPath: dir.appendingPathComponent("contracts").path) { return dir }
+                if isRepo(dir) { return dir }
                 let parent = dir.deletingLastPathComponent()
                 if parent.path == dir.path { break }
                 dir = parent
             }
         }
+        if let remembered {
+            let url = URL(fileURLWithPath: remembered)
+            if isRepo(url) { return url }
+        }
         return nil
-    }()
+    }
 
-    static var tts: String { string("BEACON_TTS", "ttskit") }
+    /// `system` by default: TTSKit renders at only ~0.4-0.8x real time on the 8 GB M1, too slow for render-then-play.
+    static var tts: String { string("BEACON_TTS", "system") }
     static var sttModel: String { string("BEACON_STT_MODEL", "tiny.en") }
     /// Feed visible on-screen words to Whisper as a decoding prompt (BEACON_STT_SCREEN_HINTS=0 turns it off).
     static var sttScreenHints: Bool { bool("BEACON_STT_SCREEN_HINTS", true) }
