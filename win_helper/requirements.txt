@@ -1,0 +1,6 @@
+# Windows Helper dependencies, installed into brain\.venv by scripts\setup_windows_helper.ps1
+# (the Brain's own dependencies, FastAPI and uvicorn, come from brain\pyproject.toml).
+comtypes>=1.4
+sounddevice>=0.5
+numpy>=2
+faster-whisper>=1.1
