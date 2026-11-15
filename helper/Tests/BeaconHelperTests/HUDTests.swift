@@ -215,8 +215,12 @@ final class HUDTests: XCTestCase {
 
         minimized.set(false)
         hub.emit("stt.final", ["text": "Hey Beacon."])
-        XCTAssertEqual(restores.get().count, 3, "not minimized: the wake phrase goes to the Brain as said")
-        XCTAssertEqual(hub.recent.last?["text"] as? String, "Hey Beacon.")
+        XCTAssertEqual(restores.get(), [true, false, false, true], "a lone wake phrase is always a greeting")
+        XCTAssertEqual(hub.recent.last?["text"] as? String, "Open Safari", "and never reaches the Brain")
+        hub.emit("stt.final", ["text": "Hey Beacon, open Mail."])
+        XCTAssertEqual(hub.recent.last?["text"] as? String, "Hey Beacon, open Mail.",
+                       "not minimized: a request after the wake phrase goes to the Brain as said")
+        XCTAssertEqual(WakePhrase.greeting, "Hey, how can I help you?")
     }
 
     func testMinimizedHUDStaysHiddenWhileListeningAndReturnsForANewRequest() {

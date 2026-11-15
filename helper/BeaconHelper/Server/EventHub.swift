@@ -62,12 +62,17 @@ final class EventHub: @unchecked Sendable {
     func emit(_ type: String, _ fields: JSONObject = [:], localFields: JSONObject = [:]) {
         var fields = fields
         if type == "stt.final", let text = fields["text"] as? String {
-            // While the HUD is minimized, "Hey Beacon" brings it back and is not a task for the Brain.
-            if let restoreHUD, isHUDMinimized?() == true, let wake = WakePhrase.match(text) {
+            // A lone "Hey Beacon" is a greeting, not a task: bring the HUD back if it is minimized and answer
+            // "Hey, how can I help you?". While minimized, "Hey Beacon, open Mail" also restores it.
+            let wake = restoreHUD == nil ? nil : WakePhrase.match(text)
+            if let restoreHUD, wake == .only {
+                restoreHUD(true)
+                Log.info("wake phrase; HUD greeted, utterance not forwarded")
+                return
+            }
+            if let restoreHUD, isHUDMinimized?() == true, let wake {
                 switch wake {
                 case .only:
-                    restoreHUD(true)
-                    Log.info("wake phrase while minimized; HUD restored, utterance not forwarded")
                     return
                 case let .followedBy(rest):
                     restoreHUD(false)
