@@ -11,6 +11,10 @@ has a keyboard route instead:
 - Discord and Slack (app or browser tab): Cmd+K opens the quick switcher; type the name,
   Return.
 
+A misheard name ("braydin", "emmit") is first matched, by spelling and by sound (names.py), to
+the chats listed in Messages' sidebar, so it opens Brayden or Emmett; only listed chats are
+candidates, and when two are equally close Beacon asks which one.
+
 Nothing is typed into a chat until the window shows the named conversation, so a near miss
 stops with "I couldn't find ..." instead of messaging the wrong person.
 """
@@ -20,7 +24,7 @@ import difflib
 import re
 from dataclasses import dataclass
 
-from . import compose
+from . import compose, names
 from .browser import LEAD
 from .helper_client import HelperError
 from .page_summary import BROWSERS
@@ -186,14 +190,84 @@ def sidebar_rows(name: str, matches: list[dict]) -> list[dict]:
     return sorted(rows, key=lambda item: (item.get("bounds") or [0, 0])[1])
 
 
+ROW_TIME = re.compile(r"\b(?:\d{1,2}:\d{2}\s*[AP]M|Yesterday|Today|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|"
+                      r"Sunday|\d{1,2}/\d{1,2}/\d{2,4})\b", re.IGNORECASE)
+
+
+def row_name(row: str) -> str:
+    """The chat's name at the start of a sidebar row: "Brayden, see you, 1:00 AM" -> "Brayden".
+
+    A group without a name lists its people: "Alvin, David & Clav, hey, ..." is that whole group.
+    """
+    row = " ".join(row.replace("\u200e", "").split()).strip(" ,")
+    group = re.match(r"^([^,]+(?:, [^,]+)*? & [^,]+?),", row)
+    return (group.group(1) if group else row.split(",", 1)[0]).strip()
+
+
+def listed_names(text: str) -> list[str]:
+    """Every chat name in Messages' sidebar text ("David, How are you?, 11:45 PM Kai, alr, 10:46 PM")."""
+    found = [row_name(row) for row in ROW_TIME.split(text or "")]
+    return list(dict.fromkeys(name for name in found if name and len(name) <= 60))
+
+
 class Switcher:
     """Runs the keyboard route for one chat app through the Helper."""
 
     POLL_S = 0.2
 
-    def __init__(self, helper, settle_s: float = 0.3):
+    def __init__(self, helper, settle_s: float = 0.3, ask=None):
         self.helper = helper
         self.settle_s = settle_s
+        self.ask = ask  # async (question) -> reply, for "Did you mean Brayden or Braden?"
+
+    async def sidebar_names(self) -> list[str]:
+        """The chat names Messages lists on the left, from the window read (else each row on its own)."""
+        found: list[str] = []
+        try:
+            snapshot = await self.helper.snapshot()
+        except HelperError:
+            snapshot = {}
+        for item in snapshot.get("elements", []):
+            if item.get("role") == "text" and is_conversation_list(item):
+                text = item.get("label") or ""
+                if "truncated" in (item.get("states") or []):
+                    try:
+                        read = await self.helper.request("/ax/read", {"snapshot_id": snapshot.get("snapshot_id"),
+                                                                      "element_id": item["id"]})
+                        text = read.get("text") or text
+                    except HelperError:
+                        pass
+                found += listed_names(text)
+        if found:
+            return list(dict.fromkeys(found))
+        try:  # no chat list in the window read: each row on its own
+            rows = (await self.helper.request("/ax/find", {"query": ",", "limit": 50})).get("matches") or []
+        except HelperError:
+            rows = []
+        for item in rows:
+            label = (item.get("label") or "").replace("\u200e", "")
+            bounds = item.get("bounds") or [0, 0, 0, 0]
+            if item.get("role") == "text" and "," in label and bounds[3] >= 40:
+                found.append(row_name(label))
+        return list(dict.fromkeys(name for name in found if name))
+
+    async def listed(self, name: str) -> tuple[str | None, str | None]:
+        """The sidebar chat a dictated name means ("braydin" -> "Brayden"); the name itself when no
+        listed chat is close. (None, what to say) when the user stopped or named neither on a tie."""
+        choices = names.resolve(name, await self.sidebar_names())
+        if len(choices) <= 1:
+            return (choices[0] if choices else name), None
+        first, second = choices
+        if self.ask is None:
+            return None, f"I see both {first} and {second} in your chats. Say the one you want."
+        reply = await self.ask(f"Did you mean {first} or {second}?")
+        picked = names.resolve(reply or "", choices) if reply else []
+        if not picked and reply:
+            heard = names.words(reply)
+            picked = [choice for choice in choices if names.words(choice)[0] in heard]
+        if len(picked) != 1:
+            return None, "Okay, I didn't open a chat."
+        return picked[0], None
 
     async def key(self, keys: str) -> None:
         await self.helper.request("/input/key", {"keys": keys})
@@ -209,6 +283,9 @@ class Switcher:
         """Open the named Messages conversation. (snapshot showing it, its name), or (None, why)."""
         await self.helper.request("/app/open", {"name": "Messages"})
         await self.wait(self.settle_s)
+        name, why = await self.listed(name)
+        if name is None:
+            return None, why
         # Only the window title says which chat is open: the "selected" chat list holds every name.
         if title_is(name, await self.helper.frontmost()):
             snapshot = await self.helper.snapshot()
