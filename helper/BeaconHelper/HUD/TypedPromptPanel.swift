@@ -1,4 +1,4 @@
-// Owner: Mac owner. "Type a request" field (Control+Option+Space or the HUD keyboard button).
+// Owner: Mac owner. "Ask Beacon a question" field (Control+Option+Space or the HUD keyboard button).
 // Unlike the HUD pill, this panel can become key so the text field receives typing. It is non-activating, so the
 // app the user was in normally stays frontmost; if the panel cannot take keyboard focus that way, Beacon
 // activates and hands focus back to the previous app on Return or Escape, before the request runs.
@@ -6,10 +6,11 @@ import AppKit
 
 @MainActor
 final class TypedPromptPanel: NSPanel, NSTextFieldDelegate {
-    static let height: CGFloat = 54
+    static let height: CGFloat = 44
+    /// Space between the HUD and the field; the field is a child window of the HUD, so they move together.
+    static let gap: CGFloat = 4
 
     private let field = PromptField()
-    private let label = NSTextField(labelWithString: "")
     private var previousApp: NSRunningApplication?
     private var activatedBeacon = false
     /// Called with the trimmed text on Return (never empty).
@@ -30,7 +31,7 @@ final class TypedPromptPanel: NSPanel, NSTextFieldDelegate {
         animationBehavior = .none
         isExcludedFromWindowsMenu = true
         appearance = NSAppearance(named: .darkAqua)   // white caret and text on the dark HUD surface
-        setAccessibilityLabel("Type a request for Beacon")
+        setAccessibilityLabel("Ask Beacon a question")
 
         let background = NSView()
         background.wantsLayer = true
@@ -41,10 +42,6 @@ final class TypedPromptPanel: NSPanel, NSTextFieldDelegate {
         background.layer?.borderColor = NSColor.white.cgColor
         background.layer?.masksToBounds = true
         background.appearance = NSAppearance(named: .darkAqua)
-
-        label.font = .systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = NSColor(white: 0.85, alpha: 1)
-        label.setAccessibilityElement(false)
 
         field.font = .systemFont(ofSize: 16)
         field.focusRingType = .none
@@ -57,17 +54,12 @@ final class TypedPromptPanel: NSPanel, NSTextFieldDelegate {
         field.lineBreakMode = .byTruncatingHead
         field.cancel = { [weak self] in self?.cancel() }
 
-        for v in [label, field] {
-            v.translatesAutoresizingMaskIntoConstraints = false
-            background.addSubview(v)
-        }
+        field.translatesAutoresizingMaskIntoConstraints = false
+        background.addSubview(field)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 16),
-            label.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -16),
-            label.topAnchor.constraint(equalTo: background.topAnchor, constant: 7),
             field.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 16),
             field.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -16),
-            field.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 2),
+            field.centerYAnchor.constraint(equalTo: background.centerYAnchor),
         ])
         contentView = background
     }
@@ -75,10 +67,15 @@ final class TypedPromptPanel: NSPanel, NSTextFieldDelegate {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    /// Shows the field next to the HUD header. `heading` says what the typed text is for.
-    func present(near pillFrame: NSRect, heading: String, placeholder: String) {
+    /// Shows the field attached under the HUD (above it near the bottom of the screen). It is a child window of
+    /// the HUD, so dragging the HUD moves both. `heading` is the field's spoken label.
+    func present(attachedTo pill: NSWindow, heading: String, placeholder: String) {
         configure(heading: heading, placeholder: placeholder)
-        setFrame(Self.frame(near: pillFrame, screens: NSScreen.screens.map(\.visibleFrame)), display: true)
+        setFrame(Self.frame(near: pill.frame, screens: NSScreen.screens.map(\.visibleFrame)), display: true)
+        if parent !== pill {
+            parent?.removeChildWindow(self)
+            pill.addChildWindow(self, ordered: .above)
+        }
 
         let me = ProcessInfo.processInfo.processIdentifier
         if let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != me {
@@ -97,20 +94,25 @@ final class TypedPromptPanel: NSPanel, NSTextFieldDelegate {
 
     /// Sets the heading and placeholder (and their accessibility text) without showing the panel.
     func configure(heading: String, placeholder: String) {
-        label.stringValue = heading.uppercased()
         field.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
-            .foregroundColor: NSColor(white: 0.70, alpha: 1), .font: NSFont.systemFont(ofSize: 16),
+            .foregroundColor: Self.placeholderGray, .font: NSFont.systemFont(ofSize: 16),
         ])
         field.setAccessibilityLabel(heading)
         field.setAccessibilityHelp("\(placeholder) Press Return to send, or Escape to cancel.")
         if !isVisible { field.stringValue = "" }
     }
 
+    /// Gray placeholder: readable on the near-black field, clearly not typed text.
+    static let placeholderGray = NSColor(white: 0.58, alpha: 1)
+
+    /// Placeholder shown in the field (for tests).
+    var placeholder: String { field.placeholderAttributedString?.string ?? "" }
+
     /// Accessibility label of the text field (for tests).
     var fieldAccessibilityLabel: String? { field.accessibilityLabel() }
 
     /// Below the HUD pill if there is room on its screen, else above it.
-    static func frame(near pill: NSRect, screens: [NSRect], gap: CGFloat = 8) -> NSRect {
+    static func frame(near pill: NSRect, screens: [NSRect], gap: CGFloat = TypedPromptPanel.gap) -> NSRect {
         let visible = screens.first { $0.intersects(pill) } ?? screens.first ?? pill
         let width = pill.width
         var y = pill.minY - gap - height
@@ -143,6 +145,7 @@ final class TypedPromptPanel: NSPanel, NSTextFieldDelegate {
     }
 
     private func close(returningFocus: Bool) {
+        parent?.removeChildWindow(self)
         orderOut(nil)
         field.stringValue = ""
         if returningFocus, activatedBeacon || NSApp.isActive {

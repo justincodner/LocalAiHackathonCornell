@@ -264,18 +264,34 @@ final class PromptHUDTests: XCTestCase {
         XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
         panel.configure(heading: "Answer Beacon's question", placeholder: "Which Sarah?")
         XCTAssertEqual(panel.fieldAccessibilityLabel, "Answer Beacon's question")
+        panel.configure(heading: "Ask Beacon a question", placeholder: "Ask Beacon a question")
+        XCTAssertEqual(panel.placeholder, "Ask Beacon a question")
         let selection = SelectionPanel(screen: NSScreen.screens[0])
         XCTAssertTrue(selection.canBecomeKey)
         XCTAssertTrue(selection.styleMask.contains(.nonactivatingPanel))
     }
 
+    @MainActor
+    func testTypedPromptIsAttachedToTheHUDSoTheyMoveTogether() {
+        let hud = HUDController()
+        let panel = TypedPromptPanel()
+        panel.present(attachedTo: hud.pillPanel, heading: "Ask Beacon a question", placeholder: "Ask Beacon a question")
+        XCTAssertTrue(panel.parent === hud.pillPanel)
+        let before = panel.frame.origin
+        hud.pillPanel.setFrameOrigin(NSPoint(x: hud.pillPanel.frame.minX + 40, y: hud.pillPanel.frame.minY - 30))
+        XCTAssertEqual(panel.frame.minX, before.x + 40, accuracy: 0.5)
+        XCTAssertEqual(panel.frame.minY, before.y - 30, accuracy: 0.5)
+        panel.cancel()
+        XCTAssertNil(panel.parent, "closing detaches it")
+    }
+
     func testTypedPromptSitsBelowTheHUDOrAboveItNearTheBottom() {
         let screen = NSRect(x: 0, y: 0, width: 1440, height: 875)
         let top = TypedPromptPanel.frame(near: NSRect(x: 900, y: 780, width: 480, height: 58), screens: [screen])
-        XCTAssertEqual(top.maxY, 780 - 8)
+        XCTAssertEqual(top.maxY, 780 - TypedPromptPanel.gap)
         XCTAssertEqual(top.width, 480)
         let bottom = TypedPromptPanel.frame(near: NSRect(x: 480, y: 16, width: 480, height: 58), screens: [screen])
-        XCTAssertEqual(bottom.minY, 16 + 58 + 8)
+        XCTAssertEqual(bottom.minY, 16 + 58 + TypedPromptPanel.gap)
         XCTAssertTrue(screen.contains(bottom))
     }
 }

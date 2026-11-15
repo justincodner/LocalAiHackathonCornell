@@ -57,15 +57,15 @@ final class PromptCoordinator {
         let placeholder: String
         if hud.model.showsSelection {
             heading = "Ask about your selection"
-            placeholder = "Type your question about the selected text."
+            placeholder = "Ask Beacon about the selection"
         } else if hud.model.state == .asking || hud.model.state == .confirm, let question = hud.model.pendingQuestion ?? nonEmpty(hud.model.caption) {
             heading = "Answer Beacon's question"
             placeholder = SelectionFocus.preview(question, limit: 60)
         } else {
-            heading = "Type a request for Beacon"
-            placeholder = "For example: what's on my screen?"
+            heading = "Ask Beacon a question"
+            placeholder = "Ask Beacon a question"
         }
-        typed.present(near: hud.pillPanel.frame, heading: heading, placeholder: placeholder)
+        typed.present(attachedTo: hud.pillPanel, heading: heading, placeholder: placeholder)
         Log.info("typed prompt opened (\(heading))")
     }
 
