@@ -342,3 +342,45 @@ def test_a_one_slot_server_warms_only_the_action_prompt():
 
     asyncio.run(prewarm(Config(), Model(), "MAIN"))
     assert warmed == ["MAIN"]
+
+
+ALL_TOOLS = tuple(tool["function"]["name"] for tool in TOOL_DEFINITIONS)
+
+
+def test_xml_written_say_is_read_as_the_say_call_not_spoken_as_markup():
+    # Seen live: the 2B wrote its call as text and the HUD showed "<tool_call> <function=say> ...".
+    content = "<tool_call>\n<function=say>\n<parameter=text>\nThe page lists four videos.\n</parameter>\n</function>\n</tool_call>"
+    call, seen = ask_once(text_reply(content, "stop"), names=ALL_TOOLS)
+    assert (call.name, call.arguments) == ("say", {"text": "The page lists four videos."})
+    assert len(seen) == 1
+
+
+def test_unclosed_xml_say_keeps_only_its_text():
+    content = "<tool_call>\n<function=say>\n<parameter=text>\nThe first video is about volcanoes."
+    call, _ = ask_once(text_reply(content, "stop"), names=ALL_TOOLS)
+    assert call.arguments == {"text": "The first video is about volcanoes."}
+
+
+def test_xml_written_action_gets_schema_typed_arguments():
+    content = "<tool_call>\n<function=click>\n<parameter=id>\n6\n</parameter>\n</function>\n</tool_call>"
+    call, _ = ask_once(text_reply(content, "stop"), names=ALL_TOOLS)
+    assert (call.name, call.arguments) == ("click", {"id": 6})
+
+
+def test_xml_naming_a_tool_not_offered_is_asked_again():
+    transport, seen = server(lambda body, n: text_reply(
+        "<tool_call><function=click><parameter=id>6</parameter></function></tool_call>", "stop") if n == 1
+        else tool_reply("say", {"text": "Four videos are listed."}))
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport) as client:
+            return await client.next_tool_call([{"role": "user", "content": "x"}], tools_named("say"))
+
+    assert asyncio.run(run()).arguments == {"text": "Four videos are listed."}
+    assert len(seen) == 2
+
+
+def test_tool_markup_is_stripped_from_any_speech():
+    from beacon_brain.loop import spoken_form
+    assert spoken_form("<tool_call> <function=say> <parameter=text> Hello there.") == "Hello there."
+    assert spoken_form("Plain answer.") == "Plain answer."

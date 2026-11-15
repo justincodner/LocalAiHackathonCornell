@@ -80,6 +80,77 @@ def discord_screen() -> dict:
     }
 
 
+def screen(app: str, window: str, items: list[tuple], focused: int | None = None) -> dict:
+    """A snapshot from (depth, role, label[, value]) rows, ids numbered from 1 in reading order."""
+    elements, lines = [], [f'APP {app} | WINDOW "{window}" | FOCUS ' + (f"[{focused}]" if focused else "none")]
+    for number, (depth, role, label, *value) in enumerate(items, start=1):
+        states = ["focused"] if number == focused else []
+        elements.append({"id": number, "depth": depth, "role": role, "label": label, "label_source": "title",
+                         "value": value[0] if value else None, "states": states, "bounds": [0, 0, 10, 10]})
+        line = f'{"  " * depth}[{number}] {role}' + (f' "{label}"' if label else "")
+        line += f' value="{value[0]}"' if value else ""
+        lines.append(line + (" (focused)" if states else ""))
+    return {"snapshot_id": f"s_{app[:3].lower()}", "app": app, "window": window, "focused_id": focused,
+            "text": "\n".join(lines), "elements": elements, "ok": True, "truncated": False,
+            "total_elements": len(elements)}
+
+
+def chrome_page(title: str, url: str, content: list[tuple]) -> dict:
+    """A Chrome window: toolbar, then the page group holding `content` (rows at depth >= 2)."""
+    window = f"{title} - Google Chrome"
+    rows = [(0, "group", window), (1, "toolbar", ""), (2, "button", "Back"), (2, "button", "Forward"),
+            (2, "button", "Reload"), (2, "textfield", "Address and search bar", url),
+            (1, "group", title), *content, (1, "tab", title)]
+    return screen("Google Chrome", window, rows)
+
+
+def youtube_home() -> dict:
+    return chrome_page("YouTube", "youtube.com", [
+        (2, "link", "YouTube Home"), (2, "textfield", "Search", ""), (2, "button", "Search"),
+        (2, "link", "Home"), (2, "link", "Shorts"), (2, "link", "Subscriptions"),
+        (2, "button", "All"), (2, "button", "Music"), (2, "button", "Gaming"), (2, "button", "Live"),
+        (2, "link", "How Volcanoes Form: A Visual Guide by Science Explained 1.2M views 3 weeks ago 12:41"),
+        (2, "link", "Lo-fi beats to study to by Chill Hop Radio 8.4K watching LIVE"),
+        (2, "link", "I Built a Tiny House in 30 Days by Maker Mike 640K views 5 days ago 18:02"),
+        (2, "link", "Top 10 Goals of the Season by Football Weekly 2.1M views 1 month ago 9:15"),
+    ])
+
+
+def youtube_loading() -> dict:
+    """Just after typing youtube.com: the page has not drawn any videos yet."""
+    return chrome_page("YouTube", "youtube.com", [(2, "link", "YouTube Home"), (2, "textfield", "Search", "")])
+
+
+def news_front_page() -> dict:
+    return chrome_page("World News Today", "worldnewstoday.example", [
+        (2, "link", "World"), (2, "link", "Business"), (2, "link", "Science"), (2, "link", "Sport"),
+        (2, "heading", "Storm Elena makes landfall on the Gulf Coast"),
+        (2, "text", "Forecasters expect heavy rain through Tuesday as more than 200,000 homes lose power."),
+        (2, "heading", "Central bank holds interest rates steady"),
+        (2, "heading", "New telescope images show a galaxy 13 billion years old"),
+        (2, "button", "Subscribe"),
+    ])
+
+
+def finder_window() -> dict:
+    return screen("Finder", "Downloads", [
+        (0, "toolbar", ""), (1, "button", "Back"), (1, "button", "Forward"), (1, "textfield", "Search", ""),
+        (0, "list", "Sidebar"), (1, "row", "Recents"), (1, "row", "Applications"), (1, "row", "Desktop"),
+        (1, "row", "Documents"), (1, "row", "Downloads"),
+        (0, "list", "Downloads"), (1, "row", "tax-return-2025.pdf"), (1, "row", "vacation-photos.zip"),
+        (1, "row", "Resume_Final.docx"), (1, "row", "budget.xlsx"),
+        (0, "text", "4 items, 120 GB available"),
+    ])
+
+
+def notes_note() -> dict:
+    return screen("Notes", "Groceries", [
+        (0, "list", "Notes"), (1, "row", "Groceries Today Eggs, spinach, oat milk"),
+        (1, "row", "Book club Last Thursday"),
+        (0, "textarea", "Note", "Groceries\nEggs\nSpinach\nOat milk\nCoffee beans"),
+    ], focused=5)
+
+
 class FakeHelper:
     """Serves one screen, applies typed text to it, and records everything Beacon does."""
 

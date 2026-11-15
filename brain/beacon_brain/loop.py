@@ -13,7 +13,7 @@ from . import (browser, chats, commands, compose, fastpath, followup, grounding,
                risk, route, screen_words, tools)
 from .config import Config
 from .helper_client import HelperError
-from .llm import BonsaiError, ToolCall
+from .llm import BonsaiError, ToolCall, has_tool_markup, strip_tool_markup
 from .log import append_step
 from .memory import Conversation, TaskMemory
 from . import drafts  # Mail replies and "send it" on a draft, run in code
@@ -66,6 +66,14 @@ def snapshot_summary(snapshot: dict) -> ToolCall:
     title = snapshot["window"].strip()
     answer = f'The active window in {app} is titled "{title}".' if title else f"{app} is open."
     return ToolCall("screen-summary", "say", {"text": answer})
+
+
+def spoken_form(text: str) -> str:
+    """Speech and captions never carry tool-call syntax the model wrote as text."""
+    if not has_tool_markup(text):
+        return text
+    LOGGER.warning("Removed tool-call syntax from speech")
+    return strip_tool_markup(text) or "Sorry, I didn't get that. Try asking again."
 
 
 class Brain:
@@ -181,6 +189,7 @@ class Brain:
             self.active = asyncio.create_task(self.handle_utterance(text, event.get("stt_ms", 0)))
 
     async def speak(self, text: str, *, wait: bool = True) -> bool:
+        text = spoken_form(text)
         self.last_speech = text
         speech_id = await self.helper.speak(text, self.rate)
         if not wait:
@@ -195,6 +204,7 @@ class Brain:
             self.speech_events.pop(speech_id, None)
 
     async def say(self, text: str) -> None:
+        text = spoken_form(text)
         await self.set_state("speaking", caption=text)
         await self.speak(text)
 
