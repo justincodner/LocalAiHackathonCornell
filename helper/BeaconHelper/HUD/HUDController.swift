@@ -20,6 +20,23 @@ final class HUDController: HUDProviding {
     private var activeSpeechID: String?
     private var hasExplicitCaption = false
     private var observers: [NSObjectProtocol] = []
+    /// Read off the main thread by the EventHub to decide whether "Hey Beacon" should restore the HUD.
+    let minimizedFlag = LockedValue(false)
+    private(set) var isMinimized = false {
+        didSet { minimizedFlag.set(isMinimized) }
+    }
+    /// Set once the user starts a new request after minimizing, so updates for that request bring the HUD back
+    /// but updates still arriving for the request in flight when they minimized do not.
+    private var newRequestSinceMinimize = false
+    /// Called by the Turn off button. Defaults to quitting the app (which runs AppDelegate's terminate cleanup).
+    var turnOff: () -> Void = { NSApp.terminate(nil) }
+    /// "Use 4B model" in the ⋯ menu. Set by AppDelegate; receives the requested state.
+    var toggleQuestionModel: (_ enable: Bool) -> Void = { _ in }
+    /// Keyboard and viewfinder buttons. Set by PromptCoordinator.
+    var typePrompt: () -> Void = {}
+    var askAboutRegion: () -> Void = {}
+    /// The X on the selection thumbnail. Set by PromptCoordinator.
+    var clearSelection: () -> Void = {}
     /// Number of thinking ticks played so far (for tests and logs).
     private(set) var ticksPlayed = 0
     var pillPanel: PillPanel { pill }
@@ -32,10 +49,12 @@ final class HUDController: HUDProviding {
                 guard let self else { return }
                 self.pill.dragHeader(with: event) { self.layout() }
             },
-            selectPosition: { [weak self] placement in
-                self?.pill.move(to: placement)
-                self?.show()
-            }
+            minimize: { [weak self] in self?.minimize() },
+            turnOff: { [weak self] in self?.turnOff() },
+            toggleQuestionModel: { [weak self] in self?.requestQuestionModelToggle() },
+            typePrompt: { [weak self] in self?.typePrompt() },
+            askAboutRegion: { [weak self] in self?.askAboutRegion() },
+            clearSelection: { [weak self] in self?.clearSelection() }
         ))
         host.sizingOptions = []
         host.frame = NSRect(origin: .zero, size: PillPanel.size)
@@ -58,8 +77,91 @@ final class HUDController: HUDProviding {
     }
 
     func show() {
+        isMinimized = false
         layout()
         pill.orderFrontRegardless()   // never makeKeyAndOrderFront / NSApp.activate
+    }
+
+    // MARK: Minimize and restore
+
+    /// Hides the HUD (no Dock miniaturize: the Helper has no Dock icon). "Hey Beacon" or a new request brings it back.
+    func minimize() {
+        guard !isMinimized else { return }
+        isMinimized = true
+        newRequestSinceMinimize = false
+        pill.orderOut(nil)
+        ring.panel.orderOut(nil)
+        Log.info("HUD minimized")
+        announce("Beacon minimized. Press \(model.talkKey) and say Hey Beacon to bring it back.")
+    }
+
+    /// Shows a minimized HUD again in the top corner that covers less of the frontmost window.
+    func restore(wakeOnly: Bool = false) {
+        if wakeOnly, model.state == .listening {
+            update(state: model.pendingQuestion == nil ? .idle : .asking, transcript: "",
+                   caption: model.pendingQuestion, latencyMS: nil)
+        }
+        guard isMinimized else { return }
+        placeAtRestoreCorner()
+        show()
+        Log.info("HUD restored")
+    }
+
+    private func placeAtRestoreCorner() {
+        let window = FrontWindow.frame()
+        let screen = window.flatMap { w in NSScreen.screens.first { $0.frame.contains(NSPoint(x: w.midX, y: w.midY)) } }
+            ?? NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+            ?? NSScreen.main
+        guard let screen else { return }
+        let placement = HUDRestorePlacement.choose(visibleFrame: screen.visibleFrame, frontWindow: window)
+        pill.move(to: placement, in: screen.visibleFrame)
+    }
+
+    /// Whether an update with this state should bring back a minimized HUD.
+    /// Listening (the user pressed the talk key) and idle stay hidden; questions always show; anything else shows
+    /// only for a request started after the HUD was minimized.
+    static func revealsMinimizedHUD(state: HUDState?, newRequestSinceMinimize: Bool) -> Bool {
+        switch state {
+        case nil, .idle?, .listening?: return false
+        case .asking?, .confirm?: return true
+        default: return newRequestSinceMinimize
+        }
+    }
+
+    // MARK: 4B question model (⋯ menu)
+
+    func setQuestionModel(_ state: QuestionModelState) {
+        model.questionModel = state
+    }
+
+    /// Asks the Brain to load or unload the 4B. Shows "loading" right away; the Brain reports the outcome.
+    func requestQuestionModelToggle() {
+        guard model.questionModel != .loading else { return }
+        let enable = model.questionModel == .off
+        if enable { model.questionModel = .loading }
+        toggleQuestionModel(enable)
+    }
+
+    // MARK: Selection (Control+Option+S)
+
+    /// Shows (preview text and a thumbnail of the captured region) or clears (nil) the "Ask about this selection" look.
+    func setSelection(preview: String?, image: CGImage? = nil) {
+        model.selectionPreview = preview
+        model.selectionImage = preview == nil ? nil : image.map { NSImage(cgImage: $0, size: .zero) }
+        if preview != nil {
+            if isMinimized { placeAtRestoreCorner() }
+            update(state: .idle, transcript: "", caption: "", latencyMS: nil)
+            show()
+        } else {
+            layout()
+        }
+    }
+
+    /// VoiceOver announcement (high priority, interrupts other speech from VoiceOver).
+    func announce(_ text: String) {
+        NSAccessibility.post(element: NSApp as Any, notification: .announcementRequested,
+                             userInfo: [.announcement: text,
+                                        .priority: NSAccessibilityPriorityLevel.high.rawValue])
     }
 
     func update(state: HUDState?, transcript: String?, caption: String?, latencyMS: Int?) {
@@ -73,6 +175,9 @@ final class HUDController: HUDProviding {
             model.transcript = transcript
         }
         if let latencyMS { model.latencyMS = latencyMS }
+        if let state {
+            model.pendingQuestion = Self.pendingQuestion(after: state, caption: caption, current: model.pendingQuestion)
+        }
         if let state, state != model.state {
             model.state = state
             stateChanged(to: state)
@@ -81,7 +186,38 @@ final class HUDController: HUDProviding {
             hasExplicitCaption = !caption.isEmpty
             setCaption(caption, reveal: model.state == .speaking || model.state == .idle)
         }
-        if !pill.isVisible { show() }
+        if isMinimized {
+            if state == .listening { newRequestSinceMinimize = true }
+            if Self.revealsMinimizedHUD(state: state, newRequestSinceMinimize: newRequestSinceMinimize) {
+                placeAtRestoreCorner()
+                show()
+            } else {
+                layout()
+            }
+        } else if !pill.isVisible {
+            show()
+        }
+    }
+
+    /// The question still waiting for an answer after a state change. Asking sets it; listening (the answer)
+    /// keeps it; any other state means the answer is in, or Beacon moved on, so it is cleared.
+    static func pendingQuestion(after state: HUDState, caption: String?, current: String?) -> String? {
+        switch state {
+        case .asking:
+            if let caption, !caption.isEmpty { return caption }
+            return current
+        case .listening: return current
+        default: return nil
+        }
+    }
+
+    /// A recording was dropped (too short, no speech). Go back to the question if one is waiting, else idle.
+    func listenCancelled() {
+        if let question = model.pendingQuestion, model.state == .listening {
+            update(state: .asking, transcript: "", caption: question, latencyMS: nil)
+        } else {
+            update(state: .idle, transcript: nil, caption: nil, latencyMS: nil)
+        }
     }
 
     func move(to placement: HUDPlacement) {
@@ -95,7 +231,9 @@ final class HUDController: HUDProviding {
 
     func speechStarted(id: String, text: String) {
         activeSpeechID = id
-        if model.state != .confirm {
+        // "Selection ready" prompts keep the selection on screen instead of a speaking caption.
+        if model.showsSelection, model.state == .idle { return }
+        if model.state != .confirm, model.state != .asking {
             update(state: .speaking, transcript: nil, caption: nil, latencyMS: nil)
         }
         if !hasExplicitCaption { setCaption(text, reveal: true) }
@@ -151,7 +289,8 @@ final class HUDController: HUDProviding {
     }
 
     private func layout() {
-        pill.layout(reply: model.visibleCaption)
+        pill.layout(reply: model.replyText, question: model.replyLabel != nil,
+                    thumbnail: model.showsSelectionThumbnail ? model.selectionImage?.size : nil)
         if model.replyAboveHeader != pill.replyAboveHeader {
             model.replyAboveHeader = pill.replyAboveHeader
         }
@@ -192,5 +331,32 @@ final class HUDController: HUDProviding {
                 try? await Task.sleep(nanoseconds: UInt64(Self.tickInterval * 1_000_000_000))
             }
         }
+    }
+}
+
+/// Frame of the frontmost app's focused window, via Accessibility (best effort).
+enum FrontWindow {
+    /// AppKit coordinates (bottom-left origin), or nil when there is no other app's window or AX is unavailable.
+    @MainActor
+    static func frame() -> NSRect? {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return nil }
+        let element = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(element, 0.3)
+        var window: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXFocusedWindowAttribute as CFString, &window) == .success,
+              let window, CFGetTypeID(window) == AXUIElementGetTypeID() else { return nil }
+        let win = window as! AXUIElement
+        var positionRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(win, kAXPositionAttribute as CFString, &positionRef) == .success,
+              AXUIElementCopyAttributeValue(win, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let positionRef, let sizeRef else { return nil }
+        var origin = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionRef as! AXValue, .cgPoint, &origin),
+              AXValueGetValue(sizeRef as! AXValue, .cgSize, &size),
+              let primary = NSScreen.screens.first else { return nil }
+        return appKitRect(fromAXRect: CGRect(origin: origin, size: size), primaryScreenHeight: primary.frame.height)
     }
 }

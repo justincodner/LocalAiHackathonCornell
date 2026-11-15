@@ -21,6 +21,10 @@ final class StreamingPlayer: @unchecked Sendable {
     private var stopped = false
     private var onFirstAudio: (@Sendable () -> Void)?
     private var drainWaiter: CheckedContinuation<Void, Never>?
+    /// Times playback ran dry mid-utterance because generation fell behind (each one would be a crackle).
+    private(set) var underruns = 0
+    /// Audio held back after an underrun before playing again, so the gap is one short pause, not static.
+    static let rebufferSeconds = 0.4
 
     init(sampleRate: Double) {
         self.sampleRate = sampleRate
@@ -52,6 +56,8 @@ final class StreamingPlayer: @unchecked Sendable {
             self.onFirstAudio = onFirstAudio
         }
         timePitch.rate = Float(rate)
+        // The time-pitch unit adds phase-vocoder artifacts even at normal speed: only use it to change the rate.
+        timePitch.bypass = abs(rate - 1) < 0.01
         player.stop()
     }
 
@@ -106,7 +112,8 @@ final class StreamingPlayer: @unchecked Sendable {
         waiter?.resume()
     }
 
-    private func schedule(_ samples: [Float]) {
+    private func schedule(_ input: [Float]) {
+        let samples = Self.softLimited(input)
         guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)) else { return }
         buffer.frameLength = AVAudioFrameCount(samples.count)
         samples.withUnsafeBufferPointer { src in
@@ -131,6 +138,7 @@ final class StreamingPlayer: @unchecked Sendable {
     }
 
     private func bufferDone(session finishedSession: Int) {
+        var ranDry = false
         let waiter = lock.withLock { () -> CheckedContinuation<Void, Never>? in
             guard finishedSession == session else { return nil }
             completed += 1
@@ -138,8 +146,29 @@ final class StreamingPlayer: @unchecked Sendable {
                 drainWaiter = nil
                 return w
             }
+            if completed >= scheduled, !stopped, drainWaiter == nil, pendingSamples.isEmpty {
+                // Played everything while generation is still running: hold the next audio until a
+                // re-buffer is ready instead of trickling tiny chunks out (which crackles).
+                playing = false
+                preBufferSamples = Int(Self.rebufferSeconds * sampleRate)
+                underruns += 1
+                ranDry = true
+            }
             return nil
         }
+        if ranDry { Log.warn("tts: playback ran dry (generation behind); re-buffering \(Self.rebufferSeconds) s") }
         waiter?.resume()
+    }
+
+    /// Keeps peaks under full scale with a soft knee so loud syllables never hard-clip into static.
+    static func softLimited(_ samples: [Float], knee: Float = 0.8) -> [Float] {
+        guard samples.contains(where: { abs($0) > knee }) else { return samples }
+        let headroom = 1 - knee
+        return samples.map { x in
+            let a = abs(x)
+            guard a > knee else { return x }
+            let over = (a - knee) / headroom
+            return (knee + headroom * Float(tanh(Double(over)))) * (x < 0 ? -1 : 1)
+        }
     }
 }

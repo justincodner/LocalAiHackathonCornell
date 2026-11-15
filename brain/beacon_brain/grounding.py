@@ -11,8 +11,10 @@ It is deliberately lenient about letting a call through and strict about changin
 import re
 from dataclasses import replace
 
+from . import labels
 from .llm import ToolCall
 from .risk import CONFIRM_LABEL
+from .screen_words import matches as sounds_like
 
 PRESSABLE = {"button", "link", "menuitem", "row", "cell", "tab", "checkbox", "radio", "popup"}
 CLICK_COMMAND = re.compile(
@@ -49,12 +51,14 @@ def words(text: str) -> list[str]:
 
 
 def word_matches(word: str, label_words: list[str]) -> bool:
-    """Exact, or the label word extends the user's word ("message" -> "messages"); never the reverse."""
+    """Exact, the label word extends the user's word ("message" -> "messages"; never the reverse),
+    or it is a name that sounds alike (speech-to-text spelling)."""
     word = NUMBERS.get(word, word)
     label_words = [NUMBERS.get(token, token) for token in label_words]
     if len(word) < 3:
         return word in label_words
-    return any(token == word or token.startswith(word) for token in label_words)
+    # Or dictation misspelled a name that is on screen ("crillion" -> "Krillion").
+    return any(token == word or token.startswith(word) or sounds_like(word, token) for token in label_words)
 
 
 def own_label_words(item: dict) -> list[str]:
@@ -63,7 +67,7 @@ def own_label_words(item: dict) -> list[str]:
 
 
 def spoken_label(element: dict) -> str:
-    label = element.get("label") or ""
+    label = labels.clean(element.get("label") or "", element.get("role", ""))
     match = re.fullmatch(r"unlabeled, near '(.+)'", label)
     return f"the unlabeled {element['role']} near {match.group(1)}" if match else label
 
@@ -86,6 +90,8 @@ def check_click(call: ToolCall, snapshot: dict, utterance: str) -> ToolCall:
     command = CLICK_COMMAND.match(" ".join(words(utterance)))
     if command is None:
         return call  # not a direct "click X" request; multi-step plans pick their own targets
+    if re.search(r"\b(?:and|then)\b", command.group("target")):
+        return call  # "open a new tab and search amazon": several steps, not one control's name
     target_words = words(command.group("target"))
     elements = snapshot["elements"]
     chosen = next((item for item in elements if item["id"] == call.arguments.get("id")), None)

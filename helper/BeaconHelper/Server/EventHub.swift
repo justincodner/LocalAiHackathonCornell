@@ -10,12 +10,48 @@ final class EventHub: @unchecked Sendable {
 
     private var observers: [@Sendable (JSONObject) -> Void] = []
     private let moveHUD: (@Sendable (HUDPlacement) -> Void)?
+    /// Brings back a minimized HUD. `greetingReply` is set when the utterance was only a greeting: what to say back.
+    private let restoreHUD: (@Sendable (_ greetingReply: String?) -> Void)?
+    private let isHUDMinimized: (@Sendable () -> Bool)?
 
-    init(moveHUD: (@Sendable (HUDPlacement) -> Void)? = nil) {
+    init(moveHUD: (@Sendable (HUDPlacement) -> Void)? = nil,
+         restoreHUD: (@Sendable (_ greetingReply: String?) -> Void)? = nil,
+         isHUDMinimized: (@Sendable () -> Bool)? = nil) {
         self.moveHUD = moveHUD
+        self.restoreHUD = restoreHUD
+        self.isHUDMinimized = isHUDMinimized
     }
 
     var clientCount: Int { lock.withLock { clients.count } }
+
+    // MARK: Selection focus
+
+    /// Text from a screen region the user selected (Control+Option+S). The next `stt.final`, spoken or typed,
+    /// carries it as `focus` and consumes it.
+    private var pendingFocus: (id: Int, focus: JSONObject)?
+    private var focusCounter = 0
+
+    /// Stores focus for the next utterance, replacing any earlier one. Returns an id for `clearPendingFocus`.
+    @discardableResult
+    func setPendingFocus(_ focus: JSONObject) -> Int {
+        lock.withLock {
+            focusCounter += 1
+            pendingFocus = (focusCounter, focus)
+            return focusCounter
+        }
+    }
+
+    /// Drops the pending focus (only if it is still the one with this id, when given). True if one was dropped.
+    @discardableResult
+    func clearPendingFocus(id: Int? = nil) -> Bool {
+        lock.withLock {
+            guard let current = pendingFocus, id == nil || current.id == id else { return false }
+            pendingFocus = nil
+            return true
+        }
+    }
+
+    var hasPendingFocus: Bool { lock.withLock { pendingFocus != nil } }
 
     /// In-process listeners (the app coordinator uses this to drive the HUD and sounds).
     func observe(_ observer: @escaping @Sendable (JSONObject) -> Void) {
@@ -24,10 +60,36 @@ final class EventHub: @unchecked Sendable {
 
     /// Emits `{"type": type, "ts": <unix ms>, ...fields}` to every client.
     func emit(_ type: String, _ fields: JSONObject = [:], localFields: JSONObject = [:]) {
-        if type == "stt.final", let moveHUD, let text = fields["text"] as? String,
-           let placement = HUDPlacement(utterance: text) {
-            moveHUD(placement)
-            return
+        var fields = fields
+        if type == "stt.final", let text = fields["text"] as? String {
+            // A lone "Hey Beacon" is a greeting, not a task: bring the HUD back if it is minimized and answer
+            // "Hey, how can I help you?". While minimized, "Hey Beacon, open Mail" also restores it.
+            let wake = restoreHUD == nil ? nil : WakePhrase.match(text)
+            if let restoreHUD, wake == .only {
+                restoreHUD(WakePhrase.reply(to: text))
+                Log.info("wake phrase; HUD greeted, utterance not forwarded")
+                return
+            }
+            if let restoreHUD, isHUDMinimized?() == true, let wake {
+                switch wake {
+                case .only:
+                    return
+                case let .followedBy(rest):
+                    restoreHUD(nil)
+                    fields["text"] = rest
+                }
+            }
+            if let moveHUD, let text = fields["text"] as? String, let placement = HUDPlacement(utterance: text) {
+                moveHUD(placement)
+                return
+            }
+        }
+        if type == "stt.final", fields["focus"] == nil,
+           let focus = lock.withLock({ () -> JSONObject? in
+               defer { pendingFocus = nil }
+               return pendingFocus?.focus
+           }) {
+            fields["focus"] = focus
         }
         var event = fields
         event["type"] = type

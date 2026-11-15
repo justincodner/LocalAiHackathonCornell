@@ -5,16 +5,21 @@
 #   scripts/start_bonsai.sh            start, wait until ready, stay in the foreground (Ctrl-C stops it)
 #   scripts/start_bonsai.sh --detach   start, wait until ready, return (pid in logs/bonsai.pid)
 #
-# Env: BONSAI_MODEL (2B if installed, otherwise 4B), BONSAI_SLOTS (8), BONSAI_CTX (total, 6144 x slots),
-# BONSAI_DIR (../Bonsai-demo), BEACON_VISION=1 keeps the vision projector loaded (P2 only; it costs ~0.4-0.6 GB). BONSAI_HOST is never set: the server binds 127.0.0.1.
+# Env: BONSAI_MODEL (2B if installed, otherwise 4B), BONSAI_PORT (8080), BONSAI_SLOTS (8, or BONSAI_CTX / 6144),
+# BONSAI_CTX (total, default 6144 x slots), BONSAI_DIR (../Bonsai-demo), BEACON_VISION=1 keeps the vision
+# projector loaded (P2 only; it costs ~0.4-0.6 GB). BONSAI_HOST is never set: the server binds 127.0.0.1.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BONSAI_DIR="${BONSAI_DIR:-$(cd "$ROOT/.." && pwd)/Bonsai-demo}"
 LOG_DIR="$ROOT/logs"
-LOG="$LOG_DIR/bonsai.log"
-PID_FILE="$LOG_DIR/bonsai.pid"
-URL="http://127.0.0.1:8080/v1/models"
+PORT="${BONSAI_PORT:-8080}"
+# The default server keeps the original names; a second one (the 4B question model) gets its own.
+SUFFIX=""
+[[ "$PORT" != "8080" ]] && SUFFIX="-$PORT"
+LOG="$LOG_DIR/bonsai$SUFFIX.log"
+PID_FILE="$LOG_DIR/bonsai$SUFFIX.pid"
+URL="http://127.0.0.1:$PORT/v1/models"
 DETACH=0
 [[ "${1:-}" == "--detach" ]] && DETACH=1
 
@@ -22,7 +27,7 @@ mkdir -p "$LOG_DIR"
 unset BONSAI_HOST
 
 if curl -sf --max-time 2 "$URL" >/dev/null 2>&1; then
-  echo "Bonsai is already running on 127.0.0.1:8080; leaving it alone."
+  echo "Bonsai is already running on 127.0.0.1:$PORT; leaving it alone."
   exit 0
 fi
 if [[ ! -x "$BONSAI_DIR/scripts/start_llama_server.sh" ]]; then
@@ -49,13 +54,23 @@ fi
 # One slot per prompt family: the Brain prewarms seven (loop.prompt_families) and pins each to its own
 # slot (llm.py, id_slot). Bonsai 2 is a hybrid model, so families sharing a slot lost their cached
 # prefixes (docs/bench.md). Separate KV per slot; the RAM prompt cache is no longer needed.
-SLOTS="${BONSAI_SLOTS:-8}"
-CTX="${BONSAI_CTX:-$((6144 * SLOTS))}"
+# Each slot needs ~6,144 tokens (an action step peaked at ~3,800). An explicit BONSAI_CTX without BONSAI_SLOTS
+# (the 4B question server asks for 8192) gets as many slots as fit, so a small context stays one usable slot.
+if [[ -n "${BONSAI_SLOTS:-}" ]]; then
+  SLOTS="$BONSAI_SLOTS"
+  CTX="${BONSAI_CTX:-$((6144 * SLOTS))}"
+elif [[ -n "${BONSAI_CTX:-}" ]]; then
+  CTX="$BONSAI_CTX"
+  SLOTS=$(( CTX / 6144 )); (( SLOTS < 1 )) && SLOTS=1; (( SLOTS > 8 )) && SLOTS=8
+else
+  SLOTS=8
+  CTX=$((6144 * SLOTS))
+fi
 echo "==> Starting Bonsai $MODEL_SIZE (vision: ${BEACON_VISION:-0}, ctx $CTX across $SLOTS slots, thinking off); log: $LOG"
 (
   cd "$BONSAI_DIR"
   if [[ -n "$GGUF_OVERRIDE" ]]; then export BONSAI_GGUF="$GGUF_OVERRIDE"; unset BONSAI_MMPROJ; fi
-  BONSAI_MODEL="$MODEL_SIZE" BONSAI_THINKING=0 BONSAI_CTX="$CTX" \
+  PORT="$PORT" BONSAI_MODEL="$MODEL_SIZE" BONSAI_THINKING=0 BONSAI_CTX="$CTX" \
     exec ./scripts/start_llama_server.sh -np "$SLOTS" --no-kv-unified --cache-ram 0
 ) >"$LOG" 2>&1 &
 PID=$!
@@ -86,7 +101,7 @@ until curl -sf --max-time 2 "$URL" >/dev/null 2>&1; do
   sleep 1
 done
 MODEL_ID="$(curl -s "$URL" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])' 2>/dev/null || echo '?')"
-echo "==> Bonsai ready in $(( $(date +%s) - started )) s: model '$MODEL_ID' at http://127.0.0.1:8080/v1 (pid $PID)"
+echo "==> Bonsai ready in $(( $(date +%s) - started )) s: model '$MODEL_ID' at http://127.0.0.1:$PORT/v1 (pid $PID)"
 
 if [[ "$DETACH" == "1" ]]; then exit 0; fi
 trap 'stop; exit 0' INT TERM

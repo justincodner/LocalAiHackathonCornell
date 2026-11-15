@@ -24,6 +24,8 @@ class Config:
     # Ask "Say yes to continue" before Send/Delete/Pay controls and the model's confirm tool.
     # Off: a request like "send hello to Emmett" types and sends in one go.
     confirm_sends: bool = False
+    # The Helper's push-to-talk key (BEACON_PTT_KEY, held while speaking); named in spoken questions.
+    ptt_key: str = "right_option"
     temperature: float = 0.2  # 0.7 (PrismML's chat default) scored lower and less consistently; docs/bench.md
     top_p: float = 0.8
     top_k: int = 20
@@ -72,6 +74,7 @@ class Config:
             settle_ms=int(get("SETTLE_MS", str(cls.settle_ms))),
             reply_timeout_s=float(get("REPLY_TIMEOUT_S", str(cls.reply_timeout_s))),
             confirm_sends=get("CONFIRM_SENDS", "0").lower() in {"1", "true", "yes"},
+            ptt_key=get("PTT_KEY", cls.ptt_key),
             temperature=float(get("TEMPERATURE", str(cls.temperature))),
             top_p=float(get("TOP_P", str(cls.top_p))),
             top_k=int(get("TOP_K", str(cls.top_k))),

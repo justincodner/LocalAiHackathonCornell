@@ -8,6 +8,8 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 from websockets.asyncio.client import connect
 
+from . import labels
+
 
 class HelperError(RuntimeError):
     def __init__(self, code: str, message: str):
@@ -60,7 +62,16 @@ class HelperClient:
         return await self.request("/health")
 
     async def snapshot(self) -> dict:
-        return await self.request("/ax/snapshot", {"scope": "window", "max_elements": self.max_elements})
+        snapshot = await self.request("/ax/snapshot", {"scope": "window", "max_elements": self.max_elements})
+        return labels.clean_snapshot(snapshot)
+
+    async def frontmost(self) -> dict:
+        """The frontmost app with only its focused element: ~10 ms, where a window read takes 100-500."""
+        return await self.request("/ax/snapshot", {"scope": "focused", "max_elements": 1})
+
+    async def apps(self) -> dict:
+        """Running and installed app names (/app/list, a few ms)."""
+        return await self.request("/app/list")
 
     async def read(self, snapshot_id: str, element_id: int) -> str:
         result = await self.request("/ax/read", {"snapshot_id": snapshot_id, "element_id": element_id})

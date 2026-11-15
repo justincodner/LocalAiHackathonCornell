@@ -5,6 +5,11 @@
 #   scripts/run_all.sh           use the newest signed app in build/ or /Applications
 #   scripts/run_all.sh --debug   run helper/.build/debug/beacon-helper directly (swift build if needed)
 #
+# The HUD's ⋯ menu ("Use 4B model for questions") starts and stops the 4B at runtime, with no restart.
+# BEACON_DUAL_MODEL=1 also starts Bonsai 4B on 127.0.0.1:8081 (ctx BEACON_QUESTION_CTX, default 8192) and sends
+# questions to it while actions stay on the 2B. Off by default: on an 8 GB Mac both models together swap, and
+# measured latency got worse for both (2B actions ~5.5 s -> 7-40 s, 4B questions 17-46 s).
+#
 # Logs go to logs/ (bonsai.log, helper.log, brain.log). Ctrl-C stops only what this script started.
 set -euo pipefail
 
@@ -26,6 +31,7 @@ if [[ -f "$ROOT/brain/pyproject.toml" ]]; then
 fi
 
 STARTED_BONSAI=""
+STARTED_QUESTION_BONSAI=""
 STARTED_HELPER=""
 STARTED_BRAIN=""
 
@@ -33,16 +39,21 @@ cleanup() {
   trap - INT TERM EXIT
   echo
   echo "==> Stopping what run_all started"
-  for pid in $STARTED_BRAIN $STARTED_HELPER $STARTED_BONSAI; do
+  for pid in $STARTED_BRAIN $STARTED_HELPER $STARTED_BONSAI $STARTED_QUESTION_BONSAI; do
     if kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
     fi
   done
   sleep 1
-  for pid in $STARTED_BRAIN $STARTED_HELPER $STARTED_BONSAI; do
+  for pid in $STARTED_BRAIN $STARTED_HELPER $STARTED_BONSAI $STARTED_QUESTION_BONSAI; do
     kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
   done
   [[ -n "$STARTED_BONSAI" ]] && rm -f "$LOG_DIR/bonsai.pid"
+  # The 4B can also be started from the HUD's ⋯ menu (by the Brain): stop it too.
+  if [[ -f "$LOG_DIR/bonsai-8081.pid" ]]; then
+    kill "$(cat "$LOG_DIR/bonsai-8081.pid")" 2>/dev/null || true
+    rm -f "$LOG_DIR/bonsai-8081.pid"
+  fi
   echo "Stopped."
 }
 trap cleanup EXIT
@@ -54,6 +65,17 @@ if curl -sf --max-time 2 http://127.0.0.1:8080/v1/models >/dev/null 2>&1; then
 else
   "$ROOT/scripts/start_bonsai.sh" --detach
   STARTED_BONSAI="$(cat "$LOG_DIR/bonsai.pid")"
+fi
+if [[ "${BEACON_DUAL_MODEL:-0}" == "1" ]]; then
+  # Questions go to the 4B, actions stay on the 2B (brain config: BEACON_LLM_QUESTION_URL).
+  if curl -sf --max-time 2 http://127.0.0.1:8081/v1/models >/dev/null 2>&1; then
+    echo "==> Question model already running on 8081; reusing it"
+  else
+    BONSAI_MODEL=4B BONSAI_PORT=8081 BONSAI_CTX="${BEACON_QUESTION_CTX:-8192}" "$ROOT/scripts/start_bonsai.sh" --detach
+    STARTED_QUESTION_BONSAI="$(cat "$LOG_DIR/bonsai-8081.pid")"
+  fi
+  export BEACON_LLM_QUESTION_URL="http://127.0.0.1:8081/v1"
+  echo "==> Questions -> Bonsai 4B (8081), actions -> Bonsai 2B (8080). Watch swap: sysctl vm.swapusage"
 fi
 
 # 2. Helper -----------------------------------------------------------------
@@ -114,9 +136,15 @@ fi
 
 echo
 echo "Beacon is running. Logs: $LOG_DIR  (tail -f $LOG_DIR/session.jsonl for latency). Ctrl-C to stop."
-# Stay up until Ctrl-C, or until something we started dies.
+# Stay up until Ctrl-C, or until Bonsai or the Brain dies. The Helper quitting (the HUD's Turn off button) leaves
+# Bonsai and the Brain running, so reopening the Helper app brings Beacon straight back.
 while true; do
-  for pid in $STARTED_BONSAI $STARTED_HELPER $STARTED_BRAIN; do
+  if [[ -n "$STARTED_HELPER" ]] && ! kill -0 "$STARTED_HELPER" 2>/dev/null; then
+    echo "==> Helper turned off; Bonsai and the Brain stay up. Reopen it with: open \"${APP:-$ROOT/build/Beacon Helper.app}\" (Ctrl-C here stops everything)"
+    STARTED_HELPER=""
+  fi
+  # The 4B is optional: the HUD's ⋯ menu can turn it off, so it is not watched here.
+  for pid in $STARTED_BONSAI $STARTED_BRAIN; do
     if ! kill -0 "$pid" 2>/dev/null; then
       echo "warning: process $pid exited; check $LOG_DIR" >&2
       exit 1

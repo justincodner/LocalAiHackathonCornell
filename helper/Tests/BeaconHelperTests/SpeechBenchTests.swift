@@ -19,7 +19,7 @@ final class SpeechBenchTests: XCTestCase {
         return kr == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : -1
     }
 
-    private func makeClip() throws -> [Float] {
+    private func makeClip(_ sentence: String = "Open Safari and read me the newest email from Sarah.") throws -> [Float] {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("beacon-bench-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let aiff = dir.appendingPathComponent("clip.aiff").path
@@ -31,7 +31,7 @@ final class SpeechBenchTests: XCTestCase {
             try p.run()
             p.waitUntilExit()
         }
-        try run("/usr/bin/say", ["-o", aiff, "Open Safari and read me the newest email from Sarah."])
+        try run("/usr/bin/say", ["-o", aiff, sentence])
         try run("/usr/bin/afconvert", ["-f", "WAVE", "-d", "LEF32@16000", "-c", "1", aiff, wav])
         return try AudioProcessor.loadAudioAsFloatArray(fromPath: wav)
     }
@@ -59,6 +59,32 @@ final class SpeechBenchTests: XCTestCase {
             }
             print("BENCH stt model=\(model) audio_ms=\(audioMS) load_ms=\(loadMS) stt_ms=\(runs) rss_delta_mb=\(Int(after - before)) text=\"\(text)\"")
             XCTAssertTrue(text.lowercased().contains("safari"))
+        }
+    }
+
+    /// Screen-hint prompt: the same clip with and without on-screen vocabulary, plus a silent clip
+    /// that must not come back as the prompt echoed.
+    func testScreenHintPrompt() async throws {
+        try XCTSkipUnless(enabled, "set BEACON_SPEECH_BENCH=1")
+        let model = ProcessInfo.processInfo.environment["BEACON_BENCH_MODELS"]?.split(separator: ",").first.map(String.init)
+            ?? "tiny.en"
+        let service = SpeechInputService(events: EventHub(), modelName: model)
+        await service.prewarm()
+        let screen = ScreenText(app: "Discord", window: "Krillion - Discord",
+                                labels: ["Kingsnipeshot", "Krillion", "Direct Messages", "Search", "Settings"])
+        let hint = ScreenVocabulary.hint(for: screen)
+        for sentence in ["Send a message to Krillion saying hello.", "Open the chat with Kingsnipeshot."] {
+            let samples = try makeClip(sentence)
+            let plain = await service.process(samples: samples)
+            let hinted = await service.process(samples: samples, hint: hint)
+            print("BENCH hint model=\(model) hint=\"\(hint)\" said=\"\(sentence)\" plain=\(plain) hinted=\(hinted)")
+            guard case .final = hinted else { return XCTFail("hinted transcription failed: \(hinted)") }
+        }
+        let silence = [Float](repeating: 0, count: 32_000)
+        let silent = await service.process(samples: silence, hint: hint)
+        print("BENCH hint silence=\(silent)")
+        if case let .final(text, _, _) = silent {
+            XCTAssertFalse(ScreenVocabulary.looksLikeEcho(transcript: text, hint: hint), text)
         }
     }
 

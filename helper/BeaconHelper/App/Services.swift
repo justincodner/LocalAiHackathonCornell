@@ -89,8 +89,22 @@ protocol SpeechOutputProviding: AnyObject, Sendable {
 
 // MARK: - HUD (H6)
 
+/// The optional Bonsai 4B question model, switched from the HUD's ⋯ menu.
+enum QuestionModelState: String {
+    case off, loading, on
+
+    /// Accepts the /hud `question_model` field: true, false or "loading".
+    init?(json value: Any?) {
+        switch value {
+        case let flag as Bool: self = flag ? .on : .off
+        case let text as String: self.init(rawValue: text)
+        default: return nil
+        }
+    }
+}
+
 enum HUDState: String, CaseIterable {
-    case idle, listening, thinking, acting, speaking, confirm, error
+    case idle, listening, thinking, acting, speaking, confirm, asking, error
 }
 
 enum SoundCue: String, CaseIterable {
@@ -110,6 +124,8 @@ protocol HUDProviding: AnyObject {
     func highlight(_ rect: CGRect)
     func setOffline(_ offline: Bool)
     func play(_ cue: SoundCue)
+    /// Whether questions currently go to the Bonsai 4B ("off", "loading" or "on"), as the Brain reports it.
+    func setQuestionModel(_ state: QuestionModelState)
     /// Window numbers of the Helper's own panels, so snapshots can ignore them.
     var windowNumbers: [Int] { get }
 }

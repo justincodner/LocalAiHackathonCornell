@@ -14,8 +14,15 @@ CONTENT_MARKER = re.compile(
 )
 SEND_OBJECT = re.compile(r"\bsend\s+(?P<body>.+?)\s+to\s+[\w'-]+(?:\s+[\w'-]+)?\s*$", re.IGNORECASE)
 # "Text Emmett I'm running late", "tell Sam that I'm here": the verb, a name, then the message.
-DIRECT = re.compile(r"^(?:(?:please|can you|could you|hey)\W+)*(?:text|message|tell|dm)\s+(?P<name>[A-Z][\w'-]+)\s+"
+DIRECT = re.compile(r"(?:^|\b(?:and|then)\s+(?:then\s+)?)(?:(?:please|can you|could you|hey)\W+)*(?:text|message|tell|dm)\s+(?P<name>[A-Z][\w'-]+)\s+"
                     r"(?:that\s+|saying\s+)?(?P<body>.+)$", re.IGNORECASE)
+# "Send a message to KingSnipeshot hello", "write a DM to sam.hello": the message comes right after the
+# name. Speech-to-text often glues a sentence break to it ("KingSneapeshot.hello").
+MESSAGE_TO = re.compile(r"\b(?:send|write|drop)\s+(?:(?:him|her|them)\s+)?(?:a|an)\s+(?:(?:quick|short|new)\s+)?"
+                        r"(?:message|text|dm|note|imessage|reply)\s+to\s+@?(?P<name>[\w'-]+)(?P<sep>[\s.,:;!-]+)"
+                        r"(?P<body>.+)$", re.IGNORECASE)
+# A lone capitalised word after the name is more likely a surname ("to Sarah Chen") than the message.
+SHORT_MESSAGES = {"hello", "hi", "hey", "yo", "yes", "no", "ok", "okay", "thanks", "lol", "sure", "sup", "gm", "gn"}
 NOT_CONTENT = {"a message", "message", "a text", "text", "the message", "a note", "him", "her", "them", "it",
                "this", "that", "something", "a reply", "the following", "an imessage", "a quick message"}
 
@@ -33,8 +40,43 @@ def _clean(text: str) -> str | None:
     return text if text and text.casefold().rstrip(".!?") not in NOT_CONTENT else None
 
 
+HERE_PLACE = (r"(?:here|in\s+here|(?:in|to|into|on)\s+(?:this|the|our|my)\s+(?:current\s+)?"
+              r"(?:chat|conversation|thread|channel|group(?:\s+chat)?|dm|server))")
+# "Send, did you find it?", "send to this chat: on my way", "post here, who's in?"
+HERE_FIRST = re.compile(rf"\b(?:send|post|write|type)(?:\s+(?:a\s+)?(?:message|this|it))?(?:\s+{HERE_PLACE})?"
+                        rf"(?:\s*[,:]\s*|\s+(?:saying|that\s+says)\s+)(?P<body>\S.*)$", re.IGNORECASE)
+# "Send to David, how are you doing?": the person, a comma or colon, then the message.
+TO_NAME_COMMA = re.compile(r"\b(?:send|write)\s+(?:a\s+message\s+|a\s+text\s+)?to\s+@?[\w'-]+(?:\s+[A-Z][\w'-]*)?\s*[,:]\s*"
+                           r"(?P<body>\S.*)$", re.IGNORECASE)
+HERE_ONLY = re.compile(rf"\b{HERE_PLACE}\s*[.!?]?$", re.IGNORECASE)
+# "Send on my way in this chat", "say hi guys here".
+HERE_LAST = re.compile(rf"\b(?:send|post|say|write)\s+(?P<body>.+?)\s+{HERE_PLACE}\s*[.!]?$", re.IGNORECASE)
+# "... and ask, "did you guys find it?"": the quoted words are the message.
+QUOTED = re.compile(r"\b(?:ask|say|tell\s+(?:them|everyone|the\s+group)|send|reply)\s*[,:]?\s*[\"“](?P<body>[^\"”]+)[\"”]",
+                    re.IGNORECASE)
+
+
+def here_content(utterance: str) -> str | None:
+    """The message for a send into the chat already open ("send to this chat, ..."), or None."""
+    for pattern in (QUOTED, HERE_FIRST, HERE_LAST):
+        match = pattern.search(utterance.strip())
+        if match:
+            body = _clean(match.group("body").strip())
+            if body and not re.match(rf"(?i)^{HERE_PLACE}$", body):
+                return body
+    return None
+
+
 def command_and_content(utterance: str) -> tuple[str, str | None]:
     """The sentence that asks to send, and the message text the user gave (None if none)."""
+    here = here_content(utterance)
+    if here:
+        return utterance, here
+    to_name = TO_NAME_COMMA.search(utterance.strip())
+    if to_name and _clean(to_name.group("body")):
+        return utterance, _clean(to_name.group("body"))
+    if HERE_ONLY.search(utterance.strip()) and re.search(r"(?i)\b(?:a|the)\s+message\b", utterance):
+        return utterance, None  # "send a message to this chat": the message is still to come
     parts = sentences(utterance)
     index = next((i for i, part in enumerate(parts) if SEND_VERB.search(part)), None)
     if index is None:
@@ -46,7 +88,10 @@ def command_and_content(utterance: str) -> tuple[str, str | None]:
         return command, _clean(command[marker.end():]) or _clean(after)
     if ":" in command and command.split(":", 1)[1].strip():
         return command, _clean(command.split(":", 1)[1])
-    direct = DIRECT.match(command)
+    to_name = MESSAGE_TO.search(command)
+    if to_name and _message_after_name(to_name):
+        return command, _message_after_name(to_name)
+    direct = DIRECT.search(command)
     if direct and direct.group("name") not in {"a", "an", "the"} and _clean(direct.group("body")):
         return command, _clean(direct.group("body"))
     obj = SEND_OBJECT.search(command.rstrip(".!?"))
@@ -55,10 +100,27 @@ def command_and_content(utterance: str) -> tuple[str, str | None]:
     return command, _clean(after)
 
 
+def _message_after_name(match: re.Match) -> str | None:
+    body = match.group("body").strip()
+    glued = bool(set(match.group("sep")) - set(" \t"))  # "KingSneapeshot.hello", "Sam, hi"
+    word = body.rstrip(".!?")
+    if not glued and " " not in word and word[:1].isupper() and word.casefold() not in SHORT_MESSAGES:
+        return None
+    return _clean(word if " " not in word else body)  # "hello." from speech-to-text: type "hello"
+
+
 def message_for(utterance: str, answers: list[tuple[str, str]]) -> str | None:
-    """What to type: the user's latest answer to a question, else the text in the request."""
+    """What to type: the user's latest answer to a question, else the text in the request.
+
+    "Yes", "send it" or "stop" answering a confirmation is not the message, unless it
+    answers "What should the message say?".
+    """
+    from . import fastpath
+
     if answers:
-        return answers[-1][1].strip() or None
+        question, reply = answers[-1]
+        if question.startswith(ASK_MESSAGE) or fastpath.classify(reply) not in {"yes", "no", "stop"}:
+            return reply.strip() or None
     return command_and_content(utterance)[1]
 
 
@@ -81,10 +143,60 @@ FIELD_LABEL = re.compile(r"^(?:i?message|text message|send a message|write a mes
                          re.IGNORECASE)
 
 
-def recipient(utterance: str) -> str | None:
+NAVIGATION = re.compile(r"\b(?:go|switch|head|navigate|get|jump|move|come)(?:\s+(?:back|over))?\s*$", re.IGNORECASE)
+
+
+ADDRESS_LABEL = re.compile(r"^(?:to|recipients?)\s*:?$", re.IGNORECASE)
+WROTE = re.compile(r"(?:^|,\s)(?:at [\d:]+\s*[AP]M,\s*)?(?P<name>[^,<>]+?)\s*<[^>]+>\s*wrote:", re.IGNORECASE)
+REPLY_HEADING = re.compile(r"^(?:reply|re|message) to\s+(?P<name>.+)$", re.IGNORECASE)
+# Mail apps where Return in the body only adds a new line: only the Send button sends.
+MULTILINE_APPS = {"mail", "microsoft outlook", "outlook", "spark", "thunderbird", "airmail", "mimestream"}
+
+
+def addressee(snapshot: dict) -> str | None:
+    """Who an open draft goes to: its To field, a "Reply to Sarah Chen" heading, the quoted
+    "Sarah Chen <sarah@...> wrote:", else the sender of the selected email ("Sarah Chen - ...")."""
+    elements = snapshot.get("elements", [])
+    for item in elements:
+        value = (item.get("value") or "").strip()
+        if item["role"] in {"textfield", "textarea", "combobox", "tokenfield"} and value and (
+                ADDRESS_LABEL.match((item.get("label") or "").strip())):
+            name = re.sub(r"\s*<[^>]*>", "", value).replace("\ufffc", "").strip(" ,;")
+            if name:  # Mail shows a contact token as U+FFFC: then read the quoted "... wrote:"
+                return name
+    for item in elements:
+        heading = REPLY_HEADING.match((item.get("label") or "").strip()) if item["role"] == "heading" else None
+        if heading:
+            return heading.group("name").strip()
+    for item in elements:
+        quoted = WROTE.search(item.get("label") or "")  # "... Sarah Chen <sarah@x.com> wrote:"
+        if quoted:
+            return quoted.group("name").strip()
+    selected = next((item for item in elements if item["role"] == "row" and "selected" in item.get("states", [])), None)
+    if selected and " - " in (selected.get("label") or ""):
+        return selected["label"].split(" - ", 1)[0].strip() or None
+    return None
+
+
+def recipient(utterance: str, snapshot: dict | None = None) -> str | None:
+    """Who the message goes to: the draft's To field when a snapshot is given, else the name
+    in the request ("send hello to Emmett")."""
+    found = addressee(snapshot) if snapshot is not None else None
+    if found:
+        return found
     command, _ = command_and_content(utterance)
-    match = next((m for m in RECIPIENT.finditer(command) if m.group("name") not in NOT_NAMES), None)
+    to_name = MESSAGE_TO.search(command)
+    if to_name and to_name.group("name").casefold() not in {n.casefold() for n in NOT_NAMES}:
+        return to_name.group("name")
+    # "Go to Discord and message Sam": the place to go to is not the person.
+    match = next((m for m in RECIPIENT.finditer(command) if m.group("name") not in NOT_NAMES
+                  and not NAVIGATION.search(command[:m.start()])), None)
     return match.group("name") if match else None
+
+
+def return_sends(snapshot: dict) -> bool:
+    """Return sends the message (Messages, chat apps), not just a new line (Mail)."""
+    return snapshot["app"].casefold() not in MULTILINE_APPS
 
 
 def message_field(snapshot: dict) -> dict | None:
@@ -97,17 +209,53 @@ def message_field(snapshot: dict) -> dict | None:
 
 def on_screen(name: str, snapshot: dict) -> bool:
     """The named person appears on screen, allowing for speech-to-text spelling ("Emmit")."""
+    return _matches(name, words(f"{snapshot.get('window', '')}\n{snapshot['text']}"))
+
+
+def _matches(name: str, shown: list[str]) -> bool:
     import difflib
 
-    shown = words(f"{snapshot.get('window', '')}\n{snapshot['text']}")
     return name.casefold() in shown or bool(difflib.get_close_matches(name.casefold(), shown, n=1, cutoff=0.7))
 
 
-def plan(call, utterance: str, answers: list[tuple[str, str]], snapshot: dict):
+def chat_open(name: str | None, snapshot: dict, field: dict | None = None) -> bool:
+    """The open conversation is the named person's: their name is on the message field
+    ("Message @Kingsnipeshot"), the window title, a heading, or the selected row or tab.
+
+    Stricter than on_screen, which a name in a sidebar list also satisfies.
+    """
+    field = field or message_field(snapshot)
+    if field is None:
+        return False
+    if not name:
+        return True
+    places = [field.get("label") or "", snapshot.get("window") or ""]
+    places += [item.get("label") or "" for item in snapshot["elements"]
+               if item["role"] == "heading" or "selected" in item.get("states", [])]
+    return _matches(name, words(" ".join(places)))
+
+
+def shown_name(name: str, snapshot: dict | None) -> str:
+    """The open conversation's spelling of a misheard name ("KingSneapeshot" -> "Kingsnipeshot")."""
+    import difflib
+
+    field = message_field(snapshot) if snapshot else None
+    if field is None:
+        return name
+    places = [field.get("label") or "", snapshot.get("window") or ""]
+    places += [item.get("label") or "" for item in snapshot["elements"] if item["role"] == "heading"]
+    shown = {word.casefold(): word for word in re.findall(r"[\w'-]+", " ".join(places))}
+    close = difflib.get_close_matches(name.casefold(), list(shown), n=1, cutoff=0.7)
+    return shown[close[0]] if close else name
+
+
+def plan(call, utterance: str, answers: list[tuple[str, str]], snapshot: dict, *, strict: bool = False):
     """Before anything is typed for a send request, the type_text or question that should run.
 
     Returns None to keep the model's call: no message field, or the named person's chat
     isn't the one open (then the model's own question about the recipient is right).
+    strict: the model is navigating (clicking, or past its first step), so only take over once
+    the named person's conversation is clearly the one open (chat_open).
     """
     from .llm import ToolCall
 
@@ -117,11 +265,14 @@ def plan(call, utterance: str, answers: list[tuple[str, str]], snapshot: dict):
     name = recipient(utterance)
     if name and not on_screen(name, snapshot):
         return None
+    if strict and not chat_open(name, snapshot, field):
+        return None
     content = message_for(utterance, answers)
     if not name and not content:
         return None  # "send it": about a draft that already exists
     if content:
-        if call.name == "type_text" and call.arguments.get("text", "").strip() == content:
+        target = call.arguments.get("id", snapshot.get("focused_id"))
+        if call.name == "type_text" and call.arguments.get("text", "").strip() == content and target == field["id"]:
             return None
         return ToolCall(call.id, "type_text", {"id": field["id"], "text": content}, call.stray_text)
     if (field.get("value") or "").strip():
@@ -132,3 +283,22 @@ def plan(call, utterance: str, answers: list[tuple[str, str]], snapshot: dict):
         return None  # "Text Emmett I'm running late": the model found the message itself
     # Nothing typed, or words the user never said ("Send Emmett a message" -> "hello"): ask.
     return ToolCall(call.id, "ask_user", {"question": ASK_MESSAGE}, call.stray_text)
+
+
+PLACE = re.compile(r"\b(?:go|switch|head|jump)\s+(?:back\s+|over\s+)?to\s+(?P<place>[\w][\w .'-]*?)\s+(?:and|then)\b",
+                   re.IGNORECASE)
+
+
+def place_tab(utterance: str, snapshot: dict) -> dict | None:
+    """ "Go to Discord and message Sam": the one unselected tab named after that place, if any."""
+    match = PLACE.search(utterance)
+    if not match:
+        return None
+    place = match.group("place").strip().casefold()
+    if place in (snapshot.get("window") or "").casefold().split(" - google chrome")[0]:
+        return None  # already there
+    tabs = [item for item in snapshot.get("elements", []) if item.get("role") == "tab"
+            and re.search(rf"\b{re.escape(place)}\b", (item.get("label") or "").casefold())]
+    if len(tabs) != 1 or "selected" in tabs[0].get("states", []):
+        return None
+    return tabs[0]

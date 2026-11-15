@@ -140,6 +140,8 @@ def test_startup_prewarms_every_prompt_family_and_survives_a_failure():
     warmed = []
 
     class Model:
+        slot_count = 8
+
         async def prewarm(self, system, family_tools):
             warmed.append((system, [tool["function"]["name"] for tool in family_tools]))
             if len(warmed) == 2:
@@ -323,3 +325,20 @@ def test_a_retry_after_a_cut_off_reply_gets_the_full_ceiling():
 
     assert asyncio.run(run()).name == "type_text"
     assert [body["max_tokens"] for body in seen] == [200, 300]
+
+
+def test_a_one_slot_server_warms_only_the_action_prompt():
+    from beacon_brain.config import Config
+    from beacon_brain.main import prewarm
+
+    warmed = []
+
+    class Model:
+        slot_count = 1
+
+        async def prewarm(self, system, family_tools):
+            warmed.append(system)
+            return 1.0
+
+    asyncio.run(prewarm(Config(), Model(), "MAIN"))
+    assert warmed == ["MAIN"]

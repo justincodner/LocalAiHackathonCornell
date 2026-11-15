@@ -3,17 +3,21 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import replace
 
 import httpx
 
-from . import compose, fastpath, followup, grounding, narrate, page_summary, questions, risk, route, tools
+from . import (browser, chats, commands, compose, fastpath, followup, grounding, locate, narrate, page_summary, questions,
+               risk, route, screen_words, tools)
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall
 from .log import append_step
 from .memory import Conversation, TaskMemory
+from . import drafts  # Mail replies and "send it" on a draft, run in code
+from . import question_switch
 
 
 LOGGER = logging.getLogger(__name__)
@@ -21,6 +25,8 @@ TERMINALS = {"say", "done", "read_element"}
 QUESTION_PAUSE_S = 60
 CONNECTION_ERRORS = (HelperError, httpx.HTTPError, OSError, TimeoutError, ValueError, KeyError)
 DECIDE_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] in {"click", "set_value"}]
+# Focus on one of these means Return would press it, not send the typed message.
+PRESSABLE = {"button", "link", "checkbox", "radio", "menuitem", "tab", "row", "cell", "popup", "slider", "menu", "list"}
 SCREEN_SUMMARY_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
 
 
@@ -43,6 +49,18 @@ def prompt_families(prompt: str) -> list[tuple[str, list[dict]]]:
     ]
 
 
+TALK_KEY_NAMES = {"right_command": "Command", "right_cmd": "Command", "right_control": "Control",
+                  "right_ctrl": "Control", "right_shift": "Shift", "fn": "Fn", "function": "Fn"}
+
+
+def answer_hint(ptt_key: str) -> str:
+    """How to answer a question. The talk key is push-to-talk: held while speaking (HotkeyMonitor)."""
+    return f"Hold the {TALK_KEY_NAMES.get(ptt_key.casefold(), 'Option')} key and say your answer."
+
+
+HOW_DO_I = re.compile(r"^(?:how|where) (?:do|can|should|would) (?:i|we)\b|^how to\b")
+
+
 def snapshot_summary(snapshot: dict) -> ToolCall:
     app = snapshot["app"]
     title = snapshot["window"].strip()
@@ -56,6 +74,8 @@ class Brain:
         self.model = model  # fast model: actions and multi-step tasks
         self.question_model = question_model  # optional accurate model for questions (route.py)
         self.question_paused_until = 0.0  # after a question-model failure, skip it for a while
+        self.question_switch = None  # QuestionModelSwitch, set by main: the HUD's 4B toggle
+        self.switching: asyncio.Task | None = None
         self.last_answered_by: str | None = None  # which model answered the latest call, for the log
         self.config = config
         self.prompt = prompt
@@ -79,6 +99,33 @@ class Brain:
         except (HelperError, httpx.HTTPError):
             LOGGER.debug("HUD update failed", exc_info=True)
 
+    async def switch_question_model(self, enable: bool) -> None:
+        """Load or unload the Bonsai 4B for questions without restarting Beacon (the HUD's ⋯ menu)."""
+        on = self.question_model is not None
+        if enable == on or self.question_switch is None:
+            if self.question_switch is None and enable:
+                await self.set_state("error", caption="The 4B model can't be switched in this setup.", question_model=False)
+            else:
+                await self.set_state("idle", question_model=on)
+            return
+        if not enable:
+            client, self.question_model = self.question_model, None
+            await self.question_switch.stop(client)
+            await self.set_state("idle", caption=question_switch.DISABLED, question_model=False)
+            await self.say(question_switch.DISABLED)
+            return
+        await self.set_state("thinking", caption=question_switch.LOADING, question_model="loading")
+        try:
+            self.question_model = await self.question_switch.start()
+        except (BonsaiError, OSError) as error:
+            LOGGER.warning("Could not load the 4B question model: %s", error)
+            await self.set_state("error", caption="I couldn't load the 4B model. Staying on the 2B.", question_model=False)
+            return
+        self.question_paused_until = 0.0
+        message = question_switch.enabled_message()
+        await self.set_state("idle", caption=message, question_model=True)
+        await self.say(message)
+
     async def cancel_active(self) -> None:
         if self.active is None or self.active.done():
             return
@@ -101,12 +148,28 @@ class Brain:
                 self.finished_speech[speech_id] = interrupted
         elif kind == "barge_in":
             await self.cancel_active()
+        elif kind == "model.question" and isinstance(event.get("enabled"), bool):
+            if self.switching is None or self.switching.done():
+                self.switching = asyncio.create_task(self.switch_question_model(event["enabled"]))
+        elif kind == "conversation.reset":
+            # The HUD's X on a screenshot: stop whatever is running and start a fresh conversation.
+            await self.cancel_active()
+            self.conversation.forget()
+            await self.set_state("idle")
         elif kind == "listen.started" and self.state == "idle":
             await self.set_state("listening")
         elif kind == "listen.cancelled" and self.state == "listening":
             await self.set_state("idle")
         elif kind == "stt.final" and isinstance(event.get("text"), str) and event["text"].strip():
             text = event["text"].strip()
+            focus = questions.selection_focus(event)
+            if focus is not None:
+                # A question about a screen region the user just selected is always a new request,
+                # even while Beacon waits for an answer to something else.
+                await self.cancel_active()
+                self.task_number += 1
+                self.active = asyncio.create_task(self.handle_utterance(text, event.get("stt_ms", 0), focus=focus))
+                return
             # A dictated message ("Are you free tonight?") is the answer, not a new question.
             new_question = (self.state != "confirm" and not self.awaiting_message
                             and fastpath.is_question(text))
@@ -136,10 +199,14 @@ class Brain:
         await self.speak(text)
 
     async def ask(self, question: str, *, confirm: bool = False) -> str | None:
-        if not confirm:
-            question += " Hold the talk key to answer."
-        await self.set_state("confirm" if confirm else "speaking", caption=question)
-        if not await self.speak(question):
+        if confirm:
+            await self.set_state("confirm", caption=question)
+            spoken = question
+        else:
+            # The HUD shows the question in its "asking" look, with its own answer prompt.
+            await self.set_state("asking", caption=question)
+            spoken = f"{question} {answer_hint(self.config.ptt_key)}"
+        if not await self.speak(spoken):
             return None
         reply = asyncio.get_running_loop().create_future()
         self.reply = reply
@@ -158,7 +225,7 @@ class Brain:
             self.reply = None
             self.awaiting_message = False
 
-    async def handle_utterance(self, text: str, stt_ms: int) -> None:
+    async def handle_utterance(self, text: str, stt_ms: int, focus: dict | None = None) -> None:
         command = fastpath.classify(text)
         try:
             async with asyncio.timeout(self.config.task_timeout_s):
@@ -173,6 +240,8 @@ class Brain:
                 elif command == "forget":
                     self.conversation.forget()
                     await self.say("Okay. I've forgotten our conversation.")
+                elif focus is not None:
+                    await self.answer_about_selection(text, focus, stt_ms)
                 else:
                     self.heard = text
                     request, context = await self.resolve(text)
@@ -226,8 +295,10 @@ class Brain:
     async def route_request(self, text: str, stt_ms: int, *, context: str = "") -> None:
         # "And his wife?" opens with no question word, but as a follow-up it is still a question.
         question = fastpath.is_question(text) or bool(context and followup.asks(text))
+        # "Send to this chat, did you find it?" ends in a question mark but asks for a send.
+        sends_message = fastpath.wants_send(text) and bool(compose.command_and_content(text)[1])
         if (fastpath.wants_screen_summary(text) or fastpath.asks_for_action(text)
-                or fastpath.wants_follow_through(text) or not question):
+                or fastpath.wants_follow_through(text) or sends_message or not question):
             await self.run_task(text, stt_ms, context=context)
             return
         last = self.conversation.last
@@ -283,21 +354,99 @@ class Brain:
                     ms={"stt": stt_ms, "snapshot": 0, "llm": model_ms,
                         "act": round((time.perf_counter() - started_speaking) * 1000)})
 
+    async def answer_about_selection(self, text: str, focus: dict, stt_ms: int) -> None:
+        """Answer a question about the screen region the user selected. Its text is the primary context."""
+        await self.set_state("thinking", transcript=text)
+        started = time.perf_counter()
+        answered_by = None
+        if questions.wants_selection_read(text):
+            answer = questions.selection_text(focus)
+        else:
+            messages = questions.selection_messages(text, focus)
+            answer = ""
+            for attempt in range(2):
+                call, answered_by = await self.think(messages, SCREEN_SUMMARY_TOOLS, filler=attempt == 0,
+                                                     task_route=route.QUESTION)
+                if call.name == "say" and tools.validate(call, {}) is None:
+                    candidate = narrate.clean_speech(call.arguments["text"])
+                    if (candidate and not questions.is_question_only(candidate)
+                            and fastpath.normalize(candidate) != fastpath.normalize(text)):
+                        answer = candidate
+                        break
+                messages[0]["content"] = f"{questions.SELECTION_PROMPT}\n{questions.SELECTION_RETRY}"
+        model_ms = round((time.perf_counter() - started) * 1000)
+        started_speaking = time.perf_counter()
+        reply = answer or questions.SELECTION_FALLBACK
+        await self.say(reply)
+        if answer:
+            self.remember(text, answer)
+        append_step(self.config.log_path, task_id=f"t_{self.task_number}", step=1,
+                    utterance=text, kind="selection", route=route.QUESTION, model=answered_by, snapshot_id=None,
+                    snapshot_tokens=0, focus_chars=len(questions.selection_text(focus)),
+                    tool="say", args={"text": reply}, valid=bool(answer), risk="allow", ok=bool(answer),
+                    ms={"stt": stt_ms, "snapshot": 0, "llm": model_ms,
+                        "act": round((time.perf_counter() - started_speaking) * 1000)})
+
     async def run_task(self, text: str, stt_ms: int, *, screen_question: bool = False, context: str = "") -> None:
         screen_summary = fastpath.wants_screen_summary(text)
         memory = TaskMemory(self.prompt, text, "" if screen_summary or screen_question else context)
         available_tools = SCREEN_SUMMARY_TOOLS if screen_summary else tools.TOOL_DEFINITIONS
         task_id = f"t_{self.task_number}"
         generation = self.screen_generation
+        if not (screen_question or screen_summary) and commands.plan(text, None) is not None:
+            # "Press enter", "next tab": one key or scroll, no model call and no window read.
+            if await self.run_command(text, stt_ms):
+                return
+        chat = None if screen_question or screen_summary else chats.parse(text)
+        if chat is not None:
+            # "Switch to the poker chat", "send hello to the poker chat": from any app, in code.
+            await self.run_chat(chat, text, stt_ms)
+            return
+        if not (screen_question or screen_summary) and commands.app_request(text) is not None:
+            # "Open messages", "switch to chrome": open or bring the app to the front.
+            if await self.run_open_app(text, stt_ms):
+                return
         try:
             snapshot = await self.helper.snapshot()
         except HelperError as error:
             LOGGER.warning("Could not read the active window: %s", error.code)
             await self.say("I couldn't read the current window. Bring the app you want to use to the front and try again.")
             return
+        heard, text = text, screen_words.correct(text, snapshot)  # misheard on-screen names
+        if text != heard:
+            LOGGER.info("Heard %r; on screen that is %r", heard, text)
+            append_step(self.config.log_path, task_id=task_id, step=0, kind="heard", utterance=heard, corrected=text)
+            memory.utterance = text
+        button = None if (screen_question or screen_summary or fastpath.wants_send(text)
+                          or fastpath.is_question(text)) else commands.named_button(text, snapshot, bare=True)
+        if button is not None:
+            click = ToolCall("command-1", "click", {"id": button["id"]})
+            if risk.check(click, snapshot) == "allow":
+                # "Fold", "press call": the one control the words name, with no model call.
+                label = (button.get("label") or "").strip()
+                await self.run_browser_plan(browser.Plan([click], f"Pressing {label}", f"I pressed {label}."), text,
+                                            snapshot, stt_ms, kind="command")
+                return
+        quick = None if screen_question or screen_summary else (
+            browser.named_tab(text, snapshot) or browser.plan(text, snapshot["app"]))
+        if quick is not None:
+            await self.run_browser_plan(quick, text, snapshot, stt_ms)
+            return
+        elsewhere = None if screen_question or screen_summary else chats.person_send(text, snapshot)
+        if elsewhere is not None:
+            await self.run_chat(elsewhere, text, stt_ms)
+            return
+        here = None if screen_question or screen_summary else chats.here_send(text, snapshot)
+        if here is not None:
+            # "Send to this chat, did you find it?": the open chat's box, typed and sent in code.
+            await self.send_in_chat(snapshot, here, text, f"t_{self.task_number}", time.perf_counter(), stt_ms)
+            return
+        if not (screen_question or screen_summary) and await drafts.run(self, text, snapshot, stt_ms):
+            return
         previous_snapshot = None
         task_summary = ""
         consecutive_invalid = 0
+        answers_used = 0  # answers to ask_user already checked for a button they name ("Fold")
         failures = []
         confirmed_screen = None
         actions_taken: list[str] = []  # spoken past tense, for honest done summaries
@@ -305,6 +454,8 @@ class Brain:
         fresh_request = True  # no action has run since the user last spoke (grounding.check)
         last_action = ""  # name of the latest screen action that ran
         last_typed = ""  # text of the latest type_text that ran
+        typed_field = None  # id of the field it went into
+        sending = fastpath.wants_send(text) and not (screen_question or screen_summary)
         # "Send hello to Emmett", "decide and do it": a say/done before any action is not the end.
         # "Make the best move for me" hands Beacon the choice and the action in one go.
         must_act = not (screen_question or screen_summary) and (
@@ -328,7 +479,27 @@ class Brain:
             await self.set_state("thinking", transcript=memory.latest_words)
             started = time.perf_counter()
             self.last_answered_by = None  # stays None when code, not a model, wrote the answer
-            if screen_question:
+            auto_send = None
+            if sending and not committed and last_action == "type_text" and last_typed.strip() and (
+                    last_typed.strip() == (compose.message_for(text, memory.answers) or "").strip()):
+                # The user's own message is typed: send it now instead of asking the model (1 to 15 s)
+                # only to hear "done" or, worse, have it click something else first.
+                auto_send = self.send_typed(ToolCall(f"send-{step}", "done", {"summary": ""}), last_action,
+                                            committed, memory.all_words, snapshot, typed_field)
+            elif (sending and not committed and not last_typed and compose.recipient(text)
+                  and compose.message_for(text, memory.answers)
+                  and compose.chat_open(compose.recipient(text), snapshot)):
+                # The named person's conversation is open and the user said the message: type it
+                # in its message field now. The model would only be overridden to do the same.
+                auto_send = compose.plan(ToolCall(f"compose-{step}", "done", {"summary": ""}), text,
+                                         memory.answers, snapshot, strict=True)
+            elif sending and not tried_action and not last_typed and (tab := compose.place_tab(text, snapshot)):
+                # "Go to Discord and send ...": the Discord tab is right there. Click it without a
+                # model call; the 2B model sometimes clicks the wrong tab first.
+                auto_send = ToolCall(f"place-{step}", "click", {"id": tab["id"]})
+            if auto_send is not None:
+                call = auto_send
+            elif screen_question:
                 call = await self.answer_from_screen(snapshot, memory.request)
             elif decide_first and not tried_action and step <= 2:
                 # "Decide and do it": offer only action tools so the model must commit to one option
@@ -354,6 +525,13 @@ class Brain:
             acted_at = time.perf_counter()
             screen = snapshot
             call = tools.normalize(call, snapshot)
+            if len(memory.answers) > answers_used:
+                answers_used = len(memory.answers)
+                named = commands.named_button(memory.latest_words, snapshot)
+                if named is not None and (call.name, call.arguments.get("id")) != ("click", named["id"]):
+                    # "Fold" answering "Fold or raise?": press exactly that, whatever the model picked.
+                    LOGGER.info("The answer names %r: clicking it instead of %s", named.get("label"), call.name)
+                    call = ToolCall(call.id, "click", {"id": named["id"]}, call.stray_text)
             if (call.name in tools.SCREEN_ACTIONS and last_success == (call.name, call.arguments)
                     and not fastpath.wants_repeat(memory.all_words)):
                 # The 2B model often repeats the step it just took (types the number again, scrolls
@@ -363,29 +541,51 @@ class Brain:
             if fastpath.wants_send(text) and committed and call.name == "type_text":
                 # Already sent: typing again would start a duplicate message.
                 call = ToolCall(call.id, "done", {"summary": f"Sent: {last_typed}"}, call.stray_text)
-            if fastpath.wants_send(text) and not committed and not screen_question and not screen_summary:
+            if sending and not committed:
                 if last_action == "type_text":
                     if call.name == "type_text":  # typing the message again: send it instead
                         call = ToolCall(call.id, "done", {"summary": ""}, call.stray_text)
-                elif not tried_action and call.name in {"type_text", "ask_user", "done", "say", "confirm"}:
-                    planned = compose.plan(call, text, memory.answers, snapshot)
+                elif not last_typed and call.name in {"type_text", "ask_user", "done", "say", "confirm", "click"}:
+                    # "Go to Discord and send a message to Sam hello": once Sam's conversation is
+                    # open (after any steps that got there), type the message into its message
+                    # field instead of clicking around or stopping.
+                    planned = compose.plan(call, text, memory.answers, snapshot,
+                                           strict=tried_action or call.name == "click")
                     if planned is not None:
                         LOGGER.info("Send request: %s %s instead of %s", planned.name, planned.arguments, call.name)
                         call = planned
-            send_call = self.send_typed(call, last_action, committed, memory.all_words, snapshot)
+            send_call = self.send_typed(call, last_action, committed, memory.all_words, snapshot, typed_field)
             if send_call is not None:
                 # "Send hello to Emmett": the 2B model types, then stops or asks. Finish the
                 # request it was given: click the Send button, or press Return in the field.
                 LOGGER.info("Sending the typed message (%s) instead of %s", send_call.name, call.name)
                 call = send_call
+            if (call.name == "ask_user" and isinstance(call.arguments.get("question"), str)
+                    and questions.echoes_request(call.arguments["question"], text)):
+                # The small model sometimes "asks" the user's own question back: answer it instead.
+                LOGGER.info("ask_user repeated the request; answering it from the screen instead")
+                call = await self.answer_from_screen(snapshot, memory.request)
             if call.name == "done" and isinstance(call.arguments.get("summary"), str):
                 honest = narrate.honest_summary(call.arguments["summary"], actions_taken, committed)
                 if honest != call.arguments["summary"]:
                     LOGGER.warning("Replaced a done summary that claimed an action Beacon did not take")
                     call = replace(call, arguments={**call.arguments, "summary": honest})
             error = tools.validate(call, snapshot)
-            if (error is None and must_act and not tried_action and call.name == "done"
-                    and early_stops < 2):
+            if (error is None and call.name == "ask_user" and not (screen_question or screen_summary)
+                    and HOW_DO_I.match(fastpath.normalize(str(call.arguments.get("question", ""))))):
+                # "How do I access messages in this app?" asks the user how to do what they asked for.
+                LOGGER.info("ask_user asked how to do the request; treating it as a failed step")
+                error = "Don't ask the user how to do it: take the step yourself with a tool"
+            if (error is None and call.name == "ask_user" and fastpath.wants_send(text) and not committed
+                    and compose.message_for(text, memory.answers)
+                    and not re.search(r"\b(?:who|which|whom)\b", str(call.arguments.get("question", "")).casefold())):
+                # "Did you find the private token for this chat?": the message is given, so a question
+                # back is the model misreading it. Only who-to-send-to is worth asking about.
+                LOGGER.info("ask_user on a send whose message is given; treating it as a failed step")
+                error = "The user gave the message: type it into the message field and send it"
+            if (error is None and must_act and call.name == "done" and early_stops < 2
+                    and (not tried_action or (sending and not last_typed and not committed
+                                             and compose.message_for(text, memory.answers)))):
                 early_stops += 1
                 error = "The request is not finished: take the action the user asked for"
             if (error is None and must_act and not tried_action and call.name == "ask_user"
@@ -478,13 +678,16 @@ class Brain:
                 last_action = call.name
                 if call.name == "type_text":
                     last_typed = call.arguments.get("text", "")
+                    typed_field = call.arguments.get("id", screen.get("focused_id"))
                 committed = committed or verdict == "confirm" or (
                     call.name == "press_key" and risk.normal_keys(call.arguments["keys"]).split("+")[-1] in {"return", "enter"}
+                    and compose.return_sends(screen)
                 )  # Return sends in many chat apps, so don't claim "nothing has been sent"
                 fresh_request = False
             target = tools.element_for(call, screen) if "id" in call.arguments else None
             finished = self.finished_summary(call, result, text, target, was_fresh=was_fresh,
-                                             decide_first=decide_first, committed=committed, typed=last_typed)
+                                             decide_first=decide_first, committed=committed, typed=last_typed,
+                                             screen=screen)
             if result["ok"] and call.name in tools.SCREEN_ACTIONS and not finished:
                 # Only a step the model continues from needs the settled, fresh screen.
                 await asyncio.sleep(self.config.settle_ms / 1000)
@@ -533,9 +736,134 @@ class Brain:
                       task_summary or (narrate.did(actions_taken) if actions_taken else "The task stopped."),
                       snapshot["app"])
 
+    async def run_command(self, text: str, stt_ms: int) -> bool:
+        """Run a one-step command (commands.py) on the frontmost app; False leaves it to the full loop."""
+        try:
+            front = await self.helper.frontmost()
+        except HelperError as error:
+            LOGGER.info("Could not read the frontmost app for a quick command: %s", error.code)
+            return False
+        plan = commands.plan(text, front["app"])
+        if plan is None or any(risk.check(call, front) != "allow" for call in plan.steps):
+            return False  # "go back" in Mail, or a key the risk check wants to confirm or refuse
+        await self.run_browser_plan(plan, text, front, stt_ms, kind="command")
+        return True
+
+    async def run_chat(self, chat: "chats.Request", text: str, stt_ms: int) -> None:
+        """Open the named chat (chats.py), then type and send the message when there is one."""
+        task_id = f"t_{self.task_number}"
+        started = time.perf_counter()
+        try:
+            front = await self.helper.frontmost()
+        except HelperError:
+            front = {"app": "", "window": ""}
+        app = chats.chat_app(chat, front)
+        await self.set_state("acting", caption=f"Opening the {chat.name} chat")
+        switcher = chats.Switcher(self.helper, min(self.config.settle_ms, 300) / 1000)
+        try:
+            snapshot, shown = await switcher.open(app, chat.name, front)
+        except HelperError as failure:
+            LOGGER.warning("Chat switch failed: %s", failure.code)
+            snapshot, shown = None, f"I couldn't open the {chat.name} chat."
+        append_step(self.config.log_path, task_id=task_id, step=1, utterance=text, kind="chat", route="chat",
+                    model=None, tool="open_chat", args={"app": app, "name": chat.name}, valid=True, risk="allow",
+                    ok=snapshot is not None, ms={"stt": stt_ms, "snapshot": 0, "llm": 0,
+                                                 "act": round((time.perf_counter() - started) * 1000)})
+        if snapshot is None:
+            await self.say(shown)
+            self.remember(text, shown, app)
+            return
+        if not chat.send:
+            summary = f"Opened the {shown} chat."
+            await self.say(summary)
+            self.remember(text, summary, app)
+            return
+        await self.send_in_chat(snapshot, chats.Request(shown, app, chat.message, True), text, task_id, started,
+                                stt_ms)
+
+
+    async def send_in_chat(self, snapshot: dict, chat: "chats.Request", text: str, task_id: str, started: float,
+                           stt_ms: int) -> None:
+        """Type the message into the open chat's box and press Return (asks for it when missing)."""
+        shown, app = chat.name, chat.app
+        message = chat.message
+        if message is None:
+            message = await self.ask(compose.ASK_MESSAGE)
+            if not message or fastpath.classify(message) in {"stop", "no"}:
+                return
+        if self.config.confirm_sends:
+            reply = await self.ask(f"Send {message} to {shown}?", confirm=True)
+            if fastpath.classify(reply or "") != "yes":
+                await self.say("Okay, I didn't send it.")
+                return
+        field = compose.message_field(snapshot)
+        if field is not None and field["id"] != snapshot.get("focused_id"):
+            await self.helper.request("/ax/act", {**tools.element_ref(snapshot, field["id"]), "action": "focus"})
+        await self.helper.request("/input/type", {"text": message})
+        await self.helper.request("/input/key", {"keys": "return"})
+        append_step(self.config.log_path, task_id=task_id, step=2, utterance=text, kind="chat", route="chat",
+                    model=None, tool="send", args={"app": app, "name": shown}, valid=True, risk="allow", ok=True,
+                    ms={"stt": stt_ms, "snapshot": 0, "llm": 0, "act": round((time.perf_counter() - started) * 1000)})
+        summary = f"Sent: {message}." if shown == "this chat" else f"Sent to {shown}: {message}."
+        await self.say(summary)
+        self.remember(text, summary, app)
+
+    async def run_open_app(self, text: str, stt_ms: int) -> bool:
+        """Open or bring forward the app the user named; False when it is not clearly an installed app."""
+        spoken, go_to = commands.app_request(text)
+        try:
+            front = await self.helper.frontmost()
+            apps = await self.helper.apps()
+        except HelperError as error:
+            LOGGER.info("Could not list apps for an open request: %s", error.code)
+            return False
+        in_browser = front["app"].casefold() in page_summary.BROWSERS
+        if go_to and (in_browser or spoken in browser.NOT_SITES):
+            return False  # "go to youtube" in Chrome is a website; "go to settings" may mean the page's
+        name = commands.match_app(spoken, apps.get("running", []), apps.get("installed", []))
+        if name is None:
+            return False  # "open youtube", "open the reply": a website or something on the screen
+        call = ToolCall("command-1", "open_app", {"name": name})
+        if risk.check(call, front) != "allow":
+            return False  # the full loop explains why it won't open Terminal or Settings
+        if name.casefold() == front["app"].casefold():
+            await self.say(f"{name} is already open.")
+            self.remember(text, f"{name} is already open.", name)
+            return True
+        await self.run_browser_plan(browser.Plan([call], f"Opening {name}", f"Opened {name}."), text, front,
+                                    stt_ms, kind="command")
+        return True
+
+    async def run_browser_plan(self, plan: "browser.Plan", text: str, snapshot: dict, stt_ms: int,
+                               *, kind: str = "browser") -> None:
+        """Run planned keyboard steps (browser.py, commands.py), no model call."""
+        task_id = f"t_{self.task_number}"
+        await self.set_state("acting", caption=plan.caption)
+        summary = plan.summary
+        for step, call in enumerate(plan.steps, 1):
+            started = time.perf_counter()
+            try:
+                result = await tools.execute(self.helper, call, snapshot, None)
+            except HelperError as failure:
+                result = {"ok": False, "error": {"code": failure.code, "message": str(failure)}}
+            append_step(self.config.log_path, task_id=task_id, step=step, utterance=text, kind=kind,
+                        route=kind, model=None, snapshot_id=snapshot["snapshot_id"], snapshot_tokens=0,
+                        tool=call.name, args=call.arguments, valid=True, risk="allow", ok=bool(result.get("ok")),
+                        ms={"stt": stt_ms, "snapshot": snapshot.get("build_ms", 0), "llm": 0,
+                            "act": round((time.perf_counter() - started) * 1000)})
+            if not result.get("ok"):
+                summary = ("I couldn't do that in the browser." if kind == "browser"
+                           else "I couldn't do that.") + " Please try again."
+                break
+            if step < len(plan.steps) and (kind == "browser" or call.name == "scroll"):
+                # A new tab or address bar takes a moment to take keyboard focus; a scroll to finish.
+                await asyncio.sleep(min(self.config.settle_ms, 300 if kind == "browser" else 150) / 1000)
+        await self.say(summary)
+        self.remember(text, summary, snapshot.get("app") or "")
+
     @staticmethod
     def finished_summary(call, result: dict, text: str, target: dict | None, *, was_fresh: bool,
-                         decide_first: bool, committed: bool, typed: str) -> str:
+                         decide_first: bool, committed: bool, typed: str, screen: dict | None = None) -> str:
         """What to say when this successful step completes the whole request, else ""."""
         if not result.get("ok") or call.name not in tools.SCREEN_ACTIONS:
             return ""
@@ -546,30 +874,60 @@ class Brain:
             return f"I scrolled {call.arguments['direction']}."
         if fastpath.wants_send(text) and committed and typed and call.name in {"click", "press_key"}:
             name = compose.recipient(text)
+            name = compose.shown_name(name, screen) if name else name
             body = typed.strip() if typed.strip()[-1:] in {".", "!", "?"} else typed.strip() + "."
             return f"Sent to {name}: {body}" if name else f"Sent: {body}"
         return ""
 
     @staticmethod
-    def send_typed(call, last_action: str, committed: bool, said: str, snapshot: dict) -> ToolCall | None:
+    def send_typed(call, last_action: str, committed: bool, said: str, snapshot: dict,
+                   field_id: int | None = None) -> ToolCall | None:
         """After typing for a send request, the call that sends it, or None to keep the model's call."""
-        if last_action != "type_text" or committed or call.name not in {"done", "ask_user", "confirm", "say"}:
+        if last_action != "type_text" or committed or not fastpath.wants_send(said):
             return None
-        if not fastpath.wants_send(said):
+        buttons = Brain.send_buttons(snapshot, field_id)
+        if call.name == "click" and (tools.element_for(call, snapshot) in buttons
+                                     or fastpath.normalize(Brain.label_of(call, snapshot)) in {"send", "send message"}):
+            return None  # the model is pressing Send itself
+        if call.name not in {"done", "ask_user", "confirm", "say", "click", "scroll"}:
             return None
-        buttons = [item for item in snapshot["elements"] if item["role"] == "button"
-                   and "disabled" not in item["states"]
-                   and fastpath.normalize(item.get("label") or "") in {"send", "send message", "reply", "post"}]
+        # Clicking anything else now ("More" on a message, "Wave") would leave the message unsent.
         if len(buttons) == 1:  # Mail and web composers: Return there only adds a new line
             return ToolCall(call.id, "click", {"id": buttons[0]["id"]}, call.stray_text)
         # Keyboard focus stays in the field we just typed into. Messages often reports no focus
-        # after typing, so only hold back when focus is visibly on something that isn't a field.
+        # after typing, and Chrome may report the page itself, so only hold back when focus is
+        # visibly on a control that Return would press (a button, link, row...).
         focused = next((item for item in snapshot["elements"] if item["id"] == snapshot.get("focused_id")), None)
-        if focused is None or focused["role"] in {"textfield", "textarea", "combobox"}:
+        if focused is None or focused["role"] not in PRESSABLE:
             return ToolCall(call.id, "press_key", {"keys": "return"}, call.stray_text)
         return None
 
+    @staticmethod
+    def label_of(call, snapshot: dict) -> str:
+        return ((tools.element_for(call, snapshot) or {}).get("label") or "") if "id" in call.arguments else ""
+
+    @staticmethod
+    def send_buttons(snapshot: dict, field_id: int | None) -> list[dict]:
+        """The composer's send button: one labelled Send, else a Reply or Post after the field.
+
+        A Reply above the field belongs to a message (Discord's hover bar), not the composer.
+        """
+        enabled = [item for item in snapshot["elements"]
+                   if item["role"] == "button" and "disabled" not in item["states"]]
+        send = [item for item in enabled if fastpath.normalize(item.get("label") or "") in {"send", "send message"}]
+        if send:
+            return send
+        ids = [item["id"] for item in snapshot["elements"]]
+        start = ids.index(field_id) if field_id in ids else 0
+        after = {item["id"] for item in snapshot["elements"][start:]}
+        return [item for item in enabled if item["id"] in after
+                and fastpath.normalize(item.get("label") or "") in {"reply", "post"}]
+
     async def answer_from_screen(self, snapshot: dict, request: str, *, advisory: bool | None = None) -> ToolCall:
+        located = locate.where(snapshot, request)
+        if located:  # "Where do I pay?": ring the control and say where it is, no model call
+            await self.set_state("speaking", caption=located[0], highlight=tools.element_ref(snapshot, located[1]))
+            return ToolCall("screen-locate", "say", {"text": located[0]})
         advisory = fastpath.wants_advice(request) if advisory is None else advisory
         prompt = questions.ADVICE_PROMPT if advisory else questions.SCREEN_PROMPT
         if snapshot["app"].casefold() in page_summary.BROWSERS:
@@ -678,8 +1036,7 @@ class Brain:
             await self.say(narrate.clean_speech(args.get("text") or args["summary"]))
             return {"ok": True, "spoken": True}
         if call.name == "read_element":
-            text = await self.helper.read(snapshot["snapshot_id"], args["id"])
-            await self.say(text)
+            text = await locate.read_aloud(self, snapshot, args["id"])
             return {"ok": True, "text": text[:1500]}
         if call.name == "ask_user":
             reply = await self.ask(narrate.clean_speech(args["question"]))

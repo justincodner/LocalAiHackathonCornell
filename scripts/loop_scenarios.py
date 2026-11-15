@@ -59,11 +59,33 @@ def messages_screen(name: str = "Emmett", value: str = "") -> dict:
     }
 
 
+def discord_screen() -> dict:
+    title = "(8623) Discord | @Kingsnipeshot - Memory usage - 383 MB"
+    return {
+        "snapshot_id": "s_dc", "app": "Google Chrome", "window": title, "focused_id": 12,
+        "text": (f'APP Google Chrome | WINDOW "{title}" | FOCUS [12]\n'
+                 '[2] tab "(8623) Discord | @Kingsnipeshot"\n[10] list "Direct Messages"\n'
+                 '  [3] row "Kingsnipeshot"\n  [4] row "Krillion"\n[11] heading "kingsnipeshot"\n'
+                 '[13] text "Kingsnipeshot: gg wp"\n'
+                 '[12] textarea "Message @Kingsnipeshot" value="" (focused)'),
+        "elements": [
+            {"id": 2, "role": "tab", "label": "(8623) Discord | @Kingsnipeshot", "states": []},
+            {"id": 10, "role": "list", "label": "Direct Messages", "states": []},
+            {"id": 3, "role": "row", "label": "Kingsnipeshot", "states": []},
+            {"id": 4, "role": "row", "label": "Krillion", "states": []},
+            {"id": 11, "role": "heading", "label": "kingsnipeshot", "states": []},
+            {"id": 13, "role": "text", "label": "Kingsnipeshot: gg wp", "states": []},
+            {"id": 12, "role": "textarea", "label": "Message @Kingsnipeshot", "value": "", "states": ["focused"]},
+        ],
+    }
+
+
 class FakeHelper:
     """Serves one screen, applies typed text to it, and records everything Beacon does."""
 
-    def __init__(self, screen: dict, replies: list[str]):
+    def __init__(self, screen: dict, replies: list[str], after_press: dict[str, Callable[[], dict]] | None = None):
         self.screen = copy.deepcopy(screen)
+        self.after_press = dict(after_press or {})  # pressed label containing this -> next screen
         self.replies = list(replies)
         self.spoken: list[str] = []
         self.actions: list[tuple[str, dict]] = []
@@ -71,10 +93,19 @@ class FakeHelper:
         self.snapshots = 0
         self.brain: Brain | None = None
         self.focus = screen.get("focused_id")
+        self.press_labels: list[str] = []
 
     async def snapshot(self):
         self.snapshots += 1
         return copy.deepcopy(self.screen)
+
+    async def frontmost(self):
+        return {**self.screen, "elements": []}
+
+    async def apps(self):
+        return {"running": [self.screen["app"], "Finder", "Messages", "Mail"],
+                "installed": ["Messages", "Mail", "Notes", "Safari", "Google Chrome", "Discord", "Calculator",
+                              "System Settings", "Terminal", "Finder", "zoom.us"]}
 
     async def hud(self, state, **fields):
         pass
@@ -85,7 +116,7 @@ class FakeHelper:
     async def speak(self, text, rate):
         self.spoken.append(text)
         speech_id = f"sp_{len(self.spoken)}"
-        asked = text.endswith("Hold the talk key to answer.") or text.endswith("Say yes to continue.")
+        asked = text.endswith("say your answer.") or text.endswith("Say yes to continue.")
         await self.brain.on_event({"type": "tts.finished", "speech_id": speech_id, "interrupted": False})
         if asked:
             self.asked += 1
@@ -110,6 +141,16 @@ class FakeHelper:
         self.actions.append((path, payload))
         if path == "/ax/act" and payload.get("action") == "focus":
             self.focus = payload["element_id"]
+            self._focus_screen(self.focus)
+        if path == "/ax/act" and payload.get("action") == "press":
+            label = (self._element(payload["element_id"]) or {}).get("label") or ""
+            self.press_labels.append(label)
+            nxt = next((make for part, make in self.after_press.items() if part in label), None)
+            if nxt is not None:
+                self.actions.append(("screen", {"from": label}))
+                self.screen = copy.deepcopy(nxt())
+                self.focus = self.screen.get("focused_id")
+                return {"ok": True, "performed_via": "ax"}
         if path == "/ax/act" and payload.get("action") == "set_value":
             self._set(payload["element_id"], str(payload["value"]))
         if path == "/input/type" and self.focus is not None:
@@ -117,6 +158,21 @@ class FakeHelper:
             if element is not None:
                 self._set(self.focus, (element.get("value") or "") + payload["text"])
         return {"ok": True, "performed_via": "ax"}
+
+    def _focus_screen(self, element_id):
+        """Keyboard focus moves to the focused field, as it does in a real app."""
+        if self._element(element_id) is None:
+            return
+        old = self.screen.get("focused_id")
+        for element in self.screen["elements"]:
+            states = [st for st in element.get("states", []) if st != "focused"]
+            element["states"] = states + (["focused"] if element["id"] == element_id else [])
+        self.screen["focused_id"] = element_id
+        text = re.sub(r"FOCUS (?:\[\d+\]|none)", f"FOCUS [{element_id}]", self.screen["text"], count=1)
+        if old is not None:
+            text = re.sub(rf"^(\s*\[{old}\] [^\n]*?) \(focused\)$", r"\1", text, flags=re.M)
+            text = re.sub(rf"^(\s*\[{old}\] [^\n]*?\()focused, ", r"\1", text, flags=re.M)
+        self.screen["text"] = re.sub(rf"^(\s*\[{element_id}\] [^\n]*)$", r"\1 (focused)", text, count=1, flags=re.M)
 
     def _element(self, element_id):
         return next((e for e in self.screen["elements"] if e["id"] == element_id), None)
@@ -133,11 +189,7 @@ class FakeHelper:
 
     # Convenience views for the checks.
     def pressed(self) -> list[str]:
-        labels = []
-        for path, payload in self.actions:
-            if path == "/ax/act" and payload.get("action") == "press":
-                labels.append((self._element(payload["element_id"]) or {}).get("label") or "")
-        return labels
+        return list(self.press_labels)  # as labelled when pressed, before any screen change
 
     def typed(self) -> str:
         return " ".join(p["text"] for path, p in self.actions if path == "/input/type")
@@ -160,6 +212,7 @@ class Scenario:
     utterance: str
     check: Callable[[FakeHelper], str | None]  # None = pass, else what went wrong
     replies: list[str] = field(default_factory=list)
+    after_press: dict[str, Callable[[], dict]] = field(default_factory=dict)
     before: list[str] = field(default_factory=list)  # earlier requests in the same conversation; not checked
 
 
@@ -179,6 +232,29 @@ def sent(h: FakeHelper) -> bool:
     return "return" in h.keys() or any(label.casefold() in SEND_LABELS for label in h.pressed())
 
 
+def discord_sent(h: FakeHelper, body: str = "hello") -> str | None:
+    """Typed just the message into Kingsnipeshot's composer and pressed Return; no stray clicks."""
+    field = next(e for e in h.screen["elements"] if e["label"] == "Message @Kingsnipeshot")
+    stray = [label for label in h.pressed() if "Discord" not in label]
+    return (expect(h.typed().strip().casefold().rstrip(".!") == body and field.get("value", "").strip() == h.typed().strip(),
+                   f"typed {h.typed()!r} into {field.get('value')!r}")
+            or expect(h.keys()[-1:] == ["return"], f"keys {h.keys()}, pressed {h.pressed()}")
+            or expect(not stray, f"also pressed {stray}")
+            or expect("memory usage" not in h.said() and "8623" not in h.said(), f"said tab noise: {h.spoken}"))
+
+
+def browsed(h: FakeHelper, first_key: str, typed: str | None) -> str | None:
+    keys = h.keys()
+    ok = (h.asked == 0 and keys[:1] == [first_key] and h.typed() == (typed or "")
+          and (typed is None or keys[-1:] == ["return"]))
+    return expect(ok, f"asked {h.asked}, keys {keys}, typed {h.typed()!r}, said {h.spoken}")
+
+
+
+def keys_only(h: FakeHelper, expected: list[str]) -> str | None:
+    ok = h.keys() == expected and len(h.actions) == len(expected) and h.asked == 0
+    return expect(ok, f"keys {h.keys()}, actions {h.actions}, said {h.spoken}")
+
 SCENARIOS = [
     # Decide then act: must press exactly one of the three moves, never just hover or ask.
     Scenario("poker decide and press", lambda: load("chrome_poker"),
@@ -190,9 +266,25 @@ SCENARIOS = [
                               f"pressed {h.pressed()}")),
     Scenario("poker press named", lambda: load("chrome_poker"), "Press call.",
              lambda h: expect(h.pressed() == ["Call $4"], f"pressed {h.pressed()}")),
+    Scenario("poker fold one word", lambda: load("chrome_poker"), "Fold.",
+             lambda h: expect(h.pressed() == ["Fold"], f"pressed {h.pressed()}, said {h.spoken}")),
+    Scenario("poker advice what do I do", lambda: load("chrome_poker"),
+             "Look at my poker situation. What do I do here? Fold or raise 2.3.",
+             lambda h: no_actions(h) or expect(h.asked == 0 and any(w in h.said() for w in ("fold", "call", "raise")),
+                                               f"asked {h.asked}, said {h.spoken}")),
+    Scenario("poker advice raise or call", lambda: load("chrome_poker"), "Do I raise or do I call?",
+             lambda h: no_actions(h) or expect(h.asked == 0 and any(w in h.said() for w in ("call", "raise")),
+                                               f"asked {h.asked}, said {h.spoken}")),
     Scenario("poker advice only", lambda: load("chrome_poker"), "Should I fold or call here?",
              lambda h: no_actions(h) or expect(any(w in h.said() for w in ("fold", "call", "raise")),
                                               f"no recommendation in {h.spoken}")),
+    Scenario("poker GTO question answered", lambda: load("chrome_poker"),
+             "Based on GTO theory, do I fold or raise to 11 here?",
+             lambda h: no_actions(h) or expect(h.asked == 0, f"asked the question back: {h.spoken}")
+             or expect(any(w in h.said() for w in ("fold", "call", "raise")), f"no recommendation in {h.spoken}")),
+    Scenario("poker framed question answered", lambda: load("chrome_poker"),
+             "According to GTO, should I call or fold?",
+             lambda h: no_actions(h) or expect(h.asked == 0, f"asked the question back: {h.spoken}")),
     # Reading and summarising web pages.
     Scenario("article summary", lambda: load("chrome_article"), "Summarize this page.",
              lambda h: no_actions(h) or expect(any(w in h.said() for w in ("lighthouse", "keeper", "cayuga")),
@@ -228,10 +320,80 @@ SCENARIOS = [
                               and sent(h), f"typed {h.typed()!r}, keys {h.keys()}")),
     Scenario("type without send", lambda: messages_screen(), "Type see you at noon, but don't send it.",
              lambda h: expect("noon" in h.typed() and not sent(h), f"typed {h.typed()!r}, keys {h.keys()}")),
+    Scenario("send in this chat", lambda: messages_screen("Big Kizaru"),
+             "No, I'm asking, I want you to send to this chat, did you find the pirate token?",
+             lambda h: expect(h.typed() == "did you find the pirate token?" and sent(h) and h.asked == 0,
+                              f"typed {h.typed()!r}, keys {h.keys()}, asked {h.asked}, said {h.spoken}")),
+    Scenario("send comma message", lambda: messages_screen("Big Kizaru"),
+             "Can you send, did you guys really find the pirate token?",
+             lambda h: expect(h.typed() == "did you guys really find the pirate token?" and sent(h) and h.asked == 0,
+                              f"typed {h.typed()!r}, keys {h.keys()}, asked {h.asked}, said {h.spoken}")),
     Scenario("send asks for text", lambda: messages_screen(), "Send Emmett a message.",
              lambda h: expect("on my way" in h.typed().casefold() and sent(h),
                               f"typed {h.typed()!r}, keys {h.keys()}"), replies=["On my way"]),
+    # Misheard names: speech-to-text spelling of a name that is on screen.
+    Scenario("misheard name send", discord_screen, "Send a message to KingSneapeshot.hello.",
+             lambda h: expect(h.typed().strip().casefold().rstrip(".!") == "hello" and sent(h),
+                              f"typed {h.typed()!r}, keys {h.keys()}, pressed {h.pressed()}")),
+    Scenario("misheard name click", discord_screen, "Click crillion.",
+             lambda h: expect(h.pressed() == ["Krillion"], f"pressed {h.pressed()}, said {h.spoken}")),
+    # Web chat apps: go to the conversation, type the message in its composer, press Return.
+    # Speech heard "KingSneapeshot" for Kingsnipeshot and glued the message on with a period.
+    Scenario("send discord dm open", lambda: load("chrome_discord_dm"),
+             "Go to discord and send a message to KingSneapeshot.hello.", discord_sent),
+    Scenario("send discord from other tab", lambda: load("chrome_discord_other_tab"),
+             "go to discord and send a message to KingSneapeshot hello", discord_sent,
+             after_press={"Discord": lambda: load("chrome_discord_dm")}),
+    Scenario("send discord longer message", lambda: load("chrome_discord_dm"),
+             "Send a message to Kingsnipeshot saying I'm on in ten minutes",
+             lambda h: discord_sent(h, "i'm on in ten minutes")),
+    # Send with no message: the one real gap, so ask what it should say (no reply: nothing typed).
+    Scenario("send no content asks", lambda: messages_screen(), "Send a message to Emmett.",
+             lambda h: expect(h.asked == 1 and "what should the message say" in h.said() and not h.typed(),
+                              f"asked {h.asked}, typed {h.typed()!r}, said {h.spoken}")),
+    # Simple browser requests run straight away: keyboard steps, no question.
+    Scenario("browser new tab and search", lambda: load("chrome_article"), "Open a new tab and search amazon",
+             lambda h: browsed(h, "cmd+t", "amazon")),
+    Scenario("browser new tab", lambda: load("chrome_article"), "Open a new tab.",
+             lambda h: browsed(h, "cmd+t", None)),
+    Scenario("browser open site on the new tab", lambda: load("chrome_article"), "Please open Amazon on the new tab.",
+             lambda h: browsed(h, "cmd+t", "amazon.com")),
+    Scenario("browser new tab with site", lambda: load("chrome_article"), "Open a new tab with amazon.",
+             lambda h: browsed(h, "cmd+t", "amazon.com")),
+    Scenario("browser search", lambda: load("chrome_article"), "Search for cats.",
+             lambda h: browsed(h, "cmd+l", "cats")),
+    Scenario("browser go to site", lambda: load("chrome_article"), "Go to youtube.",
+             lambda h: browsed(h, "cmd+l", "youtube.com")),
     # Mail and notes.
+    # One-step commands (commands.py): the key or scroll only, nothing typed or clicked.
+    Scenario("command press enter", lambda: load("chrome_poker"), "Press enter.",
+             lambda h: keys_only(h, ["return"])),
+    Scenario("command switch tabs", lambda: load("chrome_article"), "Switch tabs.",
+             lambda h: keys_only(h, ["ctrl+tab"])),
+    Scenario("command next tab", lambda: load("chrome_article"), "Next tab.",
+             lambda h: keys_only(h, ["ctrl+tab"])),
+    Scenario("command go back", lambda: load("chrome_article"), "Go back.",
+             lambda h: keys_only(h, ["cmd+["])),
+    Scenario("command scroll down", lambda: load("chrome_article"), "Scroll down.",
+             lambda h: expect([a[0] for a in h.actions] == ["/input/scroll"] and h.asked == 0,
+                              f"actions {h.actions}, said {h.spoken}")),
+    Scenario("command press tab twice", lambda: messages_screen(), "Press tab twice.",
+             lambda h: keys_only(h, ["tab", "tab"])),
+    Scenario("open app messages", lambda: load("chrome_article"), "Open messages.",
+             lambda h: expect([a for a in h.actions] == [("/app/open", {"name": "Messages"})] and h.asked == 0,
+                              f"actions {h.actions}, said {h.spoken}")),
+    Scenario("open app switch to", lambda: load("chrome_article"), "Switch to Discord.",
+             lambda h: expect([a for a in h.actions] == [("/app/open", {"name": "Discord"})] and h.asked == 0,
+                              f"actions {h.actions}, said {h.spoken}")),
+    # Navigation: a tab by its name, and a chat that isn't there never gets a message.
+    Scenario("nav tab by name", lambda: load("chrome_discord_other_tab"), "Go to my Discord tab.",
+             lambda h: expect([p.get("element_id") for path, p in h.actions if path == "/ax/act"] == [15]
+                              and not h.typed(), f"actions {h.actions}, said {h.spoken}")),
+    Scenario("nav missing chat sends nothing", lambda: load("chrome_article"), "Send hello to the soccer chat.",
+             lambda h: expect(not h.typed().strip("soccer ") and "return" not in h.keys()
+                              and "couldn't" in h.said(), f"typed {h.typed()!r}, keys {h.keys()}, said {h.spoken}")),
+    Scenario("command button still found", lambda: load("chrome_poker"), "Press call.",
+             lambda h: expect(h.pressed() == ["Call $4"], f"pressed {h.pressed()}")),
     Scenario("read latest email", lambda: load("mail_inbox"), "Read me the latest email.",
              lambda h: expect(not h.pressed() or any("sarah" in l.casefold() for l in h.pressed()),
                               f"pressed {h.pressed()}") or expect("lunch" in h.said(), f"said {h.spoken}")),
@@ -253,7 +415,7 @@ SCENARIOS = [
 
 
 async def run_one(scenario: Scenario, config: Config, prompt: str, model, question_model) -> tuple[str | None, float, FakeHelper]:
-    helper = FakeHelper(scenario.screen(), scenario.replies)
+    helper = FakeHelper(scenario.screen(), scenario.replies, scenario.after_press)
     brain = helper.brain = Brain(helper, model, config, prompt, question_model)
 
     async def hear(text: str) -> None:

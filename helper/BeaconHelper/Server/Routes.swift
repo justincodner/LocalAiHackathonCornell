@@ -143,7 +143,9 @@ final class HelperServer: @unchecked Sendable {
             }
             let transcript = a.optString("transcript"), caption = a.optString("caption"), latency = a.optInt("latency_ms")
             let ring = rect
+            let questionModel = QuestionModelState(json: a.raw["question_model"])
             await MainActor.run {
+                if let questionModel { s.hud.setQuestionModel(questionModel) }
                 s.hud.update(state: state, transcript: transcript, caption: caption, latencyMS: latency)
                 if let ring { s.hud.highlight(ring) }
                 if state == .error { s.hud.play(.error) }
@@ -161,7 +163,16 @@ final class HelperServer: @unchecked Sendable {
 
         await route(server, "POST /debug/utterance") { a in
             let text = try a.string("text")
-            s.events.emit("stt.final", ["utterance_id": self.nextUtteranceID(), "text": text, "audio_ms": 0, "stt_ms": 0])
+            var fields: JSONObject = ["utterance_id": self.nextUtteranceID(), "text": text, "audio_ms": 0, "stt_ms": 0]
+            // Optional selection focus, to test "ask about part of the screen" without dragging.
+            if let focus = a.optObject("focus") {
+                guard let focusText = focus["text"] as? String, !focusText.isEmpty else {
+                    throw HelperError(.badRequest, "focus.text must be a non-empty string")
+                }
+                fields["focus"] = focus.merging(["source": focus["source"] as? String ?? "selection",
+                                                 "text": String(focusText.prefix(SelectionFocus.maxChars))]) { _, new in new }
+            }
+            s.events.emit("stt.final", fields)
             return [:]
         }
     }

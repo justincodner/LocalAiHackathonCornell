@@ -140,6 +140,11 @@ class BonsaiClient:
                     return model_id
         raise BonsaiError("Bonsai reported no loaded model")
 
+    @property
+    def slot_count(self) -> int:
+        """Server slots read by discover_model() (1 until then, or when the server doesn't say)."""
+        return self._slot_count
+
     async def _discover_slots(self) -> None:
         """Read the server's slot count; without it, requests stay unpinned."""
         try:

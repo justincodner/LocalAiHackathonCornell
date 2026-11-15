@@ -158,11 +158,42 @@ actor WhisperTranscriber {
     }
 
     /// Transcribes 16 kHz mono samples and returns the cleaned text (possibly empty).
-    func transcribe(_ samples: [Float]) async throws -> String {
+    ///
+    /// `hint` is on-screen vocabulary (see `ScreenVocabulary`). It is encoded and passed as
+    /// `DecodingOptions.promptTokens`, which WhisperKit places after `<|startofprev|>` ahead of the
+    /// start-of-transcript prefill (needs `usePrefillPrompt`, which is on); the decoded text never includes it.
+    /// If the prompted result is empty or looks like the prompt echoed back, the audio is decoded once more
+    /// without the prompt.
+    func transcribe(_ samples: [Float], hint: String? = nil) async throws -> String {
         let kit = try await pipeline()
-        let results = try await kit.transcribe(audioArray: samples, decodeOptions: Self.decodeOptions)
+        let promptTokens = Self.promptTokens(for: hint, kit: kit)
+        guard let promptTokens, let hint else {
+            return try await decode(samples, kit: kit, options: Self.decodeOptions)
+        }
+        var options = Self.decodeOptions
+        options.promptTokens = promptTokens
+        let prompted = try await decode(samples, kit: kit, options: options)
+        if !prompted.isEmpty && !ScreenVocabulary.looksLikeEcho(transcript: prompted, hint: hint) {
+            return prompted
+        }
+        Log.info("stt: prompted transcript \(prompted.isEmpty ? "was empty" : "echoed the screen hint"); retrying without it")
+        return try await decode(samples, kit: kit, options: Self.decodeOptions)
+    }
+
+    private func decode(_ samples: [Float], kit: WhisperKit, options: DecodingOptions) async throws -> String {
+        let results = try await kit.transcribe(audioArray: samples, decodeOptions: options)
         let raw = results.map(\.text).joined(separator: " ")
         return TranscriptCleaner.clean(raw)
+    }
+
+    /// Text tokens for the hint, capped to `ScreenVocabulary.maxTokens`; nil when there is nothing to prompt with.
+    private static func promptTokens(for hint: String?, kit: WhisperKit) -> [Int]? {
+        guard let hint, !hint.isEmpty, let tokenizer = kit.tokenizer else { return nil }
+        let special = tokenizer.specialTokens.specialTokenBegin
+        let tokens = ScreenVocabulary.fit(hint) { text in
+            tokenizer.encode(text: text).filter { $0 < special }
+        }
+        return tokens.isEmpty ? nil : tokens
     }
 }
 

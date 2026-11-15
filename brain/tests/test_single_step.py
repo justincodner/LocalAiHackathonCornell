@@ -27,7 +27,7 @@ def run(screen, utterance, *calls, replies=()):
 
         async def speak(text, rate):
             speech_id = await original(text, rate)
-            if text.endswith("Hold the talk key to answer.") and pending:
+            if text.endswith("say your answer.") and pending:
                 reply = pending.pop(0)
                 asyncio.get_running_loop().call_later(
                     0.01, lambda: asyncio.ensure_future(brain.on_event({"type": "stt.final", "text": reply})))
@@ -47,7 +47,7 @@ def presses(helper):
 
 @pytest.mark.loop
 def test_repeated_scroll_finishes_instead_of_scrolling_again():
-    helper, model = run(poker_screen(), "Scroll down to the bottom",
+    helper, model = run(poker_screen(), "Scroll down to the comments",
                         ToolCall("a", "scroll", {"direction": "down"}),
                         ToolCall("b", "scroll", {"direction": "down"}),
                         ToolCall("c", "scroll", {"direction": "down"}))

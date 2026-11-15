@@ -66,6 +66,8 @@ enum Config {
 
     static var tts: String { string("BEACON_TTS", "ttskit") }
     static var sttModel: String { string("BEACON_STT_MODEL", "tiny.en") }
+    /// Feed visible on-screen words to Whisper as a decoding prompt (BEACON_STT_SCREEN_HINTS=0 turns it off).
+    static var sttScreenHints: Bool { bool("BEACON_STT_SCREEN_HINTS", true) }
     static var pttKey: String { string("BEACON_PTT_KEY", "right_option") }
     static var devLAN: Bool { bool("BEACON_DEV_LAN", false) }
     static var token: String { string("BEACON_TOKEN", "") }

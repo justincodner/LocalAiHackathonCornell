@@ -32,17 +32,22 @@ $DemoPath = (Resolve-Path -LiteralPath $DemoPath).Path
 # One slot per prompt family. The Brain prewarms seven (loop.prompt_families) and pins each to its
 # own slot (llm.py, id_slot); the eighth serves anything else. Bonsai 2 is a hybrid model, so a
 # slot shared by several families kept losing their cached prefixes (10-19 s steps; docs/bench.md).
-$slots = 8
+# Each slot needs ~6,144 tokens (an action step peaked at ~3,800). An explicit -Context/BONSAI_CTX without
+# BONSAI_SLOTS gets as many slots as fit, so a small context (e.g. 8192 for a 4B) stays one usable slot.
 $envSlots = 0
-if ($env:BONSAI_SLOTS -and [int]::TryParse($env:BONSAI_SLOTS, [ref]$envSlots) -and $envSlots -gt 0) { $slots = $envSlots }
-
+$haveSlots = $env:BONSAI_SLOTS -and [int]::TryParse($env:BONSAI_SLOTS, [ref]$envSlots) -and $envSlots -gt 0
 if ($Context -le 0) {
     $envCtx = 0
-    if ($env:BONSAI_CTX -and [int]::TryParse($env:BONSAI_CTX, [ref]$envCtx) -and $envCtx -gt 0) {
-        $Context = $envCtx
-    } else {
-        $Context = 6144 * $slots  # an action step peaked at ~3,800 tokens
-    }
+    if ($env:BONSAI_CTX -and [int]::TryParse($env:BONSAI_CTX, [ref]$envCtx) -and $envCtx -gt 0) { $Context = $envCtx }
+}
+if ($haveSlots) {
+    $slots = $envSlots
+    if ($Context -le 0) { $Context = 6144 * $slots }
+} elseif ($Context -gt 0) {
+    $slots = [math]::Max(1, [math]::Min(8, [math]::Floor($Context / 6144)))
+} else {
+    $slots = 8
+    $Context = 6144 * $slots
 }
 
 # Binary: same preference order as PrismML's launcher.

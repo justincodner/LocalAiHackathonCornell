@@ -277,7 +277,8 @@ paths:
               type: object
               required: [state]
               properties:
-                state: {type: string, enum: [idle, listening, thinking, acting, speaking, confirm, error]}
+                state: {type: string, enum: [idle, listening, thinking, acting, speaking, asking, confirm, error]}
+                question_model: {description: "Optional. Whether questions use the Bonsai 4B: true, false or \"loading\" (the HUD ⋯ menu shows it)."}
                 transcript: {type: string}
                 caption: {type: string}
                 latency_ms: {type: integer}
@@ -318,6 +319,14 @@ paths:
               required: [text]
               properties:
                 text: {type: string}
+                focus:
+                  description: Optional selection focus attached to the event (see events.md)
+                  type: object
+                  required: [text]
+                  properties:
+                    text: {type: string, maxLength: 4000}
+                    source: {type: string, default: selection}
+                    app: {type: string}
       responses:
         "200": {$ref: "#/components/responses/Empty"}
 components:
