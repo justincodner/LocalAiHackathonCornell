@@ -5,7 +5,8 @@
 #   scripts/start_bonsai.sh            start, wait until ready, stay in the foreground (Ctrl-C stops it)
 #   scripts/start_bonsai.sh --detach   start, wait until ready, return (pid in logs/bonsai.pid)
 #
-# Env: BONSAI_MODEL (2B if installed, otherwise 4B), BONSAI_PORT (8080), BONSAI_CTX (16384), BONSAI_DIR (../Bonsai-demo), BEACON_VISION=1 keeps the vision
+# Env: BONSAI_MODEL (2B if installed, otherwise 4B), BONSAI_PORT (8080), BONSAI_SLOTS (8, or BONSAI_CTX / 6144),
+# BONSAI_CTX (total, default 6144 x slots), BONSAI_DIR (../Bonsai-demo), BEACON_VISION=1 keeps the vision
 # projector loaded (P2 only; it costs ~0.4-0.6 GB). BONSAI_HOST is never set: the server binds 127.0.0.1.
 set -euo pipefail
 
@@ -50,12 +51,27 @@ if [[ "${BEACON_VISION:-0}" != "1" && -z "${BONSAI_GGUF:-}" ]]; then
   done
 fi
 
-echo "==> Starting Bonsai $MODEL_SIZE (vision: ${BEACON_VISION:-0}, ctx ${BONSAI_CTX:-16384}, thinking off); log: $LOG"
+# One slot per prompt family: the Brain prewarms seven (loop.prompt_families) and pins each to its own
+# slot (llm.py, id_slot). Bonsai 2 is a hybrid model, so families sharing a slot lost their cached
+# prefixes (docs/bench.md). Separate KV per slot; the RAM prompt cache is no longer needed.
+# Each slot needs ~6,144 tokens (an action step peaked at ~3,800). An explicit BONSAI_CTX without BONSAI_SLOTS
+# (the 4B question server asks for 8192) gets as many slots as fit, so a small context stays one usable slot.
+if [[ -n "${BONSAI_SLOTS:-}" ]]; then
+  SLOTS="$BONSAI_SLOTS"
+  CTX="${BONSAI_CTX:-$((6144 * SLOTS))}"
+elif [[ -n "${BONSAI_CTX:-}" ]]; then
+  CTX="$BONSAI_CTX"
+  SLOTS=$(( CTX / 6144 )); (( SLOTS < 1 )) && SLOTS=1; (( SLOTS > 8 )) && SLOTS=8
+else
+  SLOTS=8
+  CTX=$((6144 * SLOTS))
+fi
+echo "==> Starting Bonsai $MODEL_SIZE (vision: ${BEACON_VISION:-0}, ctx $CTX across $SLOTS slots, thinking off); log: $LOG"
 (
   cd "$BONSAI_DIR"
   if [[ -n "$GGUF_OVERRIDE" ]]; then export BONSAI_GGUF="$GGUF_OVERRIDE"; unset BONSAI_MMPROJ; fi
-  PORT="$PORT" BONSAI_MODEL="$MODEL_SIZE" BONSAI_THINKING=0 BONSAI_CTX="${BONSAI_CTX:-16384}" \
-    exec ./scripts/start_llama_server.sh
+  PORT="$PORT" BONSAI_MODEL="$MODEL_SIZE" BONSAI_THINKING=0 BONSAI_CTX="$CTX" \
+    exec ./scripts/start_llama_server.sh -np "$SLOTS" --no-kv-unified --cache-ram 0
 ) >"$LOG" 2>&1 &
 PID=$!
 echo "$PID" >"$PID_FILE"

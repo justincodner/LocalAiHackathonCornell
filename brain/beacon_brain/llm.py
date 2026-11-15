@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -35,6 +36,36 @@ class Completion:
     timings: dict[str, Any] | None = None  # llama-server: prompt_n (uncached), prompt_per_second, cache_n
 
 
+# Generation runs ~25-30 tok/s, so every unused token of max_tokens a runaway reply can fill costs
+# ~35 ms. Caps per offered tool list, from logs/session.jsonl, logs/bonsai.log, docs/bench.md and
+# evals/ (~4 chars/token, ~15 tokens of tool-call JSON):
+# - id/key/name-only tools (click, set_value, scroll, ...): calls measured 10-35 tokens -> 64.
+# - short free text (ask_user, done, confirm, find, rewrite): longest seen ~100 chars, ~40 tokens;
+#   a rewritten request is about the length of the utterance -> 128.
+# - say: prompts ask for <= 40 words; the longest valid say was 270 chars (~85 tokens with
+#   the wrapper), while runaways ran 203-300 tokens of stray text -> 160 (~640 chars).
+# - type_text (dictated text, up to 2,000 chars by schema): ~185 tokens of text, about 130
+#   spoken words in one utterance -> 200.
+# The configured max_tokens (BEACON_MAX_TOKENS) stays the ceiling: each cap is min(tier, it).
+_ACTION_TOOLS = frozenset({"click", "set_value", "read_element", "scroll", "press_key", "open_app",
+                           "what_changed", "use_screen", "act_on_screen"})
+_ACTION_CAP, _SHORT_TEXT_CAP, _SAY_CAP, _TYPE_TEXT_CAP = 64, 128, 160, 200
+
+
+def token_cap(tools: Sequence[Mapping[str, Any]], ceiling: int) -> int:
+    """max_tokens for a request offering these tools: room for its longest valid answer."""
+    names = {str(tool.get("function", {}).get("name", "")) for tool in tools}
+    if "type_text" in names:
+        cap = _TYPE_TEXT_CAP
+    elif "say" in names:
+        cap = _SAY_CAP
+    elif names <= _ACTION_TOOLS:
+        cap = _ACTION_CAP
+    else:  # ask_user, done, rewrite, or a tool this table doesn't know: some free text
+        cap = _SHORT_TEXT_CAP
+    return max(1, min(cap, ceiling))
+
+
 class BonsaiClient:
     def __init__(
         self,
@@ -58,6 +89,7 @@ class BonsaiClient:
             trust_env=False,
         )
         self._timeout_s = timeout_s
+        self._max_tokens = max_tokens  # ceiling; each request gets token_cap() of it
         self._attempts = max(1, attempts)  # 1 for the optional question model: fail fast, then fall back
         self._sampling: dict[str, Any] = {
             "temperature": temperature,
@@ -73,6 +105,12 @@ class BonsaiClient:
         }
         self._model: str | None = None
         self._required_tool_choice = True
+        # Server slots, read from /props. With more than one, every prewarmed prompt family keeps
+        # a slot of its own (see _slot_for); other families share whatever slots are left.
+        self._root_url = re.sub(r"/v1/?$", "", base_url.rstrip("/")) + "/"
+        self._slot_count = 1
+        self._slots: OrderedDict[tuple[str, tuple[str, ...]], int] = OrderedDict()
+        self._warm_families: set[tuple[str, tuple[str, ...]]] = set()
 
     async def __aenter__(self) -> "BonsaiClient":
         return self
@@ -98,8 +136,54 @@ class BonsaiClient:
                 model_id = model.get("id") if isinstance(model, dict) else None
                 if isinstance(model_id, str) and model_id.strip():
                     self._model = model_id
+                    await self._discover_slots()
                     return model_id
         raise BonsaiError("Bonsai reported no loaded model")
+
+    @property
+    def slot_count(self) -> int:
+        """Server slots read by discover_model() (1 until then, or when the server doesn't say)."""
+        return self._slot_count
+
+    async def _discover_slots(self) -> None:
+        """Read the server's slot count; without it, requests stay unpinned."""
+        try:
+            async with asyncio.timeout(self._timeout_s):
+                response = await self._http.get(f"{self._root_url}props")
+                response.raise_for_status()
+                total = response.json().get("total_slots")
+        except (httpx.HTTPError, TimeoutError, ValueError, AttributeError):
+            return
+        if type(total) is int and total > 0:
+            self._slot_count = total
+
+    def _slot_for(self, messages: Sequence[Mapping[str, Any]], tools: Sequence[Mapping[str, Any]],
+                  *, warm: bool = False) -> int | None:
+        """The slot holding this prompt family's cached prefix, or None to let the server choose.
+
+        Bonsai 2 is a hybrid model: a cached prefix is reusable only up to a saved checkpoint, and
+        llama-server's RAM prompt cache keeps just 4-5 prompts. Families sharing one slot evicted
+        each other, and an evicted family re-read its whole ~1,400-2,500-token prefix (10-19 s on
+        the Windows laptop). A family is its system prompt plus tool names. Prewarmed families
+        keep their slot for good; the others take turns on the rest, least recently used first.
+        """
+        if self._slot_count <= 1:
+            return None
+        system = messages[0].get("content") if messages and messages[0].get("role") == "system" else ""
+        names = tuple(str(tool.get("function", {}).get("name", "")) for tool in tools)
+        family = (system if isinstance(system, str) else json.dumps(system), names)
+        if family in self._slots:
+            self._slots.move_to_end(family)
+        elif len(self._slots) < self._slot_count:
+            self._slots[family] = len(self._slots)
+        else:
+            oldest = next((key for key in self._slots if key not in self._warm_families), None)
+            if oldest is None:
+                return None
+            self._slots[family] = self._slots.pop(oldest)
+        if warm:
+            self._warm_families.add(family)
+        return self._slots[family]
 
     async def prewarm(self, system_prompt: str, tools: Sequence[Mapping[str, Any]]) -> float:
         """Fill the server's prompt cache with the fixed system prompt + tool schemas (spec 10.3).
@@ -118,6 +202,9 @@ class BonsaiClient:
             ],
             "tools": [dict(tool) for tool in tools],
         }
+        slot = self._slot_for(payload["messages"], tools, warm=True)
+        if slot is not None:
+            payload["id_slot"] = slot
         loop = asyncio.get_running_loop()
         started = loop.time()
         limit = max(self._timeout_s, 120)  # a cold prefix takes ~20 s on a laptop CPU
@@ -147,9 +234,13 @@ class BonsaiClient:
         payload = {
             **self._sampling,
             "model": model,
+            "max_tokens": token_cap(tools, self._max_tokens),
             "messages": [dict(message) for message in messages],
             "tools": [dict(tool) for tool in tools],
         }
+        slot = self._slot_for(payload["messages"], tools)
+        if slot is not None:
+            payload["id_slot"] = slot
         for attempt in range(self._attempts):
             try:
                 response, allow_text = await self._request_completion(payload)
@@ -168,6 +259,7 @@ class BonsaiClient:
                     raise BonsaiError("Bonsai completion timed out") from exc
                 raise BonsaiError("Could not connect to Bonsai for completion") from exc
 
+            body = None
             try:
                 body = response.json()
                 call = _parse_tool_call(body, allow_text=allow_text)
@@ -178,6 +270,9 @@ class BonsaiClient:
                     {"role": "user", "content": "Reply with exactly one tool call"}
                 )
                 payload["presence_penalty"] = min(payload["presence_penalty"], 1.0)
+                if _was_cut_off(body):
+                    # The same cap would cut the retry off too (e.g. a long dictation): lift it.
+                    payload["max_tokens"] = max(payload["max_tokens"], self._max_tokens)
                 continue
 
             usage = body.get("usage")
@@ -220,10 +315,17 @@ def _parse_tool_call(body: Any, *, allow_text: bool) -> ToolCall:
     if not isinstance(message, dict):
         raise _InvalidToolCall("Completion had no message")
     calls = message.get("tool_calls")
+    truncated = choices[0].get("finish_reason") == "length"
     if allow_text and (calls is None or calls == []):
-        text = _spoken_text(message.get("content"))
+        content = message.get("content")
+        text = _truncated_answer(content) if truncated else _spoken_text(content)
         if text:
             return ToolCall(f"call_{uuid4().hex}", "say", {"text": text})
+    if allow_text and truncated:
+        # Cut off inside a say call: keep the complete sentences it got through.
+        salvaged = _cut_off_say(calls)
+        if salvaged:
+            return ToolCall(f"call_{uuid4().hex}", "say", {"text": salvaged})
     if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
         raise _InvalidToolCall("Expected exactly one tool call")
 
@@ -251,6 +353,86 @@ def _spoken_text(content: Any) -> str:
     first = content.split("</think>", 1)[0].strip().split("\n\n", 1)[0].strip()
     match = re.fullmatch(r'say\s*[:(]?\s*"(.+)"\s*\)?', first, re.DOTALL)
     return (match.group(1) if match else first).strip()
+
+
+def _was_cut_off(body: Any) -> bool:
+    try:
+        return body["choices"][0]["finish_reason"] == "length"
+    except (KeyError, IndexError, TypeError):
+        return False
+
+
+def _truncated_answer(content: Any) -> str:
+    """A plain-text answer cut off by max_tokens, trimmed to its last complete sentence.
+
+    If its first paragraph finished before the cut, that paragraph is the answer as usual.
+    """
+    if not isinstance(content, str):
+        return ""
+    body = content.split("</think>", 1)[0].strip()
+    if "\n\n" in body:
+        return _spoken_text(body)
+    # A cut-off written-out say call or raw tool-call JSON: keep only the text being spoken.
+    match = (re.search(r'"text"\s*:\s*"(.*)', body, re.DOTALL)
+             or re.fullmatch(r'say\s*[:(]?\s*"(.*)', body, re.DOTALL))
+    if match:
+        body = _unescape_partial_json(match.group(1))
+    return _complete_sentences(body)
+
+
+def _cut_off_say(calls: Any) -> str:
+    """The spoken text of a lone say call whose JSON arguments max_tokens cut off."""
+    if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
+        return ""
+    function = calls[0].get("function")
+    if not isinstance(function, dict) or function.get("name") != "say":
+        return ""
+    raw = function.get("arguments")
+    if not isinstance(raw, str):
+        return ""
+    try:
+        json.loads(raw)
+        return ""  # the arguments parsed: the normal path handles (or rejects) them
+    except ValueError:
+        match = re.search(r'"text"\s*:\s*"(.*)', raw, re.DOTALL)
+        return _complete_sentences(_unescape_partial_json(match.group(1))) if match else ""
+
+
+def _unescape_partial_json(fragment: str) -> str:
+    """Decode a JSON string body that may stop anywhere, dropping a closing quote and the rest."""
+    text = []
+    index = 0
+    while index < len(fragment):
+        char = fragment[index]
+        if char == '"':
+            break
+        if char == "\\":
+            if index + 1 >= len(fragment):
+                break
+            following = fragment[index + 1]
+            if following == "u":
+                code = fragment[index + 2:index + 6]
+                if len(code) < 4:
+                    break
+                try:
+                    text.append(chr(int(code, 16)))
+                except ValueError:
+                    break
+                index += 6
+                continue
+            text.append({"n": " ", "t": " ", "r": " "}.get(following, following))
+            index += 2
+            continue
+        text.append(char)
+        index += 1
+    return "".join(text)
+
+
+def _complete_sentences(text: str) -> str:
+    """Text up to its last sentence end (. ! ?, optionally followed by a closing quote/bracket)."""
+    text = text.strip()
+    ends = [match.end() for match in re.finditer(r"""[.!?]+["')\]]?(?=\s|$)""", text)]
+    return text[:ends[-1]].strip() if ends else ""
 
 
 def _reject_json_constant(value: str) -> None:

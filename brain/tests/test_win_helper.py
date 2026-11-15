@@ -82,3 +82,42 @@ def test_mac_chords_map_to_windows_keys():
         keys.parse("cmd+zz")
     with pytest.raises(keys.ChordError):
         keys.parse("")
+
+
+def chat_window(focus_in_sidebar=False):
+    sidebar = node("group", "Sidebar", [node("button", f"Session {i}", focused=focus_in_sidebar and i == 0)
+                                        for i in range(30)])
+    chat = node("group", "Chat messages", [node("heading", f"Message {i} says something") for i in range(20)]
+                + [node("textfield", "Reply", focused=not focus_in_sidebar)])
+    return build(node("group", "App", [node("button", "Minimize"), node("button", "Close"),
+                                       node("toolbar", "Session tools", [node("button", f"T{i}") for i in range(8)]),
+                                       sidebar, node("button", "More options for Session 1"), chat]),
+                 max_elements=40)
+
+
+def test_a_large_window_collapses_chrome_before_cutting_content():
+    built = chat_window()
+    labels = [e.label for e in built.elements]
+    assert "Message 19 says something" in labels and "Reply" in labels  # content kept whole
+    assert not {"Minimize", "Close", "More options for Session 1", "Session 0"} & set(labels)
+    assert "Sidebar" in labels and built.truncated and len(built.elements) <= 40
+    assert '... 30 more items (use find)' in [line.strip() for line in lines(built)]
+
+
+def test_chrome_holding_focus_is_never_collapsed():
+    built = chat_window(focus_in_sidebar=True)
+    labels = [e.label for e in built.elements]
+    assert "Session 0" in labels and built.focused_id is not None
+
+
+def test_a_window_under_the_cap_is_untouched():
+    built = build(node("button", "Minimize"), node("toolbar", "Tools", [node("button", "Bold")]), max_elements=120)
+    assert [e.label for e in built.elements] == ["Minimize", "Tools", "Bold"] and not built.truncated
+
+
+def test_a_page_named_like_chrome_is_not_collapsed():
+    tabs = node("toolbar", "Browser tabs", [node("tab", f"Tab {i}") for i in range(20)])
+    page = node("group", "New Tab", [node("link", f"Shortcut {i}") for i in range(30)])
+    built = build(tabs, page, max_elements=40)
+    labels = [e.label for e in built.elements]
+    assert "Shortcut 29" in labels and "Tab 0" not in labels

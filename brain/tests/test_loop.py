@@ -223,7 +223,68 @@ def test_implicit_advice_can_route_to_screen_and_explain_missing_detail(tmp_path
         assert helper.snapshot_calls == 1
         assert model.requests[0] == question
         assert "Premium plan" in model.requests[1]
-        assert model.tools == [["say", "use_screen"], ["say"]]
+        # The routing family's full tool list, so advice reuses its prewarmed prefix.
+        assert model.tools == [["say", "use_screen", "act_on_screen"], ["say"]]
+        assert helper.spoken == [answer]
+
+    asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_act_on_screen_for_advice_answers_from_screen_without_acting(tmp_path):
+    async def run():
+        helper = ReplayHelper(fixture("safari_form"))
+        helper.screen = dict(helper.screen, window="Compare plans", elements=[
+            {"id": 1, "role": "heading", "depth": 0, "label": "Standard plan"},
+            {"id": 2, "role": "heading", "depth": 0, "label": "Premium plan"},
+        ])
+        answer = "Choose Standard. Premium adds nothing you mentioned needing."
+        model = ScriptedModel(ToolCall("route", "act_on_screen", {}), ToolCall("answer", "say", {"text": answer}))
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl"), "Test instruction")
+
+        await brain.on_event({"type": "stt.final", "text": "Help me decide between the options"})
+        await asyncio.wait_for(brain.active, timeout=2)
+
+        assert model.tools[1] == ["say"]
+        assert helper.spoken == [answer]
+        assert not helper.actions
+
+    asyncio.run(run())
+
+
+class RecordingModel(ScriptedModel):
+    def __init__(self, *calls):
+        super().__init__(*calls)
+        self.systems = []
+
+    async def next_tool_call(self, messages, tools):
+        self.systems.append(messages[0]["content"])
+        return await super().next_tool_call(messages, tools)
+
+
+@pytest.mark.loop
+@pytest.mark.parametrize("browser", [True, False])
+def test_screen_answer_retry_keeps_the_prewarmed_system_prompt(tmp_path, browser):
+    from beacon_brain import questions
+
+    async def run():
+        helper = ReplayHelper(fixture("safari_form"))
+        helper.screen = dict(helper.screen, window="Krillion dashboard", elements=[
+            {"id": 1, "depth": 0, "role": "heading", "label": "Your Krillion score"},
+            {"id": 2, "depth": 0, "role": "slider", "label": "Score", "value": "742"},
+        ], **({} if browser else {"app": "Notes"}))
+        answer = "Your Krillion score is 742."
+        model = RecordingModel(ToolCall("echo", "say", {"text": "What is my Krillion score?"}),
+                               ToolCall("answer", "say", {"text": answer}))
+        brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl"), "Test instruction")
+
+        await brain.on_event({"type": "stt.final", "text": "What is my Krillion score?"})
+        await asyncio.wait_for(brain.active, timeout=2)
+
+        assert len(model.systems) == 2
+        assert model.systems[0] == model.systems[1] == questions.SCREEN_PROMPT
+        assert questions.SCREEN_RETRY not in model.requests[0]
+        assert model.requests[1] == f"{model.requests[0]}\n\n{questions.SCREEN_RETRY}"
         assert helper.spoken == [answer]
 
     asyncio.run(run())
