@@ -43,7 +43,10 @@ function Wait-Up([string]$name, [string]$url, [int]$seconds) {
 }
 
 # CPU-only laptops are slower than the M1 the defaults were tuned on (docs/BRAIN_HANDOFF.md).
-foreach ($pair in @(@('BEACON_LLM_TIMEOUT_S', '60'), @('BEACON_TASK_TIMEOUT_S', '150'), @('BEACON_THINKING_FILLER_MS', '2500'))) {
+# 60 elements: the Helper collapses toolbars, tab strips and sidebars before it cuts content (win_helper/snapshot.py
+# fit), so a Claude or Firefox window keeps its chat or page at about half the prompt tokens of 120.
+foreach ($pair in @(@('BEACON_LLM_TIMEOUT_S', '60'), @('BEACON_TASK_TIMEOUT_S', '150'), @('BEACON_THINKING_FILLER_MS', '2500'),
+                    @('BEACON_SNAPSHOT_MAX_ELEMENTS', '60'))) {
     if (-not [Environment]::GetEnvironmentVariable($pair[0])) { [Environment]::SetEnvironmentVariable($pair[0], $pair[1]) }
 }
 if (-not $env:BEACON_PROMPT_PATH -and (Test-Path (Join-Path $repo 'brain\prompts\system_v3_windows.txt'))) {

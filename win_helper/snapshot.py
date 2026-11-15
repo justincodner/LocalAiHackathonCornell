@@ -55,6 +55,7 @@ class Out:
     children: list["Out"] = field(default_factory=list)
     row_count: int | None = None
     more_rows: int = 0
+    collapsed: int = 0  # descendants left out by fit() to keep the snapshot under max_elements
 
     @property
     def interactive(self) -> bool:
@@ -87,7 +88,7 @@ class Element:
 @dataclass
 class Built:
     elements: list[Element]
-    lines: list[Element | tuple[int, int]]
+    lines: list[Element | tuple]  # (depth, n) "more rows", or (depth, n, "item") from fit()
     truncated: bool
     total: int
 
@@ -395,15 +396,79 @@ def flatten(outs, depth, max_elements, elements, lines, state) -> None:
         flatten(o.children, depth + 1, max_elements, elements, lines, state)
         if o.more_rows > 0:
             lines.append((min(depth + 1, MAX_DEPTH), o.more_rows))
+        if o.collapsed > 0:
+            lines.append((min(depth + 1, MAX_DEPTH), o.collapsed, "item"))
+
+
+# --- fitting a large window under max_elements -------------------------------------------------------------------
+# Elements are kept in reading order, so a plain cut keeps the window's chrome (caption buttons, toolbars, sidebars,
+# tab strips) and drops the content after it: in the Claude desktop app, a 60-element cut kept the sidebar and lost
+# every chat message. fit() first removes controls that carry nothing, then collapses chrome containers, largest
+# first, until the window fits. A collapsed container stays (its children are listed as "N more items"), anything
+# holding keyboard focus is never collapsed, and /ax/find still searches the whole window.
+
+CAPTION_BUTTONS = {"minimize", "maximize", "restore", "close"}
+NOISE_BUTTON = re.compile(r"^(?:more options for|show message actions for)\b", re.I)
+# Whole-label matches only: a web page's own group is named after its title ("New Tab", "Site navigation guide"),
+# and collapsing that would hide the page itself.
+CHROME_LABEL = re.compile(
+    r"(?:(?:main|primary|left|right|browser) )?(?:side ?bar|navigation|nav|bookmarks(?: toolbar)?|tabs|tab ?strip"
+    r"|menu ?bar|title ?bar|status ?bar|session tools|message actions)", re.I)
+
+
+def has_focus(o: Out) -> bool:
+    return "focused" in o.states or any(has_focus(c) for c in o.children)
+
+
+def drop_noise(outs: list[Out], depth: int) -> list[Out]:
+    kept = []
+    for o in outs:
+        if o.role == "button" and not o.children and (
+                (depth <= 1 and o.full_label.casefold() in CAPTION_BUTTONS) or NOISE_BUTTON.match(o.full_label)):
+            if "focused" not in o.states:
+                continue
+        o.children = drop_noise(o.children, depth + 1)
+        kept.append(o)
+    return kept
+
+
+def is_chrome(o: Out) -> bool:
+    return o.role in {"toolbar", "menu"} or (o.role in CONTAINERS and bool(CHROME_LABEL.fullmatch(o.full_label.strip())))
+
+
+def chrome_containers(outs: list[Out]) -> list[Out]:
+    found = []
+    for o in outs:
+        if o.children and is_chrome(o) and not has_focus(o):
+            found.append(o)  # its own chrome children go with it
+        else:
+            found += chrome_containers(o.children)
+    return found
+
+
+def fit(top: list[Out], max_elements: int) -> list[Out]:
+    if sum(o.count() for o in top) <= max_elements:
+        return top
+    top = drop_noise(top, 0)
+    total = sum(o.count() for o in top)
+    for o in sorted(chrome_containers(top), key=Out.count, reverse=True):
+        if total <= max_elements:
+            break
+        hidden = o.count() - 1
+        o.children, o.collapsed, o.more_rows = [], hidden, 0
+        total -= hidden
+    return top
 
 
 def build(root: Node, include_root: bool, max_elements: int, walk_truncated: bool = False) -> Built:
     top = finish_siblings(transform(root)) if include_root else transform_children(root.children)
+    total = sum(o.count() for o in top)
+    top = fit(top, max(1, max_elements))
     elements: list[Element] = []
     lines: list = []
     state = {"truncated": walk_truncated}
     flatten(top, 0, max(1, max_elements), elements, lines, state)
-    return Built(elements, lines, state["truncated"], sum(o.count() for o in top))
+    return Built(elements, lines, state["truncated"] or len(elements) < total, total)
 
 
 # --- text block ------------------------------------------------------------------------------------------------
@@ -416,8 +481,11 @@ def render(app: str, window: str, focused_id: int | None, lines: list) -> str:
     out = [f"APP {app} | WINDOW {quote(window)} | FOCUS {f'[{focused_id}]' if focused_id else 'none'}"]
     for line in lines:
         if isinstance(line, tuple):
-            depth, count = line
-            out.append("  " * depth + f"... {count} more row{'' if count == 1 else 's'} (scroll or use find)")
+            depth, count, *kind = line
+            if kind:  # a container fit() collapsed
+                out.append("  " * depth + f"... {count} more item{'' if count == 1 else 's'} (use find)")
+            else:
+                out.append("  " * depth + f"... {count} more row{'' if count == 1 else 's'} (scroll or use find)")
             continue
         s = "  " * line.depth + f"[{line.id}] {line.role}"
         if line.label:
