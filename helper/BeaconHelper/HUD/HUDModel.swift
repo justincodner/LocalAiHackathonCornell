@@ -19,6 +19,8 @@ final class HUDModel: ObservableObject {
     @Published var selectionPreview: String?
     /// The captured region itself, drawn as a small preview instead of the selected text.
     @Published var selectionImage: NSImage?
+    /// Whether questions go to the Bonsai 4B (⋯ menu toggle).
+    @Published var questionModel: QuestionModelState = .off
     /// Name of the push-to-talk key as people say it ("Option").
     var talkKey = HUDStatusText.talkKeyName(Config.pttKey)
     /// Spoken names of the global shortcuts ("Control Option Space", "Control Option S").

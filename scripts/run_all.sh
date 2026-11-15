@@ -5,6 +5,7 @@
 #   scripts/run_all.sh           use the newest signed app in build/ or /Applications
 #   scripts/run_all.sh --debug   run helper/.build/debug/beacon-helper directly (swift build if needed)
 #
+# The HUD's ⋯ menu ("Use 4B model for questions") starts and stops the 4B at runtime, with no restart.
 # BEACON_DUAL_MODEL=1 also starts Bonsai 4B on 127.0.0.1:8081 (ctx BEACON_QUESTION_CTX, default 8192) and sends
 # questions to it while actions stay on the 2B. Off by default: on an 8 GB Mac both models together swap, and
 # measured latency got worse for both (2B actions ~5.5 s -> 7-40 s, 4B questions 17-46 s).
@@ -48,7 +49,11 @@ cleanup() {
     kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
   done
   [[ -n "$STARTED_BONSAI" ]] && rm -f "$LOG_DIR/bonsai.pid"
-  [[ -n "$STARTED_QUESTION_BONSAI" ]] && rm -f "$LOG_DIR/bonsai-8081.pid"
+  # The 4B can also be started from the HUD's ⋯ menu (by the Brain): stop it too.
+  if [[ -f "$LOG_DIR/bonsai-8081.pid" ]]; then
+    kill "$(cat "$LOG_DIR/bonsai-8081.pid")" 2>/dev/null || true
+    rm -f "$LOG_DIR/bonsai-8081.pid"
+  fi
   echo "Stopped."
 }
 trap cleanup EXIT
@@ -138,7 +143,8 @@ while true; do
     echo "==> Helper turned off; Bonsai and the Brain stay up. Reopen it with: open \"${APP:-$ROOT/build/Beacon Helper.app}\" (Ctrl-C here stops everything)"
     STARTED_HELPER=""
   fi
-  for pid in $STARTED_BONSAI $STARTED_QUESTION_BONSAI $STARTED_BRAIN; do
+  # The 4B is optional: the HUD's ⋯ menu can turn it off, so it is not watched here.
+  for pid in $STARTED_BONSAI $STARTED_BRAIN; do
     if ! kill -0 "$pid" 2>/dev/null; then
       echo "warning: process $pid exited; check $LOG_DIR" >&2
       exit 1

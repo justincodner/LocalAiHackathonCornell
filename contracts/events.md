@@ -11,6 +11,7 @@ Every message is one JSON text frame: `{"type": "...", "ts": <unix ms>, ...extra
 | `listen.cancelled` | `reason` (`too_short`, `empty`, `cancelled`, `stt_model_missing`, `shortcut`, ...) | Utterance under 300 ms, empty transcript, or cancelled |
 | `barge_in` | none | Talk key pressed, or a typed request submitted, while speech was playing. The Helper has already stopped audio; the Brain should cancel the task |
 | `conversation.reset` | `reason` | The user pressed the X on a screenshot in the HUD. The Helper has dropped the screenshot; the Brain should cancel any task and forget the conversation |
+| `model.question` | `enabled` (bool) | The user toggled "Use 4B model for questions" in the HUD's ⋯ menu. The Brain starts or stops the Bonsai 4B on 127.0.0.1:8081 and reports `question_model` (`"loading"`, `true`, `false`) on `/hud` |
 | `tts.started` | `speech_id` (`sp_0001`) | First audio sample played |
 | `tts.finished` | `speech_id`, `interrupted` (bool) | Speech ended or was stopped |
 | `app.changed` | `app`, `window` | Frontmost app changed (the Helper's own process is never reported) |

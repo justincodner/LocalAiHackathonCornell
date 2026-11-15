@@ -204,7 +204,35 @@ final class PromptHUDTests: XCTestCase {
         XCTAssertEqual(hud.model.replyText, "")
     }
 
-        func testSelectionOverridesAnOlderQuestion() {
+        func testQuestionModelStateParsing() {
+        XCTAssertEqual(QuestionModelState(json: true), .on)
+        XCTAssertEqual(QuestionModelState(json: false), .off)
+        XCTAssertEqual(QuestionModelState(json: "loading"), .loading)
+        XCTAssertNil(QuestionModelState(json: nil))
+        XCTAssertNil(QuestionModelState(json: 3))
+        XCTAssertEqual(PillView.questionModelTitle(.loading), "Loading 4B model…")
+        XCTAssertEqual(PillView.questionModelTitle(.off, memoryBytes: 8 << 30), "Use 4B model for questions (slower on 8 GB)")
+        XCTAssertEqual(PillView.questionModelTitle(.on, memoryBytes: 12 << 30), "Use 4B model for questions (slower on 12 GB)")
+        XCTAssertEqual(PillView.questionModelTitle(.off, memoryBytes: 16 << 30), "Use 4B model for questions")
+        XCTAssertEqual(PillView.questionModelTitle(.off, memoryBytes: 64 << 30), "Use 4B model for questions")
+    }
+
+    @MainActor
+    func testQuestionModelToggleShowsLoadingAndIgnoresClicksWhileLoading() {
+        let hud = HUDController()
+        var requests: [Bool] = []
+        hud.toggleQuestionModel = { requests.append($0) }
+        hud.requestQuestionModelToggle()
+        XCTAssertEqual(requests, [true])
+        XCTAssertEqual(hud.model.questionModel, .loading)
+        hud.requestQuestionModelToggle()
+        XCTAssertEqual(requests, [true], "a second click while the 4B loads does nothing")
+        hud.setQuestionModel(.on)
+        hud.requestQuestionModelToggle()
+        XCTAssertEqual(requests, [true, false])
+    }
+
+    func testSelectionOverridesAnOlderQuestion() {
         let model = HUDModel()
         model.state = .asking
         model.pendingQuestion = "Which Sarah?"

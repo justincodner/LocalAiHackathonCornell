@@ -7,6 +7,7 @@ struct PillView: View {
     var dragHeader: ((NSEvent) -> Void)?
     var minimize: (() -> Void)?
     var turnOff: (() -> Void)?
+    var toggleQuestionModel: (() -> Void)?
     var typePrompt: (() -> Void)?
     var askAboutRegion: (() -> Void)?
     /// The X on a selection thumbnail: drops the screenshot and starts a fresh conversation.
@@ -85,8 +86,10 @@ struct PillView: View {
                                      action: minimize)
                     }
                     if let turnOff {
-                        headerButton(symbol: "power", label: "Turn off Beacon", help: "Turn off Beacon (quits Beacon Helper)",
-                                     action: turnOff)
+                        HUDMenuButton(label: "More options", help: "Turn off Beacon, or switch the 4B model for questions",
+                                      items: moreItems(turnOff: turnOff))
+                            .frame(width: Self.buttonSize, height: Self.buttonSize)
+                            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
                     }
                 }
                 .padding(.trailing, 12)
@@ -96,6 +99,31 @@ struct PillView: View {
     }
 
     static let buttonSize: CGFloat = 28
+
+    /// The ⋯ menu: the 4B toggle (checked while on) and Turn off.
+    private func moreItems(turnOff: @escaping () -> Void) -> [HUDMenuButton.Item] {
+        var items: [HUDMenuButton.Item] = []
+        if let toggleQuestionModel {
+            items.append(.init(title: Self.questionModelTitle(model.questionModel),
+                               checked: model.questionModel == .on,
+                               enabled: model.questionModel != .loading, action: toggleQuestionModel))
+        }
+        items.append(.init(title: "Turn off Beacon", checked: false, enabled: true, action: turnOff))
+        return items
+    }
+
+    static func questionModelTitle(_ state: QuestionModelState,
+                                   memoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> String {
+        if state == .loading { return "Loading 4B model…" }
+        let note = memoryNote(memoryBytes)
+        return "Use 4B model for questions" + (note.isEmpty ? "" : " (\(note))")
+    }
+
+    /// "slower on 8 GB" when running both models would swap on this Mac (under 16 GB), otherwise nothing.
+    static func memoryNote(_ memoryBytes: UInt64) -> String {
+        let gigabytes = Int((Double(memoryBytes) / 1_073_741_824).rounded())
+        return gigabytes < 16 ? "slower on \(gigabytes) GB" : ""
+    }
     static let removeButtonSize: CGFloat = 24
 
     private func headerButton(symbol: String, label: String, help: String, action: @escaping () -> Void) -> some View {
@@ -245,6 +273,72 @@ private struct HUDButton: NSViewRepresentable {
     final class Coordinator: NSObject {
         var action: (() -> Void)?
         @objc func press(_ sender: NSButton) { action?() }
+    }
+}
+
+/// The ⋯ header button: pops up a native menu. AppKit-backed so the first click works in the non-activating panel.
+struct HUDMenuButton: NSViewRepresentable {
+    struct Item {
+        let title: String
+        let checked: Bool
+        let enabled: Bool
+        let action: () -> Void
+    }
+
+    let label: String
+    let help: String
+    let items: [Item]
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> HUDButtonView {
+        let button = HUDButtonView()
+        button.imagePosition = .imageOnly
+        button.contentTintColor = .white
+        button.isBordered = false
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.press(_:))
+        button.image = NSImage(systemSymbolName: "ellipsis", accessibilityDescription: label)?
+            .withSymbolConfiguration(.init(pointSize: 13, weight: .semibold))
+        return button
+    }
+
+    func updateNSView(_ button: HUDButtonView, context: Context) {
+        context.coordinator.items = items
+        button.toolTip = help
+        button.setAccessibilityLabel(label)
+        button.setAccessibilityHelp(help)
+    }
+
+    final class HUDButtonView: NSButton {
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override var mouseDownCanMoveWindow: Bool { false }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        var items: [Item] = []
+
+        @objc func press(_ sender: NSButton) {
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            menu.appearance = NSAppearance(named: .darkAqua)
+            for (index, item) in items.enumerated() {
+                if index == items.count - 1, items.count > 1 { menu.addItem(.separator()) }
+                let entry = NSMenuItem(title: item.title, action: #selector(choose(_:)), keyEquivalent: "")
+                entry.target = self
+                entry.tag = index
+                entry.state = item.checked ? .on : .off
+                entry.isEnabled = item.enabled
+                menu.addItem(entry)
+            }
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
+        }
+
+        @objc func choose(_ sender: NSMenuItem) {
+            guard items.indices.contains(sender.tag) else { return }
+            items[sender.tag].action()
+        }
     }
 }
 

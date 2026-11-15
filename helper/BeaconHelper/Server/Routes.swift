@@ -143,7 +143,9 @@ final class HelperServer: @unchecked Sendable {
             }
             let transcript = a.optString("transcript"), caption = a.optString("caption"), latency = a.optInt("latency_ms")
             let ring = rect
+            let questionModel = QuestionModelState(json: a.raw["question_model"])
             await MainActor.run {
+                if let questionModel { s.hud.setQuestionModel(questionModel) }
                 s.hud.update(state: state, transcript: transcript, caption: caption, latencyMS: latency)
                 if let ring { s.hud.highlight(ring) }
                 if state == .error { s.hud.play(.error) }
