@@ -264,6 +264,13 @@ SCENARIOS = [
     Scenario("poker advice only", lambda: load("chrome_poker"), "Should I fold or call here?",
              lambda h: no_actions(h) or expect(any(w in h.said() for w in ("fold", "call", "raise")),
                                               f"no recommendation in {h.spoken}")),
+    Scenario("poker GTO question answered", lambda: load("chrome_poker"),
+             "Based on GTO theory, do I fold or raise to 11 here?",
+             lambda h: no_actions(h) or expect(h.asked == 0, f"asked the question back: {h.spoken}")
+             or expect(any(w in h.said() for w in ("fold", "call", "raise")), f"no recommendation in {h.spoken}")),
+    Scenario("poker framed question answered", lambda: load("chrome_poker"),
+             "According to GTO, should I call or fold?",
+             lambda h: no_actions(h) or expect(h.asked == 0, f"asked the question back: {h.spoken}")),
     # Reading and summarising web pages.
     Scenario("article summary", lambda: load("chrome_article"), "Summarize this page.",
              lambda h: no_actions(h) or expect(any(w in h.said() for w in ("lighthouse", "keeper", "cayuga")),

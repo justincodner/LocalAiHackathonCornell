@@ -459,6 +459,11 @@ class Brain:
                 # request it was given: click the Send button, or press Return in the field.
                 LOGGER.info("Sending the typed message (%s) instead of %s", send_call.name, call.name)
                 call = send_call
+            if (call.name == "ask_user" and isinstance(call.arguments.get("question"), str)
+                    and questions.echoes_request(call.arguments["question"], text)):
+                # The small model sometimes "asks" the user's own question back: answer it instead.
+                LOGGER.info("ask_user repeated the request; answering it from the screen instead")
+                call = await self.answer_from_screen(snapshot, memory.request)
             if call.name == "done" and isinstance(call.arguments.get("summary"), str):
                 honest = narrate.honest_summary(call.arguments["summary"], actions_taken, committed)
                 if honest != call.arguments["summary"]:
