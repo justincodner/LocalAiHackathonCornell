@@ -88,24 +88,22 @@ class LookupModel(ScriptedModel):
 
 
 @pytest.mark.loop
-def test_reply_to_sarah_with_spoken_confirmation(tmp_path):
-    """Story A4 against the mock (Justin's recorded Mail screens when present): reply, type, confirm, send."""
-    model = LookupModel(
-        ToolCall("c1", "click", {"id": "Reply"}),
-        ToolCall("c2", "type_text", {"text": "I'll be ten minutes late"}),
-        ToolCall("c3", "click", {"id": "Send"}),
-        ToolCall("c4", "done", {"summary": "Sent to Sarah Chen."}),
-    )
+def test_reply_to_sarah_runs_in_code(tmp_path):
+    """Story A4 against the mock (Justin's recorded Mail screens when present): reply, type, send.
+
+    drafts.py runs the reply in code (no model call); confirmations are off by default.
+    """
+    model = LookupModel()
     log = tmp_path / "session.jsonl"
     events, final_screen = asyncio.run(asyncio.wait_for(
         run_session(model, ["reply to Sarah that I'll be ten minutes late"], log, replies=["send it"]), 20,
     ))
 
-    assert "APP Mail | WINDOW \"Re: Lunch tomorrow?\"" in model.screens[1]
-    assert len(model.screens) == 2  # the user's message, once typed, is sent without asking the model again
+    assert model.screens == []
     assert final_screen["window"] != "Re: Lunch tomorrow?"  # sent: back to the inbox
     steps = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
-    assert [(step["tool"], step["risk"], step["ok"]) for step in steps] == [
-        ("click", "allow", True), ("type_text", "allow", True), ("click", "confirm", True),
-    ]  # sending finished the request: no extra model call just to say "done"
+    assert [(step["tool"], step["ok"]) for step in steps] == [
+        ("click", True), ("type_text", True), ("click", True),
+    ]
+    assert steps[1]["args"]["text"] == "I'll be ten minutes late"
     assert "app.changed" in events
