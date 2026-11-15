@@ -60,6 +60,25 @@ SCREEN_RETRY = """Return one statement with the answer or recommendation and its
 If you cannot answer, name the specific fact you cannot see in the active window."""
 
 
+ECHO_STOPWORDS = frozenset(
+    "a an the i me my you your we to of on in at for and or is are do does did should would can could will "
+    "it this that with by be what which how please hand".split())
+
+
+def content_words(text: str) -> set[str]:
+    return {word for word in re.findall(r"[\w.]+", text.casefold().replace(",", " ")) if word.strip(".")
+            and word.strip(".") not in ECHO_STOPWORDS}
+
+
+def echoes_request(question: str, request: str) -> bool:
+    """The model "asked" the user's own question back instead of answering it."""
+    asked = {word.strip(".") for word in content_words(question)}
+    wanted = {word.strip(".") for word in content_words(request)}
+    if len(wanted) < 3:
+        return False
+    return len(asked & wanted) / len(wanted) >= 0.6
+
+
 def is_question_only(text: str) -> bool:
     """Accept a focused follow-up only if there is also a substantive statement."""
     if not text.endswith("?"):

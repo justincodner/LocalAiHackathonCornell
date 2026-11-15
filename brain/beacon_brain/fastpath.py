@@ -31,6 +31,21 @@ def classify(text: str) -> str | None:
     return command
 
 
+# "Based on GTO theory, do I fold or raise?": a framing clause before the question itself.
+FRAMING = re.compile(
+    r"^\s*(?:based on|according to|using|going by|in terms of|from the (?:perspective|point of view) of|"
+    r"given|per|with|thinking about|in)\b[^,?]{1,60},\s*", re.IGNORECASE)
+# A request that starts like this is a command even if it ends with a question mark.
+COMMAND_START = re.compile(
+    r"^(?:please )?(?:open|close|click|press|tap|select|choose|switch|scroll|type|enter|fill|send|submit|delete|"
+    r"set|move|change|turn|go|search|play|find|show|read|reply|text|message|call|start|stop|quit)\b")
+
+
+def question_words(text: str) -> str:
+    """The normalized words of a request without a leading framing clause or "please"."""
+    return normalize(FRAMING.sub("", text, count=1)).removeprefix("please ")
+
+
 def wants_screen_summary(text: str) -> bool:
     words = normalize(text).removeprefix("please ").removesuffix(" please")
     words = re.sub(r" (?:right now|currently)$", "", words)
@@ -44,21 +59,21 @@ def wants_screen_summary(text: str) -> bool:
 
 
 def is_question(text: str) -> bool:
-    words = normalize(text).removeprefix("please ")
+    words = question_words(text)
     return wants_advice(text) or bool(re.match(
         r"^(?:whats?|wheres?|whens?|whos?|which|why|hows?|is|are|do|does|did|can|could|"
         r"would|should|will|have|has|explain|tell me|i (?:want|need) to know)\b",
         words,
-    ))
+    )) or (text.rstrip().endswith("?") and not COMMAND_START.match(words))
 
 
 def wants_advice(text: str) -> bool:
-    words = normalize(text).removeprefix("please ")
+    words = question_words(text)
     return bool(re.match(
         r"^(?:(?:(?:can|could|would) you |give me |i (?:want|need) )?"
         r"(?:some |any )?(?:advice|advise|recommend(?:ation)?|suggest(?:ion)?|help me (?:decide|choose))"
         r"|(?:should|would) i|what (?:do you think|would you do|should i do))\b", words,
-    ))
+    )) or bool(re.match(r"^(?:do|can|shall) i (?:\w+ ){0,3}\w+ or \w+\b", words))
 
 
 UI_VERBS = (r"(?:pay|check ?out|buy|purchase|place (?:my |the |an )?order|order|submit|sign (?:in|up|out)|"
@@ -71,7 +86,7 @@ LOCATE = re.compile(
 
 def needs_screen(text: str) -> bool:
     """Fast route for questions that explicitly refer to the user or their screen."""
-    words = normalize(text)
+    words = question_words(text)
     explicit = re.search(
         r"\b(?:on screen|on (?:the|this|my) screen|this (?:page|tab|website|window|form|dialog)|"
         r"the current (?:page|tab|website|window)|i (?:am|was) (?:viewing|looking at))\b|"
@@ -80,7 +95,8 @@ def needs_screen(text: str) -> bool:
     )
     personal = re.match(r"^(?:what(?:s| is| are)|where(?:s| is| are)|how (?:much|many)\b.*?)\s+my\b", words)
     choice = re.search(r"\b(?:what should i do|which option should i (?:pick|choose)|"
-                       r"(?:should i|whether i should) (?:\w+ ){1,4}or \w+(?: \d+)?)(?: please)?$", words)
+                       r"(?:should i|whether i should) (?:\w+ ){1,4}or \w+(?: \d+)?)(?: please)?$"
+                       r"|^(?:should|do|can|shall) i (?:\w+ ){0,3}\w+ or \w+\b", words)
     return bool(explicit or personal or choice or LOCATE.match(words))
 
 
