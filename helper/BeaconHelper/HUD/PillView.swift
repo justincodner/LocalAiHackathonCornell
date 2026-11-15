@@ -72,7 +72,7 @@ struct PillView: View {
                 HStack(spacing: 6) {
                     if let typePrompt {
                         headerButton(symbol: "keyboard", label: "Type a request",
-                                     help: "Type a request instead of speaking (\(model.typeShortcut))",
+                                     help: "Type a question instead of speaking (\(model.typeShortcut)). Press again to close.",
                                      action: typePrompt)
                     }
                     if let askAboutRegion {

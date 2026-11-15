@@ -52,6 +52,11 @@ final class PromptCoordinator {
 
     func openTypedPrompt() {
         guard !selector.isActive else { return }
+        // The keyboard button and Control+Option+Space toggle: pressed again, they close the field.
+        if typed.isVisible {
+            typed.cancel()
+            return
+        }
         if hud.isMinimized { hud.restore() }
         let heading: String
         let placeholder: String
