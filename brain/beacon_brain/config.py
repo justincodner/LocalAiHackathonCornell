@@ -28,6 +28,8 @@ class Config:
     top_p: float = 0.8
     top_k: int = 20
     presence_penalty: float = 1.5
+    # Ceiling only: each request gets a smaller cap from the tools it offers (llm.token_cap),
+    # 64 for click-like actions up to 200 when type_text is offered. Lower it to cut them all.
     max_tokens: int = 300
     cache_prompt: bool = True
     # Prompt processing is the bottleneck (~170 tok/s for the 4B on the M1), so ask the

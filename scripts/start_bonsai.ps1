@@ -29,10 +29,10 @@ if (-not (Test-Path -LiteralPath $DemoPath -PathType Container)) {
 }
 $DemoPath = (Resolve-Path -LiteralPath $DemoPath).Path
 
-# One slot per prompt family. The Brain prewarms six (loop.prompt_families) and pins each to its
-# own slot (llm.py, id_slot); the seventh serves anything else. Bonsai 2 is a hybrid model, so a
+# One slot per prompt family. The Brain prewarms seven (loop.prompt_families) and pins each to its
+# own slot (llm.py, id_slot); the eighth serves anything else. Bonsai 2 is a hybrid model, so a
 # slot shared by several families kept losing their cached prefixes (10-19 s steps; docs/bench.md).
-$slots = 7
+$slots = 8
 $envSlots = 0
 if ($env:BONSAI_SLOTS -and [int]::TryParse($env:BONSAI_SLOTS, [ref]$envSlots) -and $envSlots -gt 0) { $slots = $envSlots }
 
@@ -86,9 +86,6 @@ if ($busy) {
 
 $ngl = if ($env:BONSAI_NGL) { $env:BONSAI_NGL } elseif ($binRel -like 'bin\cpu\*') { '0' } else { '99' }
 
-# Windows PowerShell 5.1 does not escape embedded quotes for native commands.
-$templateKwargs = if ($PSVersionTable.PSEdition -eq 'Desktop') { '{\"enable_thinking\":false}' } else { '{"enable_thinking":false}' }
-
 # --no-kv-unified: with a shared cache, llama-server clears idle slots when another one starts.
 # --cache-ram 0: the slots keep their own prefixes, so the RAM prompt cache (4-5 prompts, up to
 # 8 GB) only added ~0.1-0.3 s of saving per request.
@@ -103,8 +100,11 @@ $serverArgs = @(
     '--jinja',
     '--temp', '0.7', '--top-p', '0.8', '--top-k', '20', '--min-p', '0',
     '--presence-penalty', '1.5', '--repeat-penalty', '1.0', '--repeat-last-n', '64',
-    '--chat-template-kwargs', $templateKwargs
+    '--reasoning', 'off'  # replaces the deprecated --chat-template-kwargs {"enable_thinking":false}
 )
+# With every layer on the GPU, 4 CPU threads beat the default 12 on Iris Xe (shared power budget):
+# warm steps 6.1 s vs 6.9 s on battery (docs/bench.md). A CPU-only build keeps the default.
+if ($ngl -ne '0') { $serverArgs += @('-t', '4') }
 
 $nglNote = if ($env:BONSAI_NGL) { 'BONSAI_NGL' } else { 'auto' }
 Write-Host ''

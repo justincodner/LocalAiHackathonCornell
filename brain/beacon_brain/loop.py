@@ -37,6 +37,7 @@ def prompt_families(prompt: str) -> list[tuple[str, list[dict]]]:
         (prompt, SCREEN_SUMMARY_TOOLS),  # "What's on my screen?" outside a browser
         (questions.ROUTING_PROMPT, SCREEN_SUMMARY_TOOLS + questions.ROUTE_TOOLS),  # questions
         (questions.SCREEN_PROMPT, SCREEN_SUMMARY_TOOLS),  # questions about the screen
+        (questions.ADVICE_PROMPT, SCREEN_SUMMARY_TOOLS),  # "What should I do?" about the screen
         (page_summary.PROMPT, SCREEN_SUMMARY_TOOLS),  # "What's on my screen?" in a browser
         (followup.PROMPT, followup.REWRITE_TOOLS),  # follow-up rewrites
     ]
@@ -244,9 +245,10 @@ class Brain:
             {"role": "user", "content": f"EARLIER CONVERSATION:\n{context}\n\nQUESTION: {text}" if unresolved else text},
         ]
         advisory = fastpath.wants_advice(text)
-        route_tools = questions.ROUTE_TOOLS[:1] if advisory else questions.ROUTE_TOOLS
-        decision, answered_by = await self.think(messages, SCREEN_SUMMARY_TOOLS + route_tools, filler=True,
-                                                task_route=route.QUESTION)
+        # Advice offers the same tools as any question so it reuses the prewarmed routing family;
+        # act_on_screen on advice falls through to a screen answer below, never an action.
+        decision, answered_by = await self.think(messages, SCREEN_SUMMARY_TOOLS + questions.ROUTE_TOOLS,
+                                                filler=True, task_route=route.QUESTION)
         if decision.name == "act_on_screen" and not advisory and not decision.arguments:
             await self.run_task(text, stt_ms)
             return
@@ -587,10 +589,14 @@ class Brain:
         unavailable = ToolCall("screen-question", "say", {"text": fallback})
         if (allowed_numbers is not None and not allowed_numbers) or not any(label.strip() for label in evidence):
             return unavailable
+        # The retry instruction goes after the request, not into the system prompt: the system
+        # prompt + tools must stay a prewarmed family, or the retry re-reads its whole prefix.
+        retry_messages = [*messages[:-1], {**messages[-1],
+                                           "content": f"{messages[-1]['content']}\n\n{questions.SCREEN_RETRY}"}]
         try:
-            for attempt in range(2):
-                answer, _ = await self.think(messages, SCREEN_SUMMARY_TOOLS, filler=attempt == 0,
-                                             task_route=route.QUESTION)
+            for attempt_messages in (messages, retry_messages):
+                answer, _ = await self.think(attempt_messages, SCREEN_SUMMARY_TOOLS,
+                                             filler=attempt_messages is messages, task_route=route.QUESTION)
                 if answer.name == "say" and tools.validate(answer, {}) is None:
                     text = answer.arguments["text"].strip()
                     if (text and not questions.is_question_only(text)
@@ -598,7 +604,6 @@ class Brain:
                         if allowed_numbers is None or questions.numbers(text) <= allowed_numbers:
                             return answer
                         break
-                messages[0]["content"] = f"{prompt}\n{questions.SCREEN_RETRY}"
         except BonsaiError:
             LOGGER.warning("Could not answer from the active screen", exc_info=True)
         return unavailable

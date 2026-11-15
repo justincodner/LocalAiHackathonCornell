@@ -161,6 +161,45 @@ With pinning, routing takes 1.5–2.5 s, follow-up rewrites 1.9 s, actions 3.9�
 4.5–4.9 s. The remaining time goes on the new snapshot (~430 tokens at ~150 tok/s) and on generation. Startup
 warm-up grows from ~13 s to ~37 s. KV memory is 7 × 6,144 tokens (~500 MiB) instead of 16,384 (192 MiB).
 
+### llama-server batch and thread flags (Windows laptop, Vulkan on Iris Xe, 2026-11-14)
+
+Test server on :8090 with the `start_bonsai.ps1` settings (`-np 7 --no-kv-unified --cache-ram 0`, `-c 43008`), the
+v3 Windows prompt + 13 tools and the `safari_form.json` screen. Cold: a new system prompt on its own slot,
+~3,060 prompt tokens. Warm: prefix prewarmed on slot 0, then a new screen per request (541 new tokens, 26 generated).
+"First warm" is the first request after the prewarm; "warm" is the median of the next four per run. The laptop was
+on battery (Balanced plan) and slowed by 30–50% over the session, so only runs close together compare.
+
+| Flags | Cold prompt tok/s | First warm (tokens reused) | Warm, pass 1 | Warm, pass 2 | Warm gen tok/s, pass 1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| default (`-b 2048 -ub 512`, 12 threads) | 113–161 | 7.4–10.4 s (1,993) | 4.99 s | 6.90 s | 24.4 |
+| `-ub 1024` | 109–159 | 9.9–16.9 s (1,481) | 5.08 s | 8.20 s | 27.2 |
+| `-ub 2048` | 121–174 | 15.3–22.7 s (461) | 4.79 s | 7.56 s | 27.3 |
+| `-t 4` | 139–182 | 7.1–9.1 s (1,993) | 4.73 s | 6.01 s | 27.6 |
+| `-t 8` | 161–174 | 7.4–11.4 s (1,993) | 5.72 s | 6.81 s | 25.0 |
+
+Interleaved A/B afterwards (default, `-t 4`, default, `-t 4`, `-t 4`, default; 15 warm requests each):
+
+| Flags | Cold prompt tok/s | First warm | Warm | Warm prompt tok/s | Gen tok/s |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| default | 150 | 9.99 s | 6.87 s | 104 | 17.6 |
+| **`-t 4`** | **175** | **9.36 s** | **6.13 s** | **114** | **21.3** |
+
+- A larger `-ub` gives no steady-state gain and makes the first request after a prewarm much slower: Bonsai 2's
+  cache checkpoints land on ubatch boundaries, so only 1,481 (`-ub 1024`) or 461 (`-ub 2048`) prefix tokens are
+  reused instead of 1,993.
+- `-t 4` won all three A/B pairs: warm requests 11% faster, generation 21% faster. In the cooler first pass the
+  difference was within noise. With every layer on the iGPU, fewer CPU threads seem to leave more of the shared
+  power budget to the GPU. `-t 8` was no better than the default.
+
+**Decision:** `start_bonsai.ps1` passes `-t 4` when layers are offloaded (not for a CPU-only build). Batch sizes stay
+at the defaults. The Mac launcher is unchanged: the effect depends on Iris Xe sharing power with the CPU and was not
+measured on the M1.
+
+`start_bonsai.ps1` also uses `--reasoning off` instead of the deprecated `--chat-template-kwargs
+{"enable_thinking":false}`. The rendered prompt still ends with an empty `<think></think>` block, and requests with
+and without the Brain's per-request `chat_template_kwargs` render the same prompt (the second reused all but 4
+tokens) and return the same tool call with no reasoning text.
+
 ### Checks from spec 15.2
 
 - [x] `tool_choice: "required"` accepted (M1 and Windows)

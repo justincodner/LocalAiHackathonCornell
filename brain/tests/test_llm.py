@@ -197,3 +197,129 @@ def test_with_every_slot_warm_another_family_is_left_to_the_server():
 
     asyncio.run(run())
     assert [body.get("id_slot") for body in seen] == [0, 1, None]
+
+
+def tools_named(*names):
+    from beacon_brain.followup import REWRITE_TOOLS
+    from beacon_brain.questions import ROUTE_TOOLS
+    every = TOOL_DEFINITIONS + ROUTE_TOOLS + REWRITE_TOOLS
+    return [tool for tool in every if tool["function"]["name"] in names]
+
+
+@pytest.mark.parametrize(("names", "cap"), [
+    (("click", "set_value"), 64),  # DECIDE_TOOLS
+    (("rewrite",), 128),  # follow-up rewrites
+    (("ask_user", "done"), 128),
+    (("say",), 160),  # screen summaries and screen questions
+    (("say", "use_screen", "act_on_screen"), 160),  # question routing
+    (tuple(tool["function"]["name"] for tool in TOOL_DEFINITIONS), 200),  # the main loop
+])
+def test_max_tokens_follows_the_offered_tools(names, cap):
+    transport, seen = server(lambda body, n: tool_reply(body["tools"][0]["function"]["name"], {}))
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport) as client:
+            await client.complete([{"role": "user", "content": "x"}], tools_named(*names))
+
+    asyncio.run(run())
+    assert seen[0]["max_tokens"] == cap
+
+
+def test_configured_max_tokens_is_the_ceiling(monkeypatch):
+    from beacon_brain.config import Config
+
+    monkeypatch.setenv("BEACON_MAX_TOKENS", "100")
+    ceiling = Config.from_environment().max_tokens
+    transport, seen = server(lambda body, n: tool_reply("say", {"text": "hi"}))
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport, max_tokens=ceiling) as client:
+            await client.complete([{"role": "user", "content": "x"}], tools_named("say"))
+            await client.complete([{"role": "user", "content": "x"}], tools_named("click"))
+
+    asyncio.run(run())
+    assert [body["max_tokens"] for body in seen] == [100, 64]
+
+
+def text_reply(content, finish_reason="length"):
+    return httpx.Response(200, json={"choices": [{"finish_reason": finish_reason, "message": {"content": content}}]})
+
+
+def ask_once(reply, names=("say",)):
+    transport, seen = server(lambda body, n: reply)
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport) as client:
+            return await client.next_tool_call([{"role": "user", "content": "x"}], tools_named(*names))
+
+    return asyncio.run(run()), seen
+
+
+def test_cut_off_plain_text_is_spoken_up_to_its_last_full_sentence():
+    call, seen = ask_once(text_reply("The page lists three emails. The first is from Sarah Chen! The second is ab"))
+    assert (call.name, call.arguments) == ("say", {"text": "The page lists three emails. The first is from Sarah Chen!"})
+    assert len(seen) == 1  # no second request
+
+
+def test_cut_off_written_out_say_and_tool_json_keep_only_the_spoken_text():
+    call, _ = ask_once(text_reply('say "Your inbox has two unread emails. One is from Sa'))
+    assert call.arguments == {"text": "Your inbox has two unread emails."}
+    call, _ = ask_once(text_reply('<tool_call>\n{"name": "say", "arguments": {"text": "It says \\"hi\\". Then a lo'))
+    assert call.arguments == {"text": 'It says "hi".'}
+
+
+def test_cut_off_say_arguments_keep_their_full_sentences():
+    reply = httpx.Response(200, json={"choices": [{"finish_reason": "length", "message": {"tool_calls": [{
+        "id": "c1", "function": {"name": "say", "arguments": '{"text": "Two buttons are shown. Submit is at the bot'},
+    }]}}]})
+    call, seen = ask_once(reply, names=tuple(tool["function"]["name"] for tool in TOOL_DEFINITIONS))
+    assert (call.name, call.arguments) == ("say", {"text": "Two buttons are shown."})
+    assert len(seen) == 1
+
+
+def test_a_cut_off_fragment_with_no_full_sentence_is_asked_again():
+    transport, seen = server(lambda body, n: text_reply("The page shows a long list of") if n == 1
+                             else tool_reply("say", {"text": "A list of links."}))
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport) as client:
+            return await client.next_tool_call([{"role": "user", "content": "x"}], tools_named("say"))
+
+    assert asyncio.run(run()).arguments == {"text": "A list of links."}
+    assert len(seen) == 2 and seen[1]["messages"][-1]["content"] == "Reply with exactly one tool call"
+
+
+def test_cut_off_text_without_say_on_offer_is_still_retried():
+    transport, seen = server(lambda body, n: text_reply("I should click Submit. Then") if n == 1
+                             else tool_reply("click", {"id": 3}))
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport) as client:
+            return await client.next_tool_call([{"role": "user", "content": "x"}], tools_named("click", "set_value"))
+
+    assert asyncio.run(run()).name == "click"
+    assert len(seen) == 2
+
+
+def test_an_unfinished_reply_that_stopped_normally_keeps_its_old_handling():
+    call, _ = ask_once(text_reply("The page shows a long list of", finish_reason="stop"))
+    assert call.arguments == {"text": "The page shows a long list of"}
+
+
+def test_a_retry_after_a_cut_off_reply_gets_the_full_ceiling():
+    def handler(body, n):
+        if n == 1:
+            return httpx.Response(200, json={"choices": [{"finish_reason": "length", "message": {"tool_calls": [{
+                "id": "c1", "type": "function",
+                "function": {"name": "type_text", "arguments": '{"id": 3, "text": "a long dictat'},
+            }]}}]})
+        return tool_reply("type_text", {"id": 3, "text": "a long dictation"})
+
+    transport, seen = server(handler)
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport, max_tokens=300) as client:
+            return await client.next_tool_call([{"role": "user", "content": "x"}], TOOL_DEFINITIONS)
+
+    assert asyncio.run(run()).name == "type_text"
+    assert [body["max_tokens"] for body in seen] == [200, 300]
