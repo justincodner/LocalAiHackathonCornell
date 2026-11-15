@@ -27,9 +27,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             },
             isHUDMinimized: { minimized.get() })
-        services = Services(accessibility: AccessibilityService(),
+        let accessibility = AccessibilityService()
+        // @Sendable so the AX read runs off the main actor, on the speech service's detached task.
+        var screenText: (@Sendable () async -> ScreenText?)?
+        if Config.sttScreenHints {
+            screenText = { @Sendable in accessibility.screenText() }
+        }
+        services = Services(accessibility: accessibility,
                             input: InputService(),
-                            speechIn: SpeechInputService(events: events),
+                            speechIn: SpeechInputService(events: events, screenText: screenText),
                             speechOut: SpeechOutputService(events: events),
                             events: events,
                             hud: hud)

@@ -114,7 +114,7 @@ final class AccessibilityService: AccessibilityProviding, @unchecked Sendable {
             windowTitle = "menu"
         } else {
             let window = try focusedWindow(target.app, appName: target.name)
-            windowTitle = AX.string(AX.attribute(window, "AXTitle")) ?? ""
+            windowTitle = Labels.withoutTabNoise(AX.string(AX.attribute(window, "AXTitle")) ?? "")
             root = window
             if let sheet = AX.elements(AX.attribute(window, "AXChildren")).first(where: { AX.role($0) == "AXSheet" }) {
                 root = sheet
@@ -160,6 +160,36 @@ final class AccessibilityService: AccessibilityProviding, @unchecked Sendable {
             "elements": built.elements.map(\.json),
             "text": text,
         ]
+    }
+
+    // MARK: Screen text (speech hints)
+
+    /// Labels of the frontmost window's visible elements, for the Whisper prompt. Cheaper than `snapshot`
+    /// (shorter budget, no element registration, so the Brain's snapshot ids are never evicted). Best effort:
+    /// nil when accessibility is unavailable or the app does not answer.
+    func screenText(maxElements: Int = 200, budget: TimeInterval = 0.3) -> ScreenText? {
+        guard let target = try? frontmostTarget(),
+              let window = try? focusedWindow(target.app, appName: target.name) else { return nil }
+        let title = AX.string(AX.attribute(window, "AXTitle")) ?? ""
+        var root = window
+        if let sheet = AX.elements(AX.attribute(window, "AXChildren")).first(where: { AX.role($0) == "AXSheet" }) {
+            root = sheet
+        }
+        var clip = AX.displaysFrame()
+        if let f = AX.frame(window), f.width > 0, f.height > 0 {
+            clip = clip.map { $0.intersection(f) } ?? f
+        }
+        let walker = AXWalker(deadline: Date().addingTimeInterval(budget), maxNodes: maxElements * 12,
+                              maxDepth: Self.rawDepthLimit, prune: true, focused: nil)
+        guard let tree = walker.walk(root, clip: clip) else {
+            return ScreenText(app: target.name, window: title, labels: [])
+        }
+        let built = SnapshotBuilder.build(root: tree, includeRoot: false, maxElements: maxElements,
+                                          walkTruncated: walker.truncated)
+        let labels = built.elements.compactMap { e -> String? in
+            e.labelSource == "inferred" || e.label.isEmpty ? nil : e.label
+        }
+        return ScreenText(app: target.name, window: title, labels: labels)
     }
 
     // MARK: Find

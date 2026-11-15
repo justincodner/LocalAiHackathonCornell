@@ -293,4 +293,21 @@ final class TabLabelTests: XCTestCase {
                        "Krillion · the daily dive")
         XCTAssertEqual(Labels.withoutTabNoise("Memory usage notes - Docs"), "Memory usage notes - Docs")
     }
+
+    func testDiscordTabWithUnreadCountAndOtherDashes() {
+        XCTAssertEqual(Labels.withoutTabNoise("(8623) Discord | @Kingsnipeshot - Memory usage - 383 MB"),
+                       "(8623) Discord | @Kingsnipeshot")
+        XCTAssertEqual(Labels.withoutTabNoise("Inbox \u{2013} Memory usage \u{2013} 1.2\u{00A0}GB"), "Inbox")
+        XCTAssertEqual(Labels.withoutUnreadCount("(8623) Discord | @Kingsnipeshot"), "Discord | @Kingsnipeshot")
+        XCTAssertEqual(Labels.withoutUnreadCount("(2) Slack"), "Slack")
+        XCTAssertEqual(Labels.withoutUnreadCount("(Draft) Notes"), "(Draft) Notes")
+    }
+
+    func testTabLabelDropsCounterAndMemoryWhateverTheRole() {
+        let tab = AXNode("AXRadioButton", subrole: "AXTabButton",
+                         title: "(8623) Discord | @Kingsnipeshot - Memory usage - 383 MB")
+        XCTAssertEqual(Labels.label(for: tab, role: "tab")?.0, "Discord | @Kingsnipeshot")
+        let button = AXNode("AXButton", title: "Discord | @Kingsnipeshot - Memory usage - 383 MB")
+        XCTAssertEqual(Labels.label(for: button, role: "button")?.0, "Discord | @Kingsnipeshot")
+    }
 }

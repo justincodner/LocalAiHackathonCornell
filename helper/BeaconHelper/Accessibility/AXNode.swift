@@ -185,15 +185,26 @@ enum Labels {
     /// Returns the untrimmed label and its source.
     static func label(for node: AXNode, role: String) -> (String, String)? {
         guard let (label, source) = rawLabel(for: node, role: role) else { return nil }
-        return (role == "tab" ? withoutTabNoise(label) : label, source)
+        // Chrome's memory note can reach a tab through its title, description or a child text,
+        // and some builds expose tabs as plain buttons, so it is dropped from every label.
+        let cleaned = withoutTabNoise(label)
+        return (role == "tab" ? withoutUnreadCount(cleaned) : cleaned, source)
     }
 
     /// Chrome appends "- Memory usage - 165 MB" to tab titles: tokens the model pays for and
-    /// words Beacon would read aloud, with nothing the user asked about.
+    /// words Beacon would read aloud, with nothing the user asked about. Any dash (or a colon)
+    /// and non-breaking spaces are allowed around it.
     static func withoutTabNoise(_ label: String) -> String {
         let cleaned = label.replacingOccurrences(
-            of: #"\s+-\s+(?:high\s+)?memory usage\s+-\s+[0-9.,]+\s*[KMGT]B\b"#,
+            of: #"[\s\u00A0]*[-\u2010-\u2015:|,][\s\u00A0]*(?:high[\s\u00A0]+)?memory[\s\u00A0]+usage[\s\u00A0]*[-\u2010-\u2015:][\s\u00A0]*[0-9.,]+[\s\u00A0]*[KMGT]B\b"#,
             with: "", options: [.regularExpression, .caseInsensitive])
+            .trimmingCharacters(in: .whitespaces)
+        return cleaned.isEmpty ? label : cleaned
+    }
+
+    /// "(8623) Discord | @Sam": the unread counter web apps put in front of a tab title.
+    static func withoutUnreadCount(_ label: String) -> String {
+        let cleaned = label.replacingOccurrences(of: #"^\(\d[\d,]*\+?\)\s+"#, with: "", options: .regularExpression)
         return cleaned.isEmpty ? label : cleaned
     }
 
