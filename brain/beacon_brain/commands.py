@@ -38,7 +38,8 @@ MAX_REPEAT = 10
 PRESS = re.compile(r"^(?:press|hit|tap|push|type|use)\s+(?:the\s+)?(?P<keys>.+?)(?:\s+(?:key|button))?$")
 REPEAT = re.compile(r"\s+(?:(?P<word>once|twice|thrice)|(?P<n>\d+|one|two|three|four|five|six|seven|eight|nine|ten)"
                     r"\s+times?)$")
-SCROLL = re.compile(r"^scroll(?:\s+(?:the\s+)?(?:page|window|screen))?\s+(?P<dir>up|down|left|right)"
+SCROLL = re.compile(r"^scroll(?:\s+(?:the\s+|this\s+)?(?:page|window|screen))?\s+(?P<dir>up|down|left|right)"
+                    r"(?:\s+(?:this|the)\s+(?:page|window|screen))?"
                     r"(?:\s+(?:a\s+(?:bit|little(?:\s+bit)?)|some|more|again|a\s+page|one\s+page))?$")
 SCROLL_END = re.compile(r"^(?:scroll|go|jump|take\s+me)\s+(?:all\s+the\s+way\s+)?(?:up\s+|down\s+)?(?:to\s+)?"
                         r"(?:the\s+)?(?P<end>top|bottom)(?:\s+of\s+(?:the\s+)?(?:page|window|screen))?$")
@@ -185,8 +186,9 @@ PACE_WORDS = (r"(?:really\s+|very\s+|nice\s+and\s+|a\s+(?:bit|little)\s+)?(?:slo
 CONTINUOUS = re.compile(
     rf"^(?P<lead>(?:{PACE_WORDS}\s+)*)"
     r"(?P<verb>(?:keep(?:\s+on)?|start|begin|continue|go\s+on)\s+scrolling|auto\s*scroll(?:ing)?|scroll(?:ing)?)"
-    r"(?:\s+(?:the\s+)?(?:page|window|screen))?"
-    r"(?:\s+(?P<dir>up|down)(?:wards?)?)?"
+    r"(?:\s+(?:the\s+|this\s+)?(?:page|window|screen))?"
+    r"(?:\s+(?P<dir>up|down|left|right)(?:wards?)?)?"
+    r"(?:\s+(?:this|the)\s+(?:page|window|screen))?"
     rf"(?P<pace>(?:\s+{PACE_WORDS})*)"
     r"(?:\s+(?P<through>through|along|over)(?P<what>(?:\s+[\w']+){0,5}))?"
     rf"(?P<tail>(?:\s+{PACE_WORDS})*)$")
@@ -195,7 +197,7 @@ CONTINUOUS_END = re.compile(r"\s+(?:until\s+i\s+(?:say|tell\s+you)(?:\s+to)?\s+s
 MORE_THAN_SCROLL = re.compile(r"\b(?:and|then|to|until|find|for|click|open|read|look|stop|when|type)\b")
 SLOW = re.compile(r"\b(?:slow|slowly|slower|gently|gradually)\b")
 FAST = re.compile(r"\b(?:quickly|fast|faster)\b")
-SCROLL_SPEEDS = {"slow": 160, "normal": 300, "fast": 600}  # pixels per second
+SCROLL_SPEEDS = {"slow": 80, "normal": 150, "fast": 300}  # pixels per second (about half of the first cut)
 
 
 class Glide:

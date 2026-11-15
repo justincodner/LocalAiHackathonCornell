@@ -27,6 +27,10 @@ from test_loop import ReplayHelper, ScriptedModel, fixture
     ("Keep scrolling until I say stop", "down", "normal"),
     ("Can you scroll through these for me?", "down", "normal"),
     ("Scroll quickly", "down", "fast"),
+    ("keep scrolling left", "left", "normal"),
+    ("Keep scrolling right slowly", "right", "slow"),
+    ("keep scrolling up this page", "up", "normal"),
+    ("scroll down this window quickly", "down", "fast"),
     ("Auto scroll", "down", "normal"),
 ])
 def test_continuous_scroll_phrasings(utterance, direction, speed):
@@ -35,7 +39,7 @@ def test_continuous_scroll_phrasings(utterance, direction, speed):
 
 
 @pytest.mark.parametrize("utterance", [
-    "Scroll down", "scroll down a bit", "Scroll up", "page down", "stop scrolling",
+    "Scroll down", "scroll down a bit", "Scroll up", "scroll up this page", "scroll left", "page down", "stop scrolling",
     "scroll through the results and click the first one", "scroll down to the reviews",
     "scroll through the results then open the second one", "Scroll to the bottom",
 ])
@@ -69,7 +73,7 @@ def test_glide_scrolls_in_small_steady_steps_until_the_limit():
     steps = scrolls(helper)
     assert len(steps) >= 6 and all(s["direction"] == "down" and 1 <= s["amount"] <= 60 for s in steps)
     total = sum(s["amount"] for s in steps)
-    assert 120 <= total <= 200  # ~300 px/s for 0.6 s
+    assert 60 <= total <= 120  # ~150 px/s for 0.6 s
     assert helper.snapshot_calls == 0 and brain.model.requests == []
     assert helper.spoken == ["Done scrolling."] and not brain.scrolling
 
