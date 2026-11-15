@@ -2,6 +2,7 @@
 
 import re
 
+from . import labels
 from .tools import element_for
 
 # An id plus the "at"/"on" that only introduced it ("located at element [5]"); a bare
@@ -21,7 +22,7 @@ def clean_speech(text: str) -> str:
 def action_text(call, snapshot: dict) -> str:
     args = call.arguments
     element = element_for(call, snapshot) or {}
-    label = element.get("label") or "the selected control"
+    label = labels.clean(element.get("label") or "", element.get("role", "")) or "the selected control"
     near = re.fullmatch(r"unlabeled, near '(.+)'", label)
     if near:
         label = f"the unlabeled {element.get('role', 'control')} near {near.group(1)}"
@@ -57,7 +58,8 @@ COMMIT_CLAIM = re.compile(
 def past_action(call, snapshot: dict) -> str:
     """A factual past-tense phrase for an action that ran, used to replace a false summary."""
     args = call.arguments
-    label = (element_for(call, snapshot) or {}).get("label") or "the control"
+    element = element_for(call, snapshot) or {}
+    label = labels.clean(element.get("label") or "", element.get("role", "")) or "the control"
     if call.name == "click":
         return f"clicked {label}"
     if call.name == "type_text":

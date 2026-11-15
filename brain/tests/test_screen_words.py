@@ -52,7 +52,7 @@ def test_misheard_names_on_screen(heard, fixed):
 @pytest.mark.parametrize("heard, fixed", [
     ("send a message to KingSneapeshot hello", "send a message to Kingsnipeshot hello"),
     # Dictation glued the name to the message with a period.
-    ("send a message to KingSneapeshot.hello.", "send a message to Kingsnipeshot. hello."),
+    ("send a message to KingSneapeshot.hello.", "send a message to Kingsnipeshot.hello."),
     ("Send a message to king snipe shot saying hello", "Send a message to Kingsnipeshot saying hello"),
     ("send a message to kingsneapeshot", "send a message to Kingsnipeshot"),
 ])
@@ -64,6 +64,7 @@ def test_glued_period_lets_compose_find_the_message():
     fixed = screen_words.correct("send a message to KingSneapeshot.hello.", discord_screen())
     assert compose.recipient(fixed) == "Kingsnipeshot"
     assert compose.on_screen("Kingsnipeshot", discord_screen())
+    assert compose.command_and_content(fixed)[1] == "hello"
 
 
 @pytest.mark.parametrize("said", [

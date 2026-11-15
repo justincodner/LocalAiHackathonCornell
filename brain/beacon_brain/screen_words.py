@@ -270,10 +270,9 @@ def correct(text: str, snapshot: dict) -> str:
         if not done:
             i += 1
     for start, end, word in reversed(replacements):
-        tail = text[end:]
-        if re.match(r"[.!?,][A-Za-z]", tail):
-            tail = tail[0] + " " + tail[1:]  # "KingSneapeshot.hello" -> "Kingsnipeshot. hello"
-        text = text[:start] + word + tail
+        # A period glued to the next word ("KingSneapeshot.hello") stays glued: compose reads it as
+        # "name, then message" and types "hello" without the speech-to-text period.
+        text = text[:start] + word + text[end:]
     return text
 
 

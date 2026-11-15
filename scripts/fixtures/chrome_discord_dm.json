@@ -1,0 +1,1086 @@
+{
+ "ok": true,
+ "snapshot_id": "s_discord",
+ "app": "Google Chrome",
+ "window": "Discord | @Kingsnipeshot - Google Chrome",
+ "focused_id": 9,
+ "build_ms": 40,
+ "truncated": false,
+ "total_elements": 71,
+ "elements": [
+  {
+   "id": 1,
+   "depth": 0,
+   "role": "group",
+   "label": "Discord | @Kingsnipeshot - Google Chrome",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    30,
+    1440,
+    870
+   ]
+  },
+  {
+   "id": 2,
+   "depth": 1,
+   "role": "toolbar",
+   "label": "",
+   "label_source": "none",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 3,
+   "depth": 2,
+   "role": "button",
+   "label": "Back",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 4,
+   "depth": 2,
+   "role": "button",
+   "label": "Forward",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 5,
+   "depth": 2,
+   "role": "button",
+   "label": "Reload",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 6,
+   "depth": 2,
+   "role": "textfield",
+   "label": "Address and search bar",
+   "label_source": "title",
+   "states": [],
+   "value": "discord.com/channels/@me/1187654321098765432",
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 7,
+   "depth": 2,
+   "role": "button",
+   "label": "Bookmark this tab",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 8,
+   "depth": 2,
+   "role": "popup",
+   "label": "Chrome",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 9,
+   "depth": 1,
+   "role": "group",
+   "label": "Discord | @Kingsnipeshot",
+   "label_source": "title",
+   "states": [
+    "focused"
+   ],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 10,
+   "depth": 2,
+   "role": "list",
+   "label": "Servers sidebar",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 11,
+   "depth": 3,
+   "role": "link",
+   "label": "Direct Messages",
+   "label_source": "title",
+   "states": [
+    "selected"
+   ],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 12,
+   "depth": 3,
+   "role": "link",
+   "label": "(3) Cornell CS Hangout",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 13,
+   "depth": 3,
+   "role": "button",
+   "label": "Add a Server",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 14,
+   "depth": 3,
+   "role": "button",
+   "label": "Discover",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 15,
+   "depth": 2,
+   "role": "group",
+   "label": "Private channels",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 16,
+   "depth": 3,
+   "role": "button",
+   "label": "Find or start a conversation",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 17,
+   "depth": 3,
+   "role": "link",
+   "label": "Friends",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 18,
+   "depth": 3,
+   "role": "link",
+   "label": "Message Requests",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 19,
+   "depth": 3,
+   "role": "link",
+   "label": "Nitro",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 20,
+   "depth": 3,
+   "role": "link",
+   "label": "Shop",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 21,
+   "depth": 3,
+   "role": "link",
+   "label": "Quests",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 22,
+   "depth": 3,
+   "role": "heading",
+   "label": "Direct Messages",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 23,
+   "depth": 3,
+   "role": "button",
+   "label": "Create DM",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 24,
+   "depth": 3,
+   "role": "list",
+   "label": "Direct Messages",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 25,
+   "depth": 4,
+   "role": "link",
+   "label": "Kingsnipeshot (direct message)",
+   "label_source": "title",
+   "states": [
+    "selected"
+   ],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 26,
+   "depth": 4,
+   "role": "link",
+   "label": "Emmett (direct message)",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 27,
+   "depth": 4,
+   "role": "button",
+   "label": "Wave",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 28,
+   "depth": 4,
+   "role": "link",
+   "label": "mochi_dev (direct message)",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 29,
+   "depth": 4,
+   "role": "button",
+   "label": "Wave",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 30,
+   "depth": 4,
+   "role": "link",
+   "label": "Sarah Chen (direct message)",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 31,
+   "depth": 2,
+   "role": "group",
+   "label": "User area",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 32,
+   "depth": 3,
+   "role": "button",
+   "label": "Mute",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 33,
+   "depth": 3,
+   "role": "button",
+   "label": "Deafen",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 34,
+   "depth": 3,
+   "role": "button",
+   "label": "User Settings",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 35,
+   "depth": 2,
+   "role": "toolbar",
+   "label": "Kingsnipeshot",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 36,
+   "depth": 3,
+   "role": "heading",
+   "label": "Kingsnipeshot",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 37,
+   "depth": 3,
+   "role": "button",
+   "label": "Start Voice Call",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 38,
+   "depth": 3,
+   "role": "button",
+   "label": "Start Video Call",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 39,
+   "depth": 3,
+   "role": "button",
+   "label": "Pinned Messages",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 40,
+   "depth": 3,
+   "role": "button",
+   "label": "Add Friends to DM",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 41,
+   "depth": 3,
+   "role": "button",
+   "label": "Hide User Profile",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 42,
+   "depth": 3,
+   "role": "textfield",
+   "label": "Search Kingsnipeshot",
+   "label_source": "title",
+   "states": [],
+   "value": "",
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 43,
+   "depth": 2,
+   "role": "list",
+   "label": "Messages in Kingsnipeshot",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 44,
+   "depth": 3,
+   "role": "row",
+   "label": "Kingsnipeshot — Yesterday at 9:14 PM - you on for valorant tonight?",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 45,
+   "depth": 3,
+   "role": "row",
+   "label": "Alex — Yesterday at 9:20 PM - maybe, after my problem set",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 46,
+   "depth": 3,
+   "role": "row",
+   "label": "Kingsnipeshot — Today at 4:02 PM - lmk",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 47,
+   "depth": 4,
+   "role": "button",
+   "label": "Add Reaction",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 48,
+   "depth": 4,
+   "role": "button",
+   "label": "Reply",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 49,
+   "depth": 4,
+   "role": "button",
+   "label": "Forward",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 50,
+   "depth": 4,
+   "role": "button",
+   "label": "More",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 51,
+   "depth": 2,
+   "role": "group",
+   "label": "Message composer",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 52,
+   "depth": 3,
+   "role": "button",
+   "label": "Upload a File",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 53,
+   "depth": 3,
+   "role": "textarea",
+   "label": "Message @Kingsnipeshot",
+   "label_source": "title",
+   "states": [],
+   "value": "",
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 54,
+   "depth": 3,
+   "role": "button",
+   "label": "Send a gift",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 55,
+   "depth": 3,
+   "role": "button",
+   "label": "Open GIF picker",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 56,
+   "depth": 3,
+   "role": "button",
+   "label": "Open sticker picker",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 57,
+   "depth": 3,
+   "role": "button",
+   "label": "Select emoji",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 58,
+   "depth": 2,
+   "role": "group",
+   "label": "User profile",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 59,
+   "depth": 3,
+   "role": "heading",
+   "label": "Kingsnipeshot",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 60,
+   "depth": 3,
+   "role": "text",
+   "label": "kingsnipeshot",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 61,
+   "depth": 3,
+   "role": "text",
+   "label": "Member Since Mar 3, 2021",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 62,
+   "depth": 3,
+   "role": "button",
+   "label": "View Full Profile",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 63,
+   "depth": 1,
+   "role": "popup",
+   "label": "Tab search",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 64,
+   "depth": 1,
+   "role": "tab",
+   "label": "(8623) Discord | @Kingsnipeshot - Memory usage - 383 MB",
+   "label_source": "title",
+   "states": [
+    "selected"
+   ],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 65,
+   "depth": 2,
+   "role": "button",
+   "label": "Close",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 66,
+   "depth": 1,
+   "role": "tab",
+   "label": "Weekend plans - Google Docs - Memory usage - 141 MB",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 67,
+   "depth": 2,
+   "role": "button",
+   "label": "Close",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 68,
+   "depth": 1,
+   "role": "button",
+   "label": "New Tab",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 69,
+   "depth": 0,
+   "role": "button",
+   "label": "close window",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 70,
+   "depth": 0,
+   "role": "button",
+   "label": "full screen",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  },
+  {
+   "id": 71,
+   "depth": 0,
+   "role": "button",
+   "label": "minimize window",
+   "label_source": "title",
+   "states": [],
+   "value": null,
+   "bounds": [
+    0,
+    0,
+    10,
+    10
+   ]
+  }
+ ],
+ "text": "APP Google Chrome | WINDOW \"Discord | @Kingsnipeshot - Google Chrome\" | FOCUS [9]\n[1] group \"Discord | @Kingsnipeshot - Google Chrome\"\n  [2] toolbar\n    [3] button \"Back\"\n    [4] button \"Forward\"\n    [5] button \"Reload\"\n    [6] textfield \"Address and search bar\" value=\"discord.com/channels/@me/1187654321098765432\"\n    [7] button \"Bookmark this tab\"\n    [8] popup \"Chrome\"\n  [9] group \"Discord | @Kingsnipeshot\" (focused)\n    [10] list \"Servers sidebar\"\n      [11] link \"Direct Messages\" (selected)\n      [12] link \"(3) Cornell CS Hangout\"\n      [13] button \"Add a Server\"\n      [14] button \"Discover\"\n    [15] group \"Private channels\"\n      [16] button \"Find or start a conversation\"\n      [17] link \"Friends\"\n      [18] link \"Message Requests\"\n      [19] link \"Nitro\"\n      [20] link \"Shop\"\n      [21] link \"Quests\"\n      [22] heading \"Direct Messages\"\n      [23] button \"Create DM\"\n      [24] list \"Direct Messages\"\n        [25] link \"Kingsnipeshot (direct message)\" (selected)\n        [26] link \"Emmett (direct message)\"\n        [27] button \"Wave\"\n        [28] link \"mochi_dev (direct message)\"\n        [29] button \"Wave\"\n        [30] link \"Sarah Chen (direct message)\"\n    [31] group \"User area\"\n      [32] button \"Mute\"\n      [33] button \"Deafen\"\n      [34] button \"User Settings\"\n    [35] toolbar \"Kingsnipeshot\"\n      [36] heading \"Kingsnipeshot\"\n      [37] button \"Start Voice Call\"\n      [38] button \"Start Video Call\"\n      [39] button \"Pinned Messages\"\n      [40] button \"Add Friends to DM\"\n      [41] button \"Hide User Profile\"\n      [42] textfield \"Search Kingsnipeshot\" value=\"\"\n    [43] list \"Messages in Kingsnipeshot\"\n      [44] row \"Kingsnipeshot — Yesterday at 9:14 PM - you on for valorant tonight?\"\n      [45] row \"Alex — Yesterday at 9:20 PM - maybe, after my problem set\"\n      [46] row \"Kingsnipeshot — Today at 4:02 PM - lmk\"\n        [47] button \"Add Reaction\"\n        [48] button \"Reply\"\n        [49] button \"Forward\"\n        [50] button \"More\"\n    [51] group \"Message composer\"\n      [52] button \"Upload a File\"\n      [53] textarea \"Message @Kingsnipeshot\" value=\"\"\n      [54] button \"Send a gift\"\n      [55] button \"Open GIF picker\"\n      [56] button \"Open sticker picker\"\n      [57] button \"Select emoji\"\n    [58] group \"User profile\"\n      [59] heading \"Kingsnipeshot\"\n      [60] text \"kingsnipeshot\"\n      [61] text \"Member Since Mar 3, 2021\"\n      [62] button \"View Full Profile\"\n  [63] popup \"Tab search\"\n  [64] tab \"(8623) Discord | @Kingsnipeshot - Memory usage - 383 MB\" (selected)\n    [65] button \"Close\"\n  [66] tab \"Weekend plans - Google Docs - Memory usage - 141 MB\"\n    [67] button \"Close\"\n  [68] button \"New Tab\"\n[69] button \"close window\"\n[70] button \"full screen\"\n[71] button \"minimize window\""
+}

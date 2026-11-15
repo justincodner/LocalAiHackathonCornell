@@ -102,7 +102,7 @@ def test_reply_to_sarah_with_spoken_confirmation(tmp_path):
     ))
 
     assert "APP Mail | WINDOW \"Re: Lunch tomorrow?\"" in model.screens[1]
-    assert "I'll be ten minutes late" in model.screens[2]
+    assert len(model.screens) == 2  # the user's message, once typed, is sent without asking the model again
     assert final_screen["window"] != "Re: Lunch tomorrow?"  # sent: back to the inbox
     steps = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
     assert [(step["tool"], step["risk"], step["ok"]) for step in steps] == [

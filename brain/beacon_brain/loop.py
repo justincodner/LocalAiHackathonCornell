@@ -21,6 +21,8 @@ TERMINALS = {"say", "done", "read_element"}
 QUESTION_PAUSE_S = 60
 CONNECTION_ERRORS = (HelperError, httpx.HTTPError, OSError, TimeoutError, ValueError, KeyError)
 DECIDE_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] in {"click", "set_value"}]
+# Focus on one of these means Return would press it, not send the typed message.
+PRESSABLE = {"button", "link", "checkbox", "radio", "menuitem", "tab", "row", "cell", "popup", "slider", "menu", "list"}
 SCREEN_SUMMARY_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
 
 
@@ -246,6 +248,8 @@ class Brain:
         fresh_request = True  # no action has run since the user last spoke (grounding.check)
         last_action = ""  # name of the latest screen action that ran
         last_typed = ""  # text of the latest type_text that ran
+        typed_field = None  # id of the field it went into
+        sending = fastpath.wants_send(text) and not (screen_question or screen_summary)
         # "Send hello to Emmett", "decide and do it": a say/done before any action is not the end.
         # "Make the best move for me" hands Beacon the choice and the action in one go.
         must_act = not (screen_question or screen_summary) and (
@@ -269,7 +273,23 @@ class Brain:
             await self.set_state("thinking", transcript=memory.latest_words)
             started = time.perf_counter()
             self.last_answered_by = None  # stays None when code, not a model, wrote the answer
-            if screen_question:
+            auto_send = None
+            if sending and not committed and last_action == "type_text" and last_typed.strip() and (
+                    last_typed.strip() == (compose.message_for(text, memory.answers) or "").strip()):
+                # The user's own message is typed: send it now instead of asking the model (1 to 15 s)
+                # only to hear "done" or, worse, have it click something else first.
+                auto_send = self.send_typed(ToolCall(f"send-{step}", "done", {"summary": ""}), last_action,
+                                            committed, memory.all_words, snapshot, typed_field)
+            elif (sending and not committed and not last_typed and compose.recipient(text)
+                  and compose.message_for(text, memory.answers)
+                  and compose.chat_open(compose.recipient(text), snapshot)):
+                # The named person's conversation is open and the user said the message: type it
+                # in its message field now. The model would only be overridden to do the same.
+                auto_send = compose.plan(ToolCall(f"compose-{step}", "done", {"summary": ""}), text,
+                                         memory.answers, snapshot, strict=True)
+            if auto_send is not None:
+                call = auto_send
+            elif screen_question:
                 call = await self.answer_from_screen(snapshot, memory.request)
             elif decide_first and not tried_action and step <= 2:
                 # "Decide and do it": offer only action tools so the model must commit to one option
@@ -304,16 +324,20 @@ class Brain:
             if fastpath.wants_send(text) and committed and call.name == "type_text":
                 # Already sent: typing again would start a duplicate message.
                 call = ToolCall(call.id, "done", {"summary": f"Sent: {last_typed}"}, call.stray_text)
-            if fastpath.wants_send(text) and not committed and not screen_question and not screen_summary:
+            if sending and not committed:
                 if last_action == "type_text":
                     if call.name == "type_text":  # typing the message again: send it instead
                         call = ToolCall(call.id, "done", {"summary": ""}, call.stray_text)
-                elif not tried_action and call.name in {"type_text", "ask_user", "done", "say", "confirm"}:
-                    planned = compose.plan(call, text, memory.answers, snapshot)
+                elif not last_typed and call.name in {"type_text", "ask_user", "done", "say", "confirm", "click"}:
+                    # "Go to Discord and send a message to Sam hello": once Sam's conversation is
+                    # open (after any steps that got there), type the message into its message
+                    # field instead of clicking around or stopping.
+                    planned = compose.plan(call, text, memory.answers, snapshot,
+                                           strict=tried_action or call.name == "click")
                     if planned is not None:
                         LOGGER.info("Send request: %s %s instead of %s", planned.name, planned.arguments, call.name)
                         call = planned
-            send_call = self.send_typed(call, last_action, committed, memory.all_words, snapshot)
+            send_call = self.send_typed(call, last_action, committed, memory.all_words, snapshot, typed_field)
             if send_call is not None:
                 # "Send hello to Emmett": the 2B model types, then stops or asks. Finish the
                 # request it was given: click the Send button, or press Return in the field.
@@ -325,8 +349,8 @@ class Brain:
                     LOGGER.warning("Replaced a done summary that claimed an action Beacon did not take")
                     call = replace(call, arguments={**call.arguments, "summary": honest})
             error = tools.validate(call, snapshot)
-            if (error is None and must_act and not tried_action and call.name == "done"
-                    and early_stops < 2):
+            if (error is None and must_act and call.name == "done" and early_stops < 2
+                    and (not tried_action or (sending and not last_typed and not committed))):
                 early_stops += 1
                 error = "The request is not finished: take the action the user asked for"
             if (error is None and must_act and not tried_action and call.name == "ask_user"
@@ -419,13 +443,15 @@ class Brain:
                 last_action = call.name
                 if call.name == "type_text":
                     last_typed = call.arguments.get("text", "")
+                    typed_field = call.arguments.get("id", screen.get("focused_id"))
                 committed = committed or verdict == "confirm" or (
                     call.name == "press_key" and risk.normal_keys(call.arguments["keys"]).split("+")[-1] in {"return", "enter"}
                 )  # Return sends in many chat apps, so don't claim "nothing has been sent"
                 fresh_request = False
             target = tools.element_for(call, screen) if "id" in call.arguments else None
             finished = self.finished_summary(call, result, text, target, was_fresh=was_fresh,
-                                             decide_first=decide_first, committed=committed, typed=last_typed)
+                                             decide_first=decide_first, committed=committed, typed=last_typed,
+                                             screen=screen)
             if result["ok"] and call.name in tools.SCREEN_ACTIONS and not finished:
                 # Only a step the model continues from needs the settled, fresh screen.
                 await asyncio.sleep(self.config.settle_ms / 1000)
@@ -473,7 +499,7 @@ class Brain:
 
     @staticmethod
     def finished_summary(call, result: dict, text: str, target: dict | None, *, was_fresh: bool,
-                         decide_first: bool, committed: bool, typed: str) -> str:
+                         decide_first: bool, committed: bool, typed: str, screen: dict | None = None) -> str:
         """What to say when this successful step completes the whole request, else ""."""
         if not result.get("ok") or call.name not in tools.SCREEN_ACTIONS:
             return ""
@@ -484,28 +510,54 @@ class Brain:
             return f"I scrolled {call.arguments['direction']}."
         if fastpath.wants_send(text) and committed and typed and call.name in {"click", "press_key"}:
             name = compose.recipient(text)
+            name = compose.shown_name(name, screen) if name else name
             body = typed.strip() if typed.strip()[-1:] in {".", "!", "?"} else typed.strip() + "."
             return f"Sent to {name}: {body}" if name else f"Sent: {body}"
         return ""
 
     @staticmethod
-    def send_typed(call, last_action: str, committed: bool, said: str, snapshot: dict) -> ToolCall | None:
+    def send_typed(call, last_action: str, committed: bool, said: str, snapshot: dict,
+                   field_id: int | None = None) -> ToolCall | None:
         """After typing for a send request, the call that sends it, or None to keep the model's call."""
-        if last_action != "type_text" or committed or call.name not in {"done", "ask_user", "confirm", "say"}:
+        if last_action != "type_text" or committed or not fastpath.wants_send(said):
             return None
-        if not fastpath.wants_send(said):
+        buttons = Brain.send_buttons(snapshot, field_id)
+        if call.name == "click" and (tools.element_for(call, snapshot) in buttons
+                                     or fastpath.normalize(Brain.label_of(call, snapshot)) in {"send", "send message"}):
+            return None  # the model is pressing Send itself
+        if call.name not in {"done", "ask_user", "confirm", "say", "click", "scroll"}:
             return None
-        buttons = [item for item in snapshot["elements"] if item["role"] == "button"
-                   and "disabled" not in item["states"]
-                   and fastpath.normalize(item.get("label") or "") in {"send", "send message", "reply", "post"}]
+        # Clicking anything else now ("More" on a message, "Wave") would leave the message unsent.
         if len(buttons) == 1:  # Mail and web composers: Return there only adds a new line
             return ToolCall(call.id, "click", {"id": buttons[0]["id"]}, call.stray_text)
         # Keyboard focus stays in the field we just typed into. Messages often reports no focus
-        # after typing, so only hold back when focus is visibly on something that isn't a field.
+        # after typing, and Chrome may report the page itself, so only hold back when focus is
+        # visibly on a control that Return would press (a button, link, row...).
         focused = next((item for item in snapshot["elements"] if item["id"] == snapshot.get("focused_id")), None)
-        if focused is None or focused["role"] in {"textfield", "textarea", "combobox"}:
+        if focused is None or focused["role"] not in PRESSABLE:
             return ToolCall(call.id, "press_key", {"keys": "return"}, call.stray_text)
         return None
+
+    @staticmethod
+    def label_of(call, snapshot: dict) -> str:
+        return ((tools.element_for(call, snapshot) or {}).get("label") or "") if "id" in call.arguments else ""
+
+    @staticmethod
+    def send_buttons(snapshot: dict, field_id: int | None) -> list[dict]:
+        """The composer's send button: one labelled Send, else a Reply or Post after the field.
+
+        A Reply above the field belongs to a message (Discord's hover bar), not the composer.
+        """
+        enabled = [item for item in snapshot["elements"]
+                   if item["role"] == "button" and "disabled" not in item["states"]]
+        send = [item for item in enabled if fastpath.normalize(item.get("label") or "") in {"send", "send message"}]
+        if send:
+            return send
+        ids = [item["id"] for item in snapshot["elements"]]
+        start = ids.index(field_id) if field_id in ids else 0
+        after = {item["id"] for item in snapshot["elements"][start:]}
+        return [item for item in enabled if item["id"] in after
+                and fastpath.normalize(item.get("label") or "") in {"reply", "post"}]
 
     async def answer_from_screen(self, snapshot: dict, request: str, *, advisory: bool | None = None) -> ToolCall:
         advisory = fastpath.wants_advice(request) if advisory is None else advisory

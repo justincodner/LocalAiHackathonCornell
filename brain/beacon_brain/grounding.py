@@ -11,6 +11,7 @@ It is deliberately lenient about letting a call through and strict about changin
 import re
 from dataclasses import replace
 
+from . import labels
 from .llm import ToolCall
 from .risk import CONFIRM_LABEL
 from .screen_words import matches as sounds_like
@@ -66,7 +67,7 @@ def own_label_words(item: dict) -> list[str]:
 
 
 def spoken_label(element: dict) -> str:
-    label = element.get("label") or ""
+    label = labels.clean(element.get("label") or "", element.get("role", ""))
     match = re.fullmatch(r"unlabeled, near '(.+)'", label)
     return f"the unlabeled {element['role']} near {match.group(1)}" if match else label
 
