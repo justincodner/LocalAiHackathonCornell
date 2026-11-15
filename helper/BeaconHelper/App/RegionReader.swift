@@ -152,6 +152,8 @@ enum SelectionFocus {
 enum RegionReader {
     struct Reading {
         let focus: JSONObject?
+        /// The captured region, shown as a thumbnail in the HUD while it waits for a question.
+        let image: CGImage
         let ocrLineCount: Int
         let elementCount: Int
     }
@@ -170,7 +172,7 @@ enum RegionReader {
         let (app, elementLines) = await elementsTask
         let ocr = SelectionFocus.readingOrder(lines)
         let focus = SelectionFocus.payload(ocr: ocr, elementLines: elementLines, app: app, bounds: target.global)
-        return Reading(focus: focus, ocrLineCount: lines.count, elementCount: elementLines.count)
+        return Reading(focus: focus, image: image, ocrLineCount: lines.count, elementCount: elementLines.count)
     }
 
     private static func elements(in region: CGRect, accessibility: AccessibilityProviding) async -> (String?, [String]) {

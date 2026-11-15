@@ -163,6 +163,17 @@ struct PillView: View {
                         .foregroundStyle(HUDStyle.question)
                         .accessibilityHidden(true)
                 }
+                if model.showsSelectionThumbnail, let image = model.selectionImage {
+                    let size = PillPanel.thumbnailSize(
+                        image: image.size, maxWidth: PillPanel.size.width - Self.replyHorizontalPadding * 2)
+                    Image(nsImage: image)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: size.width, height: size.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(0.35), lineWidth: 1))
+                        .accessibilityLabel("Your selection: \(model.replyText)")
+                } else {
                 Text(verbatim: model.replyText)
                     .font(.system(size: isQuestion ? 17 : 16, weight: isQuestion ? .medium : .regular))
                     .lineSpacing(4)
@@ -170,6 +181,7 @@ struct PillView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel(model.replyLabel.map { "\($0): \(model.replyText)" }
                                         ?? (model.caption.isEmpty ? model.replyText : model.caption))
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Self.replyHorizontalPadding)

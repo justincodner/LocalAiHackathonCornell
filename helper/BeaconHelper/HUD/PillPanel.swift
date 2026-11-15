@@ -137,7 +137,7 @@ final class PillPanel: OverlayPanel {
         preferences.set(NSStringFromPoint(point), forKey: Self.positionKey)
     }
 
-    func layout(reply: String, question: Bool = false) {
+    func layout(reply: String, question: Bool = false, thumbnail: NSSize? = nil) {
         guard dragOffset == nil else { return }
         guard let screen = Self.screen(containing: anchor) else { return }
         let visible = screen.visibleFrame
@@ -151,10 +151,27 @@ final class PillPanel: OverlayPanel {
         let roomAbove = visible.maxY - headerY - headerHeight
         let roomBelow = headerY - visible.minY
         replyAboveHeader = roomAbove > roomBelow
-        let replyHeight = Self.replyHeight(for: reply, width: width, available: max(roomAbove, roomBelow), question: question)
+        let available = max(roomAbove, roomBelow)
+        let replyHeight = thumbnail.map { Self.thumbnailReplyHeight(image: $0, width: width, available: available) }
+            ?? Self.replyHeight(for: reply, width: width, available: available, question: question)
         let y = replyAboveHeader ? headerY : headerY - replyHeight
         let newFrame = NSRect(x: x, y: y, width: width, height: headerHeight + replyHeight)
         if frame != newFrame { setFrame(newFrame, display: true) }
+    }
+
+    /// Largest size a selection thumbnail is drawn at, keeping its aspect ratio.
+    static let thumbnailMaxHeight: CGFloat = 150
+
+    static func thumbnailSize(image: NSSize, maxWidth: CGFloat, maxHeight: CGFloat = thumbnailMaxHeight) -> NSSize {
+        guard image.width > 0, image.height > 0 else { return .zero }
+        let scale = min(maxWidth / image.width, maxHeight / image.height, 1)
+        return NSSize(width: floor(image.width * scale), height: floor(image.height * scale))
+    }
+
+    /// Reply area holding the "SELECTION" label and the thumbnail.
+    static func thumbnailReplyHeight(image: NSSize, width: CGFloat, available: CGFloat) -> CGFloat {
+        let drawn = thumbnailSize(image: image, maxWidth: width - PillView.replyHorizontalPadding * 2)
+        return min(drawn.height + 33 + 18, max(0, available))
     }
 
     /// Height of the reply area. A question is drawn at 17 pt with a small "QUESTION" label above it.

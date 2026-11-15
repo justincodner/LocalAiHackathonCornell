@@ -290,6 +290,34 @@ final class HUDTests: XCTestCase {
         XCTAssertTrue(visible.insetBy(dx: 15.9, dy: 15.9).contains(header))
     }
 
+    /// A captured region shows as a thumbnail (scaled down, aspect kept, never enlarged) in place of its text.
+    func testSelectionThumbnail() {
+        XCTAssertEqual(PillPanel.thumbnailSize(image: NSSize(width: 900, height: 300), maxWidth: 448),
+                       NSSize(width: 448, height: 149))
+        XCTAssertEqual(PillPanel.thumbnailSize(image: NSSize(width: 300, height: 900), maxWidth: 448),
+                       NSSize(width: 50, height: 150))
+        XCTAssertEqual(PillPanel.thumbnailSize(image: NSSize(width: 120, height: 40), maxWidth: 448),
+                       NSSize(width: 120, height: 40))
+        XCTAssertEqual(PillPanel.thumbnailSize(image: .zero, maxWidth: 448), .zero)
+
+        let model = HUDModel()
+        model.selectionPreview = "Invoice 42"
+        XCTAssertFalse(model.showsSelectionThumbnail, "no image: the text preview stays")
+        model.selectionImage = Self.sampleInvoiceImage()
+        XCTAssertTrue(model.showsSelectionThumbnail)
+        model.caption = "Total is $118."
+        XCTAssertFalse(model.showsSelectionThumbnail, "a caption replaces the thumbnail")
+    }
+
+    static func sampleInvoiceImage() -> NSImage {
+        NSImage(size: NSSize(width: 600, height: 180), flipped: false) { rect in
+            NSColor.white.setFill(); rect.fill()
+            ("Invoice 42   Due December 1\nTotal $118.00      [ Pay now ]" as NSString).draw(
+                at: NSPoint(x: 24, y: 60), withAttributes: [.font: NSFont.systemFont(ofSize: 30), .foregroundColor: NSColor.black])
+            return true
+        }
+    }
+
     /// Renders the pill for every state to PNGs when HUD_SNAPSHOT_DIR is set (manual visual check).
     func testRenderSnapshots() throws {
         guard let dir = ProcessInfo.processInfo.environment["HUD_SNAPSHOT_DIR"] else { throw XCTSkip("HUD_SNAPSHOT_DIR not set") }
@@ -314,6 +342,8 @@ final class HUDTests: XCTestCase {
         try render(answering, to: URL(fileURLWithPath: dir).appendingPathComponent("pill_answering.png"))
         let selection = HUDModel()
         selection.selectionPreview = "Invoice 42 Due December 1 Total $118.00 Pay now"
+        try render(selection, to: URL(fileURLWithPath: dir).appendingPathComponent("pill_selection_text.png"))
+        selection.selectionImage = Self.sampleInvoiceImage()
         try render(selection, to: URL(fileURLWithPath: dir).appendingPathComponent("pill_selection.png"))
         let typed = TypedPromptPanel()
         typed.configure(heading: "Type a request for Beacon", placeholder: "For example: what's on my screen?")
@@ -332,8 +362,10 @@ final class HUDTests: XCTestCase {
 
     private func render(_ model: HUDModel, to url: URL) throws {
         let size = PillPanel.size
-        let replyHeight = PillPanel.replyHeight(for: model.replyText, width: size.width, available: 300,
-                                                question: model.replyLabel != nil)
+        let replyHeight = model.showsSelectionThumbnail
+            ? PillPanel.thumbnailReplyHeight(image: model.selectionImage!.size, width: size.width, available: 300)
+            : PillPanel.replyHeight(for: model.replyText, width: size.width, available: 300,
+                                    question: model.replyLabel != nil)
         let bounds = NSRect(x: 0, y: 0, width: size.width, height: size.height + replyHeight)
         let host = NSHostingView(rootView: PillView(model: model, minimize: {}, turnOff: {}, typePrompt: {}, askAboutRegion: {})
             .frame(width: bounds.width, height: bounds.height))

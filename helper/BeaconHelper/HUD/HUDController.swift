@@ -124,9 +124,10 @@ final class HUDController: HUDProviding {
 
     // MARK: Selection (Control+Option+S)
 
-    /// Shows (preview text) or clears (nil) the "Ask about this selection" look.
-    func setSelection(preview: String?) {
+    /// Shows (preview text and a thumbnail of the captured region) or clears (nil) the "Ask about this selection" look.
+    func setSelection(preview: String?, image: CGImage? = nil) {
         model.selectionPreview = preview
+        model.selectionImage = preview == nil ? nil : image.map { NSImage(cgImage: $0, size: .zero) }
         if preview != nil {
             if isMinimized { placeAtRestoreCorner() }
             update(state: .idle, transcript: "", caption: "", latencyMS: nil)
@@ -268,7 +269,8 @@ final class HUDController: HUDProviding {
     }
 
     private func layout() {
-        pill.layout(reply: model.replyText, question: model.replyLabel != nil)
+        pill.layout(reply: model.replyText, question: model.replyLabel != nil,
+                    thumbnail: model.showsSelectionThumbnail ? model.selectionImage?.size : nil)
         if model.replyAboveHeader != pill.replyAboveHeader {
             model.replyAboveHeader = pill.replyAboveHeader
         }
