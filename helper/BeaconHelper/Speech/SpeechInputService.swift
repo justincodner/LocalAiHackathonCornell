@@ -45,7 +45,7 @@ final class SpeechInputService: SpeechInputProviding, @unchecked Sendable {
             lock.withLock { modelMissing = false }
         } catch {
             lock.withLock { modelMissing = true }
-            Log.error("stt: \(error). Download it while online, e.g. models/whisperkit-coreml/openai_whisper-\(modelName); speech input will be cancelled with stt_model_missing")
+            Log.error("stt: \(error). Download it while online with scripts/download_whisper_models.py \(modelName); speech input will be cancelled with stt_model_missing")
         }
     }
 

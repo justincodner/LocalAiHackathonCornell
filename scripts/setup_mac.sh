@@ -70,7 +70,7 @@ fi
 # 3. Model folders for the Helper --------------------------------------------
 mkdir -p "$ROOT/models/whisperkit-coreml" "$ROOT/models/ttskit" "$ROOT/logs"
 say "Speech models"
-echo "WhisperKit models go in: $ROOT/models/whisperkit-coreml  (e.g. large-v3-v20240930_626MB, tiny.en)"
+echo "WhisperKit models go in: $ROOT/models/whisperkit-coreml  (python3 scripts/download_whisper_models.py: small.en by default; --all adds base.en and tiny.en)"
 echo "TTSKit models go in:     $ROOT/models/ttskit             (Qwen3-TTS 0.6B, fetched on first online launch)"
 for d in whisperkit-coreml ttskit; do
   if [[ -n "$(ls -A "$ROOT/models/$d" 2>/dev/null)" ]]; then

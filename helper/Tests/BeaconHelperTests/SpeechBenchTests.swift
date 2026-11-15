@@ -43,7 +43,7 @@ final class SpeechBenchTests: XCTestCase {
         let samples = try makeClip()
         let audioMS = Int(Double(samples.count) / 16)
         let models = ProcessInfo.processInfo.environment["BEACON_BENCH_MODELS"]?.split(separator: ",").map(String.init)
-            ?? ["tiny.en", "large-v3-v20240930_626MB"]
+            ?? ["small.en", "base.en", "tiny.en"]
         for model in models {
             let before = Self.residentMB()
             let service = SpeechInputService(events: EventHub(), modelName: model)
@@ -69,7 +69,7 @@ final class SpeechBenchTests: XCTestCase {
     func testScreenHintPrompt() async throws {
         try XCTSkipUnless(enabled, "set BEACON_SPEECH_BENCH=1")
         let model = ProcessInfo.processInfo.environment["BEACON_BENCH_MODELS"]?.split(separator: ",").first.map(String.init)
-            ?? "tiny.en"
+            ?? "small.en"
         let service = SpeechInputService(events: EventHub(), modelName: model)
         await service.prewarm()
         let screen = ScreenText(app: "Discord", window: "Krillion - Discord",
