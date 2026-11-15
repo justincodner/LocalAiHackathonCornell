@@ -398,7 +398,8 @@ class Brain:
                     call = replace(call, arguments={**call.arguments, "summary": honest})
             error = tools.validate(call, snapshot)
             if (error is None and must_act and call.name == "done" and early_stops < 2
-                    and (not tried_action or (sending and not last_typed and not committed))):
+                    and (not tried_action or (sending and not last_typed and not committed
+                                             and compose.message_for(text, memory.answers)))):
                 early_stops += 1
                 error = "The request is not finished: take the action the user asked for"
             if (error is None and must_act and not tried_action and call.name == "ask_user"
