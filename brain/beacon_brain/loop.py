@@ -981,7 +981,7 @@ class Brain:
             front = {"app": "", "window": ""}
         app = chats.chat_app(chat, front)
         await self.set_state("acting", caption=f"Opening the {chat.name} chat")
-        switcher = chats.Switcher(self.helper, min(self.config.settle_ms, 300) / 1000)
+        switcher = chats.Switcher(self.helper, min(self.config.settle_ms, 300) / 1000, ask=self.ask)
         try:
             snapshot, shown = await switcher.open(app, chat.name, front)
         except HelperError as failure:
