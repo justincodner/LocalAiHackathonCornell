@@ -178,6 +178,64 @@ def plan(utterance: str, app: str | None) -> Plan | None:
     return None
 
 
+# "Scroll through the results", "keep scrolling", "scroll down slowly": scroll the front window
+# steadily, in small wheel steps, until the user says stop or presses the talk key.
+PACE_WORDS = (r"(?:really\s+|very\s+|nice\s+and\s+|a\s+(?:bit|little)\s+)?(?:slowly|slow|gently|gradually|steadily|"
+              r"smoothly|continuously|constantly|nonstop|non\s+stop|quickly|fast|faster|slower)")
+CONTINUOUS = re.compile(
+    rf"^(?P<lead>(?:{PACE_WORDS}\s+)*)"
+    r"(?P<verb>(?:keep(?:\s+on)?|start|begin|continue|go\s+on)\s+scrolling|auto\s*scroll(?:ing)?|scroll(?:ing)?)"
+    r"(?:\s+(?:the\s+)?(?:page|window|screen))?"
+    r"(?:\s+(?P<dir>up|down)(?:wards?)?)?"
+    rf"(?P<pace>(?:\s+{PACE_WORDS})*)"
+    r"(?:\s+(?P<through>through|along|over)(?P<what>(?:\s+[\w']+){0,5}))?"
+    rf"(?P<tail>(?:\s+{PACE_WORDS})*)$")
+CONTINUOUS_END = re.compile(r"\s+(?:until\s+i\s+(?:say|tell\s+you)(?:\s+to)?\s+stop|for\s+(?:a\s+(?:while|bit)|me)|"
+                            r"please|now|for\s+a\s+few\s+seconds|so\s+i\s+can\s+see(?:\s+them|\s+it)?)$")
+MORE_THAN_SCROLL = re.compile(r"\b(?:and|then|to|until|find|for|click|open|read|look|stop|when|type)\b")
+SLOW = re.compile(r"\b(?:slow|slowly|slower|gently|gradually)\b")
+FAST = re.compile(r"\b(?:quickly|fast|faster)\b")
+SCROLL_SPEEDS = {"slow": 160, "normal": 300, "fast": 600}  # pixels per second
+
+
+class Glide:
+    """A continuous scroll: which way and how fast (pixels per second)."""
+
+    def __init__(self, direction: str, speed: str):
+        self.direction, self.speed = direction, speed
+        self.pixels_per_second = SCROLL_SPEEDS[speed]
+
+    def __repr__(self) -> str:
+        return f"Glide({self.direction!r}, {self.speed!r})"
+
+
+def continuous_scroll(utterance: str) -> Glide | None:
+    """ "Scroll through the results", "keep scrolling", "scroll down slowly" -> a Glide, else None.
+
+    A plain "scroll down" is one page (plan); only a word that asks for continuing ("keep",
+    "through", "slowly") makes it continuous.
+    """
+    text = _clean(utterance)
+    text = " ".join(re.sub(r"[.,!?;:]", " ", text).split())
+    text = re.sub(r"^(?:just|now|ok(?:ay)?|so|hey\s+beacon|beacon)\s+", "", text)
+    previous = None
+    while previous != text:
+        previous, text = text, CONTINUOUS_END.sub("", text).strip()
+    match = CONTINUOUS.match(text)
+    if not match:
+        return None
+    verb = match.group("verb")
+    paced = (match.group("lead") + match.group("pace") + match.group("tail")).strip()
+    plain = verb.startswith("scroll")
+    if plain and not paced and not match.group("through"):
+        return None  # "scroll down": one page, handled by plan()
+    what = (match.group("what") or "").strip()
+    if MORE_THAN_SCROLL.search(what):
+        return None  # "scroll through the results and click the first one": the model plans it
+    speed = "slow" if SLOW.search(text) else "fast" if FAST.search(text) else "normal"
+    return Glide(match.group("dir") or "down", speed)
+
+
 # "Open messages", "launch discord", "switch to chrome", "bring up the notes app".
 OPEN_APP = re.compile(r"^(?:open(?:\s+up)?|launch|start(?:\s+up)?|run|switch\s+(?:over\s+)?(?:to|into)|go\s+(?:over\s+)?to|"
                       r"bring\s+up|pull\s+up|show(?:\s+me)?|take\s+me\s+to|get\s+me|bring\s+(?:the\s+)?(?P<front>.+?)"

@@ -23,6 +23,7 @@ from . import question_switch
 LOGGER = logging.getLogger(__name__)
 TERMINALS = {"say", "done", "read_element"}
 QUESTION_PAUSE_S = 60
+GLIDE_TICK_S = 0.05  # run_glide: one small scroll step per tick (20 a second)
 CONNECTION_ERRORS = (HelperError, httpx.HTTPError, OSError, TimeoutError, ValueError, KeyError)
 DECIDE_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] in {"click", "set_value"}]
 FIND_FIELD_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "click"]  # steps.py
@@ -115,6 +116,7 @@ class Brain:
         self.prompt = prompt
         self.state = "idle"
         self.active: asyncio.Task | None = None
+        self.scrolling = False  # a continuous scroll (run_glide) is running: the talk key stops it
         self.reply: asyncio.Future | None = None
         self.awaiting_message = False  # asked "What should the message say?"
         self.speech_events: dict[str, asyncio.Future] = {}
@@ -193,8 +195,11 @@ class Brain:
             self.conversation.forget()
             self.reading = None
             await self.set_state("idle")
-        elif kind == "listen.started" and self.state == "idle":
-            await self.set_state("listening")
+        elif kind == "listen.started":
+            if self.scrolling:
+                await self.cancel_active()  # the talk key stops "scroll through the results"
+            if self.state == "idle":
+                await self.set_state("listening")
         elif kind == "listen.cancelled" and self.state == "listening":
             await self.set_state("idle")
         elif kind == "stt.final" and isinstance(event.get("text"), str) and event["text"].strip():
@@ -224,7 +229,7 @@ class Brain:
         """A complete request of its own (one the fast paths know), rather than a short answer."""
         if len(text.split()) < 3:
             return False  # "Fold", "the blue one", "yes please"
-        return bool(commands.plan(text, None) or browser.plan(text, "google chrome") or chats.parse(text)
+        return bool(commands.plan(text, None) or commands.continuous_scroll(text) or browser.plan(text, "google chrome") or chats.parse(text)
                     or commands.app_request(text) and len(text.split()) <= 6 and not fastpath.classify(text))
 
     async def speak(self, text: str, *, wait: bool = True) -> bool:
@@ -500,6 +505,11 @@ class Brain:
         available_tools = SCREEN_SUMMARY_TOOLS if screen_summary else tools.TOOL_DEFINITIONS
         task_id = f"t_{self.task_number}"
         generation = self.screen_generation
+        glide = None if screen_question or screen_summary else commands.continuous_scroll(text)
+        if glide is not None:
+            # "Scroll through the results", "keep scrolling": steady small scrolls until stopped.
+            await self.run_glide(glide, text, stt_ms)
+            return
         if not (screen_question or screen_summary) and commands.plan(text, None) is not None:
             # "Press enter", "next tab": one key or scroll, no model call and no window read.
             if await self.run_command(text, stt_ms):
@@ -970,6 +980,47 @@ class Brain:
             return False  # "go back" in Mail, or a key the risk check wants to confirm or refuse
         await self.run_browser_plan(plan, text, front, stt_ms, kind="command")
         return True
+
+    async def run_glide(self, glide: "commands.Glide", text: str, stt_ms: int) -> None:
+        """Scroll the front window steadily until "stop", the talk key, or config.scroll_max_s.
+
+        Small pixel steps every GLIDE_TICK_S, paced by the clock so a slow Helper call never
+        slows the scroll down. Any new request or the talk key cancels this task (on_event).
+        """
+        task_id = f"t_{self.task_number}"
+        started = time.perf_counter()
+        sent, ok, stopped = 0, True, False
+        await self.set_state("acting", caption=f"Scrolling {glide.direction}. Press the talk key to stop.")
+        self.scrolling = True
+        try:
+            while (elapsed := time.perf_counter() - started) < self.config.scroll_max_s:
+                due = int(glide.pixels_per_second * elapsed) - sent
+                if due >= 1:
+                    try:
+                        await self.helper.request("/input/scroll", {"direction": glide.direction, "amount": due})
+                    except HelperError as error:
+                        LOGGER.warning("Continuous scroll failed: %s", error.code)
+                        ok = False
+                        break
+                    sent += due
+                self.keep_going()
+                await asyncio.sleep(GLIDE_TICK_S)
+        except asyncio.CancelledError:
+            stopped = True
+            raise
+        finally:
+            self.scrolling = False
+            append_step(self.config.log_path, task_id=task_id, step=1, utterance=text, kind="command",
+                        route="command", model=None, tool="scroll", valid=True, risk="allow", ok=ok,
+                        args={"direction": glide.direction, "speed": glide.speed, "pixels": sent,
+                              "stopped": stopped},
+                        ms={"stt": stt_ms, "snapshot": 0, "llm": 0,
+                            "act": round((time.perf_counter() - started) * 1000)})
+        if not ok:
+            await self.say("I couldn't scroll this window.")
+            return
+        await self.say("Done scrolling.")
+        self.remember(text, f"Scrolled {glide.direction} continuously.")
 
     async def run_chat(self, chat: "chats.Request", text: str, stt_ms: int) -> None:
         """Open the named chat (chats.py), then type and send the message when there is one."""

@@ -27,6 +27,8 @@ class Config:
     llm_slots: str = "rest"
     llm_timeout_s: float = 12
     settle_ms: int = 400
+    # "Scroll through the results" scrolls steadily until stop, the talk key, or this many seconds.
+    scroll_max_s: float = 30
     reply_timeout_s: float = 15
     # Ask "Say yes to continue" before Send/Delete/Pay controls and the model's confirm tool.
     # Off: a request like "send hello to Emmett" types and sends in one go.
@@ -82,6 +84,7 @@ class Config:
             llm_slots=get("LLM_SLOTS", cls.llm_slots),
             llm_timeout_s=float(get("LLM_TIMEOUT_S", str(cls.llm_timeout_s))),
             settle_ms=int(get("SETTLE_MS", str(cls.settle_ms))),
+            scroll_max_s=float(get("SCROLL_MAX_S", str(cls.scroll_max_s))),
             reply_timeout_s=float(get("REPLY_TIMEOUT_S", str(cls.reply_timeout_s))),
             confirm_sends=get("CONFIRM_SENDS", "0").lower() in {"1", "true", "yes"},
             ptt_key=get("PTT_KEY", cls.ptt_key),
