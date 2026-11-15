@@ -52,6 +52,8 @@ final class TTSKitEngine: SpeechEngine, @unchecked Sendable {
 
     /// Called with each real sentence's time to first audio (seconds), so the service can fall back if it is slow.
     var onTimeToFirstAudio: (@Sendable (Double) -> Void)?
+    /// Called after each sentence plays: true when playback ran dry mid-sentence (generation fell behind).
+    var onSentencePlayed: (@Sendable (_ ranDry: Bool) -> Void)?
 
     init(modelFolder: URL = Config.ttsModelsDir,
          tokenizerFolder: URL = Config.ttsModelsDir.appendingPathComponent("tokenizer")) {
@@ -172,6 +174,7 @@ final class TTSKitEngine: SpeechEngine, @unchecked Sendable {
 
         let preBuffer = Self.preBuffer(for: sentence, rate: rate, speedFactor: speedEstimate.get())
         try player.begin(rate: rate, preBuffer: preBuffer, onFirstAudio: firstAudioWrapped)
+        let underrunsBefore = player.underruns
 
         let options = Self.options(for: sentence)
         let sampleRate = Double(kit.sampleRate)
@@ -217,6 +220,7 @@ final class TTSKitEngine: SpeechEngine, @unchecked Sendable {
             throw error
         }
         await player.finishAndWait()
+        if !token.isCancelled { onSentencePlayed?(player.underruns > underrunsBefore) }
     }
 
     func stopAll() {
