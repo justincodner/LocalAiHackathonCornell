@@ -19,6 +19,8 @@ struct SnapshotElement {
     var fullText: String?
     /// For lists: total rows.
     var rowCount: Int?
+    /// For links: where the link goes (http and https only). Not in the model's text block.
+    var url: String? = nil
 
     var bounds: [Int] {
         guard let f = frame else { return [0, 0, 0, 0] }
@@ -26,11 +28,13 @@ struct SnapshotElement {
     }
 
     var json: JSONObject {
-        [
+        var j: JSONObject = [
             "id": id, "depth": depth, "role": role, "label": label,
             "value": value.map { $0 as Any } ?? NSNull(),
             "states": states, "bounds": bounds, "label_source": labelSource,
         ]
+        if let url { j["url"] = url }
+        return j
     }
 }
 
@@ -67,6 +71,7 @@ enum SnapshotBuilder {
         var fullText: String?
         var children: [Out] = []
         var rowCount: Int?
+        var url: String?
         var moreRows = 0
         /// Descendants `fit` left out to keep the snapshot under the element cap.
         var collapsed = 0
@@ -271,6 +276,7 @@ enum SnapshotBuilder {
 
     static func makeOut(_ n: AXNode, role: String) -> Out {
         var o = Out(role: role, frame: n.frame, ref: n.ref)
+        if role == "link" { o.url = n.url }
         if let (full, source) = Labels.label(for: n, role: role) {
             let (short, cut) = Labels.trim(full)
             o.label = short
@@ -384,7 +390,7 @@ enum SnapshotBuilder {
             let el = SnapshotElement(id: elements.count + 1, depth: depth, role: o.role, label: o.label,
                                      labelSource: o.label.isEmpty ? "none" : o.labelSource, value: o.value,
                                      states: stateOrder.filter { o.states.contains($0) }, frame: o.frame, ref: o.ref,
-                                     fullText: o.fullText, rowCount: o.rowCount)
+                                     fullText: o.fullText, rowCount: o.rowCount, url: o.url)
             elements.append(el)
             lines.append(.element(el))
             flatten(o.children, depth: depth + 1, maxElements: maxElements, elements: &elements, lines: &lines,

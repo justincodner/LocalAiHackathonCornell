@@ -225,7 +225,7 @@ final class AccessibilityService: AccessibilityProviding, @unchecked Sendable {
             let el2 = SnapshotElement(id: id, depth: min(depth - 1, SnapshotBuilder.maxDepth), role: role,
                                       label: o.label, labelSource: o.label.isEmpty ? "none" : o.labelSource,
                                       value: o.value, states: SnapshotBuilder.stateOrder.filter { o.states.contains($0) },
-                                      frame: node.frame, ref: nil, fullText: nil, rowCount: nil)
+                                      frame: node.frame, ref: nil, fullText: nil, rowCount: nil, url: o.url)
             entries[id] = Stored(element: el, fullText: nil)
             var j = el2.json
             j["snapshot_id"] = sid
@@ -306,9 +306,22 @@ final class AccessibilityService: AccessibilityProviding, @unchecked Sendable {
             // Web pages often act only on real pointer events (pointerdown/up, mousedown), and
             // Chrome's AXPress sends neither: it reports success and the page does nothing.
             // So in web content, click the element for real when it is visibly on top.
-            if let point = webClickPoint(el) {
-                try SyntheticEvents.click(at: point, restoreCursor: true)
-                return "click"
+            if let webArea = Self.webArea(of: el) {
+                if let point = webClickPoint(el, webArea: webArea) {
+                    try SyntheticEvents.click(at: point, restoreCursor: true)
+                    return "click"
+                }
+                // Scrolled out of the page's view (under the toolbar, below the fold) or covered by
+                // the HUD: Chrome then reports AXPress as done and nothing happens. Bring it into
+                // view and click it for real.
+                if AXUIElementPerformAction(el, "AXScrollToVisible" as CFString) == .success {
+                    SyntheticEvents.pause(250)
+                    if let point = webClickPoint(el, webArea: webArea) {
+                        try SyntheticEvents.click(at: point, restoreCursor: true)
+                        return "click"
+                    }
+                }
+                Log.info("press: no clickable point for a web element; using AXPress")
             }
             return try withClickFallback(el, AXUIElementPerformAction(el, kAXPressAction as CFString), what: "press")
         case "focus":
@@ -390,20 +403,43 @@ final class AccessibilityService: AccessibilityProviding, @unchecked Sendable {
     // MARK: Web clicks
 
     /// Where to click `el` with a real mouse event, or nil to use AXPress: only for elements inside
-    /// a web page, whose centre is on screen and is not covered by another window or element.
-    func webClickPoint(_ el: AXUIElement) -> CGPoint? {
-        guard Self.isInWebArea(el), let f = AX.frame(el) else { return nil }
-        let point = CGPoint(x: f.midX, y: f.midY)
-        guard Self.canClick(frame: f, screen: AX.displaysFrame()) else { return nil }
-        var hit: AXUIElement?
-        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit)
-                == .success, let hit else { return nil }
-        var elPID: pid_t = 0, hitPID: pid_t = 0
+    /// a web page, at a point inside the page's visible area, on screen, and not covered by another
+    /// window or element. Tries the centre first, then points near the edges (a link half under the HUD).
+    func webClickPoint(_ el: AXUIElement, webArea: AXUIElement? = nil) -> CGPoint? {
+        guard let area = webArea ?? Self.webArea(of: el), let f = AX.frame(el) else { return nil }
+        var elPID: pid_t = 0
         AXUIElementGetPid(el, &elPID)
-        AXUIElementGetPid(hit, &hitPID)
-        // Another window (the HUD, a popup) on top: a click there would not reach the element.
-        guard elPID == hitPID, Self.isSelfOrAncestor(el, of: hit) else { return nil }
-        return point
+        for point in Self.clickPoints(in: f, visible: AX.frame(area), screen: AX.displaysFrame()) {
+            var hit: AXUIElement?
+            guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit)
+                    == .success, let hit else { continue }
+            var hitPID: pid_t = 0
+            AXUIElementGetPid(hit, &hitPID)
+            // Another window (the HUD, a popup) on top: a click there would not reach the element.
+            if elPID == hitPID, Self.isSelfOrAncestor(el, of: hit) { return point }
+        }
+        return nil
+    }
+
+    /// Candidate points to click an element with frame `f`, clipped to the page's visible area: the
+    /// centre, then near each edge. Empty when no part of it is visible (Chrome reports an element
+    /// scrolled out of view with a zero-height frame pinned to the page's edge).
+    static func clickPoints(in f: CGRect, visible: CGRect?, screen: CGRect?) -> [CGPoint] {
+        guard f.width > 0, f.height > 0 else { return [] }
+        var area = f
+        if let v = visible, v.width > 0, v.height > 0 {
+            area = f.intersection(v)
+            guard !area.isNull, area.width >= 2, area.height >= 2 else { return [] }
+        }
+        let dx = min(12, area.width / 4), dy = min(6, area.height / 4)
+        let points = [
+            CGPoint(x: area.midX, y: area.midY),
+            CGPoint(x: area.minX + dx, y: area.midY), CGPoint(x: area.maxX - dx, y: area.midY),
+            CGPoint(x: area.midX, y: area.minY + dy), CGPoint(x: area.midX, y: area.maxY - dy),
+        ]
+        var out: [CGPoint] = []
+        for p in points where (screen.map { $0.contains(p) } ?? true) && !out.contains(p) { out.append(p) }
+        return out
     }
 
     /// The frame has a size and its centre is on a display.
@@ -413,15 +449,19 @@ final class AccessibilityService: AccessibilityProviding, @unchecked Sendable {
         return screen.map { $0.contains(point) } ?? true
     }
 
-    static func isInWebArea(_ el: AXUIElement) -> Bool {
+    static func isInWebArea(_ el: AXUIElement) -> Bool { webArea(of: el) != nil }
+
+    /// The web page (`AXWebArea`) that contains `el`, or nil outside web content.
+    static func webArea(of el: AXUIElement) -> AXUIElement? {
         var current: AXUIElement? = el
         for _ in 0..<80 {
-            guard let c = current else { return false }
-            if AX.role(c) == "AXWebArea" { return true }
-            if AX.role(c) == "AXWindow" { return false }
+            guard let c = current else { return nil }
+            let role = AX.role(c)
+            if role == "AXWebArea" { return c }
+            if role == "AXWindow" { return nil }
             current = AX.element(AX.attribute(c, "AXParent"))
         }
-        return false
+        return nil
     }
 
     /// True when `el` is `hit` or one of its ancestors (the click lands on the button's own text).

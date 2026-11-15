@@ -36,6 +36,8 @@ struct AXNode {
     var help: String? = nil
     var identifier: String? = nil
     var placeholder: String? = nil
+    /// Where a link goes (`AXURL`), for http and https links only.
+    var url: String? = nil
     /// Text of the linked title element (`AXTitleUIElement`), if any.
     var titleElementText: String? = nil
     var enabled: Bool = true

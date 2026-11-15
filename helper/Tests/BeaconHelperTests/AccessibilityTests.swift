@@ -284,6 +284,58 @@ final class WebClickTests: XCTestCase {
         XCTAssertFalse(AccessibilityService.canClick(frame: CGRect(x: 360, y: 1200, width: 155, height: 49), screen: screen))
         XCTAssertTrue(AccessibilityService.canClick(frame: CGRect(x: 10, y: 10, width: 5, height: 5), screen: nil))
     }
+
+    func testClickPointsStartAtTheCentre() {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let page = CGRect(x: 50, y: 117, width: 1353, height: 723)
+        let points = AccessibilityService.clickPoints(in: CGRect(x: 177, y: 500, width: 300, height: 40),
+                                                      visible: page, screen: screen)
+        XCTAssertEqual(points.first, CGPoint(x: 327, y: 520))
+        XCTAssertEqual(points.count, 5)
+        XCTAssertTrue(points.allSatisfy { CGRect(x: 177, y: 500, width: 300, height: 40).contains($0) })
+    }
+
+    func testClickPointsStayInsideTheVisiblePage() {
+        let page = CGRect(x: 50, y: 117, width: 1353, height: 723)
+        // Half under the toolbar: only the visible half is a candidate.
+        let points = AccessibilityService.clickPoints(in: CGRect(x: 177, y: 97, width: 300, height: 40),
+                                                      visible: page, screen: nil)
+        XCTAssertFalse(points.isEmpty)
+        XCTAssertTrue(points.allSatisfy { $0.y >= 117 && $0.y <= 137 })
+    }
+
+    func testNoClickPointsForAResultScrolledOutOfView() {
+        let page = CGRect(x: 50, y: 117, width: 1353, height: 723)
+        // Chrome pins an element below the fold to the page's bottom edge with zero height.
+        XCTAssertTrue(AccessibilityService.clickPoints(in: CGRect(x: 177, y: 840, width: 341, height: 0),
+                                                       visible: page, screen: nil).isEmpty)
+        XCTAssertTrue(AccessibilityService.clickPoints(in: CGRect(x: 177, y: 20, width: 341, height: 40),
+                                                       visible: page, screen: nil).isEmpty)
+    }
+}
+
+final class LinkURLTests: XCTestCase {
+    func testOnlyWebAddressesAreKept() {
+        XCTAssertEqual(AX.webURL(NSURL(string: "https://en.wikipedia.org/wiki/James_Webb_Space_Telescope")),
+                       "https://en.wikipedia.org/wiki/James_Webb_Space_Telescope")
+        XCTAssertEqual(AX.webURL("http://example.com/a" as NSString), "http://example.com/a")
+        XCTAssertNil(AX.webURL(NSURL(string: "javascript:void(0)")))
+        XCTAssertNil(AX.webURL(NSURL(string: "mailto:sam@example.com")))
+        XCTAssertNil(AX.webURL(nil))
+    }
+
+    func testLinksCarryTheirURLInTheSnapshotJSON() {
+        var link = AXNode("AXLink", title: "James Webb Space Telescope", frame: CGRect(x: 177, y: 500, width: 300, height: 40))
+        link.url = "https://en.wikipedia.org/wiki/James_Webb_Space_Telescope"
+        var button = AXNode("AXButton", title: "Search", frame: CGRect(x: 0, y: 0, width: 40, height: 20))
+        button.url = "https://example.com"
+        let window = AXNode("AXWindow", children: [link, button])
+        let b = SnapshotBuilder.build(root: window, includeRoot: false, maxElements: 250)
+        XCTAssertEqual(b.elements[0].json["url"] as? String, "https://en.wikipedia.org/wiki/James_Webb_Space_Telescope")
+        XCTAssertNil(b.elements[1].json["url"])
+        let text = TextBlock.render(app: "Google Chrome", window: "Search", focusedID: b.focusedID, lines: b.lines)
+        XCTAssertFalse(text.contains("wikipedia.org"))  // the model's text block stays the same size
+    }
 }
 
 final class TabLabelTests: XCTestCase {

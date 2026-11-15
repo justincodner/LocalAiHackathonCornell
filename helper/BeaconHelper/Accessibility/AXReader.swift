@@ -11,7 +11,7 @@ enum AX {
     static let nodeAttributes: [String] = [
         "AXRole", "AXSubrole", "AXTitle", "AXDescription", "AXValue", "AXHelp", "AXIdentifier", "AXEnabled",
         "AXFocused", "AXSelected", "AXPosition", "AXSize", "AXChildren", "AXTitleUIElement", "AXExpanded",
-        "AXPlaceholderValue",
+        "AXPlaceholderValue", "AXURL",
     ]
 
     enum ReadResult {
@@ -113,6 +113,15 @@ enum AX {
 
     static func role(_ el: AXUIElement) -> String? { string(attribute(el, "AXRole")) }
 
+    /// A link's AXURL as text, only for web addresses (http, https): what a browser can load from its address bar.
+    static func webURL(_ v: AnyObject?) -> String? {
+        let text: String?
+        if let u = v as? URL { text = u.absoluteString } else { text = v as? String }
+        guard let text, let scheme = URL(string: text)?.scheme?.lowercased(), scheme == "http" || scheme == "https"
+        else { return nil }
+        return text
+    }
+
     /// Union of all active displays, in the same top-left global coordinates as AX.
     static func displaysFrame() -> CGRect? {
         var count: UInt32 = 0
@@ -149,6 +158,7 @@ enum AX {
         n.identifier = string(a["AXIdentifier"])
         n.placeholder = string(a["AXPlaceholderValue"])
         n.value = n.isSecure ? nil : scalar(a["AXValue"])
+        if n.axRole == "AXLink" { n.url = webURL(a["AXURL"]) }
         n.enabled = bool(a["AXEnabled"]) ?? true
         n.selected = bool(a["AXSelected"]) ?? false
         n.expanded = bool(a["AXExpanded"])
