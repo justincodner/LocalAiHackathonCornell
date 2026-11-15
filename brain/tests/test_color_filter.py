@@ -83,6 +83,14 @@ def answering(reply):
     ("Restore my previous color filter", Intent("restore")),
     ("Undo the color filter", Intent("restore")),
     ("Is the color filter on?", Intent("status")),
+    # Before these were handled here, they reached the model, which refused to touch System Settings.
+    ("Can you adjust my computer's colors for color blindness?", Intent("choose", red_green=False)),
+    ("Adjust the screen colors for colorblindness", Intent("choose", red_green=False)),
+    ("Change my display settings for color blindness", Intent("choose", red_green=False)),
+    ("Make the screen colorblind friendly", Intent("choose", red_green=False)),
+    ("Adjust the colors for red-green color blindness", Intent("choose")),
+    ("Can you help me see colors better?", Intent("choose", red_green=False)),
+    ("I have trouble with colors", Intent("choose", red_green=False)),
 ])
 def test_requests_about_color_filters(utterance, expected):
     assert parse(utterance) == expected
@@ -98,6 +106,11 @@ def test_requests_about_color_filters(utterance, expected):
     "What is deuteranopia?",
     "Turn off the filter",
     "Open System Settings",
+    "What is color blindness?",
+    "How common is red-green color blindness?",
+    "Search for color blindness tests",
+    "Write an email about color blindness",
+    "Can you read the article about color blindness",
 ])
 def test_unrelated_or_ambiguous_requests_are_left_alone(utterance):
     assert parse(utterance) is None
@@ -318,6 +331,23 @@ def test_voice_flow_ask_choose_switch_and_turn_off(tmp_path):
         records = [json.loads(line) for line in (tmp_path / "s.jsonl").read_text().splitlines()]
         assert [r["args"]["intent"] for r in records] == ["choose", "other", "off"]
         assert all(r["ok"] for r in records)
+
+    asyncio.run(go())
+
+
+@pytest.mark.loop
+def test_adjusting_colors_for_color_blindness_never_reaches_the_model(tmp_path):
+    """The model refused this ("not authorized to modify system settings") before the fast path knew it."""
+    async def go():
+        display = FakeDisplay()
+        helper, model, brain = brain_with(display, tmp_path)
+        await brain.on_event({"type": "stt.final", "text": "Adjust the computer's colors for color blindness."})
+        await helper.clarifying.wait()
+        assert helper.spoken[-1].startswith(color_filter.CHOOSE_ANY)
+        await brain.on_event({"type": "stt.final", "text": "protanopia"})
+        await brain.active
+        assert display.state == {"enabled": True, "filter": "protanopia"}
+        assert model.requests == [] and helper.snapshot_calls == 0
 
     asyncio.run(go())
 
