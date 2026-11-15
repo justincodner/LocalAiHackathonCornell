@@ -126,6 +126,9 @@ def plan(call, utterance: str, answers: list[tuple[str, str]], snapshot: dict):
         return ToolCall(call.id, "type_text", {"id": field["id"], "text": content}, call.stray_text)
     if (field.get("value") or "").strip():
         return None  # "send it": the draft is already written
-    if call.name == "type_text" and not is_command_text(call.arguments.get("text", ""), utterance, None):
+    typed = call.arguments.get("text", "") if call.name == "type_text" else ""
+    heard = set(words(" ".join([utterance, *(reply for _, reply in answers)])))
+    if typed and not is_command_text(typed, utterance, None) and set(words(typed)) & heard:
         return None  # "Text Emmett I'm running late": the model found the message itself
+    # Nothing typed, or words the user never said ("Send Emmett a message" -> "hello"): ask.
     return ToolCall(call.id, "ask_user", {"question": ASK_MESSAGE}, call.stray_text)

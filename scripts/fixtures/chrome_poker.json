@@ -1,0 +1,426 @@
+{
+ "app": "Google Chrome",
+ "build_ms": 32,
+ "elements": [
+  {
+   "bounds": [
+    51,
+    30,
+    1353,
+    810
+   ],
+   "depth": 0,
+   "id": 1,
+   "label": "Beacon Poker Table - Google Chrome",
+   "label_source": "title",
+   "role": "group",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    51,
+    70,
+    1353,
+    46
+   ],
+   "depth": 1,
+   "id": 2,
+   "label": "",
+   "label_source": "none",
+   "role": "toolbar",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    57,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 3,
+   "label": "Back",
+   "label_source": "title",
+   "role": "button",
+   "states": [
+    "disabled"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    93,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 4,
+   "label": "Forward",
+   "label_source": "title",
+   "role": "button",
+   "states": [
+    "disabled"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    129,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 5,
+   "label": "Reload",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    177,
+    81,
+    53,
+    24
+   ],
+   "depth": 2,
+   "id": 6,
+   "label": "File",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    238,
+    81,
+    975,
+    24
+   ],
+   "depth": 2,
+   "id": 7,
+   "label": "Address and search bar",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": "file:///demo/poker.html"
+  },
+  {
+   "bounds": [
+    1221,
+    81,
+    24,
+    24
+   ],
+   "depth": 2,
+   "id": 8,
+   "label": "Bookmark this tab",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1266,
+    76,
+    93,
+    34
+   ],
+   "depth": 2,
+   "id": 9,
+   "label": "Paused",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1364,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 10,
+   "label": "Chrome",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    51,
+    117,
+    1353,
+    723
+   ],
+   "depth": 1,
+   "id": 11,
+   "label": "Beacon Poker Table",
+   "label_source": "title",
+   "role": "group",
+   "states": [
+    "focused"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    83,
+    149,
+    1289,
+    31
+   ],
+   "depth": 2,
+   "id": 12,
+   "label": "Beacon Poker Table",
+   "label_source": "title",
+   "role": "heading",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    131,
+    246,
+    190,
+    21
+   ],
+   "depth": 2,
+   "id": 13,
+   "label": "Your hand: K♠ K♥",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    131,
+    297,
+    207,
+    22
+   ],
+   "depth": 2,
+   "id": 14,
+   "label": "Board: 7♦ 2♣ 9♠",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    131,
+    341,
+    307,
+    57
+   ],
+   "depth": 2,
+   "id": 15,
+   "label": "Pot: $24. To call: $4. Your stack: $180. Opponent (Jake) bet $4 on the flop.",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    131,
+    422,
+    760,
+    49
+   ],
+   "depth": 2,
+   "id": 16,
+   "label": "Your move",
+   "label_source": "title",
+   "role": "group",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    131,
+    422,
+    90,
+    49
+   ],
+   "depth": 3,
+   "id": 17,
+   "label": "Fold",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    234,
+    422,
+    113,
+    49
+   ],
+   "depth": 3,
+   "id": 18,
+   "label": "Call $4",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    360,
+    422,
+    155,
+    49
+   ],
+   "depth": 3,
+   "id": 19,
+   "label": "Raise to $11",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    131,
+    491,
+    196,
+    24
+   ],
+   "depth": 2,
+   "id": 20,
+   "label": "Waiting for your move.",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    143,
+    36,
+    28,
+    28
+   ],
+   "depth": 1,
+   "id": 21,
+   "label": "Tab search",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1234,
+    30,
+    94,
+    41
+   ],
+   "depth": 1,
+   "id": 36,
+   "label": "Beacon Poker Table",
+   "label_source": "title",
+   "role": "tab",
+   "states": [
+    "selected"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    1286,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 37,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1322,
+    30,
+    28,
+    41
+   ],
+   "depth": 1,
+   "id": 38,
+   "label": "New Tab",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    63,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 39,
+   "label": "close window",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    109,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 40,
+   "label": "full screen",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    86,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 41,
+   "label": "minimize window",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  }
+ ],
+ "focused_id": 11,
+ "ok": true,
+ "snapshot_id": "s_poker",
+ "text": "APP Google Chrome | WINDOW \"Beacon Poker Table - Google Chrome\" | FOCUS [11]\n[1] group \"Beacon Poker Table - Google Chrome\"\n  [2] toolbar\n    [3] button \"Back\" (disabled)\n    [4] button \"Forward\" (disabled)\n    [5] button \"Reload\"\n    [6] popup \"File\"\n    [7] textfield \"Address and search bar\" value=\"file:///demo/poker.html\"\n    [8] button \"Bookmark this tab\"\n    [9] button \"Paused\"\n    [10] popup \"Chrome\"\n  [11] group \"Beacon Poker Table\" (focused)\n    [12] heading \"Beacon Poker Table\"\n    [13] text \"Your hand: K♠ K♥\"\n    [14] text \"Board: 7♦ 2♣ 9♠\"\n    [15] text \"Pot: $24. To call: $4. Your stack: $180. Opponent (Jake) bet $4 on the flop.\"\n    [16] group \"Your move\"\n      [17] button \"Fold\"\n      [18] button \"Call $4\"\n      [19] button \"Raise to $11\"\n    [20] text \"Waiting for your move.\"\n  [21] popup \"Tab search\"\n  [36] tab \"Beacon Poker Table\" (selected)\n    [37] button \"Close\"\n  [38] button \"New Tab\"\n[39] button \"close window\"\n[40] button \"full screen\"\n[41] button \"minimize window\"",
+ "total_elements": 41,
+ "truncated": false,
+ "window": "Beacon Poker Table - Google Chrome"
+}

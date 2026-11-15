@@ -275,3 +275,22 @@ final class ElementTableTests: XCTestCase {
         }
     }
 }
+
+final class WebClickTests: XCTestCase {
+    func testCanClickNeedsSizeAndOnScreenCentre() {
+        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        XCTAssertTrue(AccessibilityService.canClick(frame: CGRect(x: 360, y: 422, width: 155, height: 49), screen: screen))
+        XCTAssertFalse(AccessibilityService.canClick(frame: CGRect(x: 360, y: 422, width: 0, height: 49), screen: screen))
+        XCTAssertFalse(AccessibilityService.canClick(frame: CGRect(x: 360, y: 1200, width: 155, height: 49), screen: screen))
+        XCTAssertTrue(AccessibilityService.canClick(frame: CGRect(x: 10, y: 10, width: 5, height: 5), screen: nil))
+    }
+}
+
+final class TabLabelTests: XCTestCase {
+    func testChromeMemoryUsageIsDropped() {
+        XCTAssertEqual(Labels.withoutTabNoise("LM Studio Credits - Memory usage - 116 MB"), "LM Studio Credits")
+        XCTAssertEqual(Labels.withoutTabNoise("Krillion · the daily dive - High memory usage - 2.0 GB"),
+                       "Krillion · the daily dive")
+        XCTAssertEqual(Labels.withoutTabNoise("Memory usage notes - Docs"), "Memory usage notes - Docs")
+    }
+}

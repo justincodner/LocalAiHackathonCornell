@@ -106,6 +106,6 @@ def test_reply_to_sarah_with_spoken_confirmation(tmp_path):
     assert final_screen["window"] != "Re: Lunch tomorrow?"  # sent: back to the inbox
     steps = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
     assert [(step["tool"], step["risk"], step["ok"]) for step in steps] == [
-        ("click", "allow", True), ("type_text", "allow", True), ("click", "confirm", True), ("done", "allow", True),
-    ]
+        ("click", "allow", True), ("type_text", "allow", True), ("click", "confirm", True),
+    ]  # sending finished the request: no extra model call just to say "done"
     assert "app.changed" in events

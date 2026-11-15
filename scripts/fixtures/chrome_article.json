@@ -1,0 +1,569 @@
+{
+ "app": "Google Chrome",
+ "build_ms": 73,
+ "elements": [
+  {
+   "bounds": [
+    51,
+    30,
+    1353,
+    810
+   ],
+   "depth": 0,
+   "id": 1,
+   "label": "The Lighthouse Keepers of Lake Cayuga - Google Chrome",
+   "label_source": "title",
+   "role": "group",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    51,
+    70,
+    1353,
+    46
+   ],
+   "depth": 1,
+   "id": 2,
+   "label": "",
+   "label_source": "none",
+   "role": "toolbar",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    57,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 3,
+   "label": "Back",
+   "label_source": "title",
+   "role": "button",
+   "states": [
+    "disabled"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    93,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 4,
+   "label": "Forward",
+   "label_source": "title",
+   "role": "button",
+   "states": [
+    "disabled"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    129,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 5,
+   "label": "Reload",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    177,
+    81,
+    53,
+    24
+   ],
+   "depth": 2,
+   "id": 6,
+   "label": "File",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    238,
+    81,
+    975,
+    24
+   ],
+   "depth": 2,
+   "id": 7,
+   "label": "Address and search bar",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": "file:///demo/article.html"
+  },
+  {
+   "bounds": [
+    1221,
+    81,
+    24,
+    24
+   ],
+   "depth": 2,
+   "id": 8,
+   "label": "Bookmark this tab",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1266,
+    76,
+    93,
+    34
+   ],
+   "depth": 2,
+   "id": 9,
+   "label": "Paused",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1364,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 10,
+   "label": "Chrome",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    51,
+    117,
+    1353,
+    723
+   ],
+   "depth": 1,
+   "id": 11,
+   "label": "The Lighthouse Keepers of Lake Cayuga",
+   "label_source": "title",
+   "role": "group",
+   "states": [
+    "focused"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    378,
+    165,
+    700,
+    41
+   ],
+   "depth": 2,
+   "id": 12,
+   "label": "The Lighthouse Keepers of Lake Cayuga",
+   "label_source": "title",
+   "role": "heading",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    378,
+    222,
+    529,
+    18
+   ],
+   "depth": 2,
+   "id": 13,
+   "label": "A short history, written for the Beacon demo · about six minutes to read aloud",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    378,
+    278,
+    690,
+    113
+   ],
+   "depth": 2,
+   "id": 14,
+   "label": "Long before satellites and phone maps, the boats that worked the Finger Lakes...",
+   "label_source": "title",
+   "role": "text",
+   "states": [
+    "truncated"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    378,
+    418,
+    667,
+    144
+   ],
+   "depth": 2,
+   "id": 15,
+   "label": "The keepers were rarely famous. Most of what we know about them comes from lo...",
+   "label_source": "title",
+   "role": "text",
+   "states": [
+    "truncated"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    378,
+    606,
+    700,
+    38
+   ],
+   "depth": 2,
+   "id": 16,
+   "label": "A day at the light",
+   "label_source": "title",
+   "role": "heading",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    378,
+    666,
+    695,
+    144
+   ],
+   "depth": 2,
+   "id": 17,
+   "label": "A keeper's day began in the afternoon. The glass of the lantern room had to b...",
+   "label_source": "title",
+   "role": "text",
+   "states": [
+    "truncated"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    378,
+    837,
+    688,
+    3
+   ],
+   "depth": 2,
+   "id": 18,
+   "label": "At dusk the lamp was lit and the time written down. Through the night the kee...",
+   "label_source": "title",
+   "role": "text",
+   "states": [
+    "truncated"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    143,
+    36,
+    28,
+    28
+   ],
+   "depth": 1,
+   "id": 19,
+   "label": "Tab search",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    237,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 21,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    333,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 23,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    429,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 25,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    525,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 27,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    621,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 29,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    716,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 31,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    811,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 33,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    906,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 35,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1001,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 37,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1096,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 39,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1191,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 41,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1215,
+    30,
+    113,
+    41
+   ],
+   "depth": 1,
+   "id": 42,
+   "label": "The Lighthouse Keepers of Lake Cayuga",
+   "label_source": "title",
+   "role": "tab",
+   "states": [
+    "selected"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    1286,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 43,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1322,
+    30,
+    28,
+    41
+   ],
+   "depth": 1,
+   "id": 44,
+   "label": "New Tab",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    63,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 45,
+   "label": "close window",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    109,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 46,
+   "label": "full screen",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    86,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 47,
+   "label": "minimize window",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  }
+ ],
+ "focused_id": 11,
+ "ok": true,
+ "snapshot_id": "s_article",
+ "text": "APP Google Chrome | WINDOW \"The Lighthouse Keepers of Lake Cayuga - Google Chrome\" | FOCUS [11]\n[1] group \"The Lighthouse Keepers of Lake Cayuga - Google Chrome\"\n  [2] toolbar\n    [3] button \"Back\" (disabled)\n    [4] button \"Forward\" (disabled)\n    [5] button \"Reload\"\n    [6] popup \"File\"\n    [7] textfield \"Address and search bar\" value=\"file:///demo/article.html\"\n    [8] button \"Bookmark this tab\"\n    [9] button \"Paused\"\n    [10] popup \"Chrome\"\n  [11] group \"The Lighthouse Keepers of Lake Cayuga\" (focused)\n    [12] heading \"The Lighthouse Keepers of Lake Cayuga\"\n    [13] text \"A short history, written for the Beacon demo · about six minutes to read aloud\"\n    [14] text \"Long before satellites and phone maps, the boats that worked the Finger Lakes...\" (truncated)\n    [15] text \"The keepers were rarely famous. Most of what we know about them comes from lo...\" (truncated)\n    [16] heading \"A day at the light\"\n    [17] text \"A keeper's day began in the afternoon. The glass of the lantern room had to b...\" (truncated)\n    [18] text \"At dusk the lamp was lit and the time written down. Through the night the kee...\" (truncated)\n  [19] popup \"Tab search\"\n    [21] button \"Close\"\n    [23] button \"Close\"\n    [25] button \"Close\"\n    [27] button \"Close\"\n    [29] button \"Close\"\n    [31] button \"Close\"\n    [33] button \"Close\"\n    [35] button \"Close\"\n    [37] button \"Close\"\n    [39] button \"Close\"\n    [41] button \"Close\"\n  [42] tab \"The Lighthouse Keepers of Lake Cayuga\" (selected)\n    [43] button \"Close\"\n  [44] button \"New Tab\"\n[45] button \"close window\"\n[46] button \"full screen\"\n[47] button \"minimize window\"",
+ "total_elements": 47,
+ "truncated": false,
+ "window": "The Lighthouse Keepers of Lake Cayuga - Google Chrome"
+}

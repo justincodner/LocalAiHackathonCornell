@@ -1,0 +1,702 @@
+{
+ "app": "Google Chrome",
+ "build_ms": 57,
+ "elements": [
+  {
+   "bounds": [
+    51,
+    30,
+    1353,
+    810
+   ],
+   "depth": 0,
+   "id": 1,
+   "label": "Checkout - Lantern Books - Google Chrome",
+   "label_source": "title",
+   "role": "group",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    51,
+    70,
+    1353,
+    46
+   ],
+   "depth": 1,
+   "id": 2,
+   "label": "",
+   "label_source": "none",
+   "role": "toolbar",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    57,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 3,
+   "label": "Back",
+   "label_source": "title",
+   "role": "button",
+   "states": [
+    "disabled"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    93,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 4,
+   "label": "Forward",
+   "label_source": "title",
+   "role": "button",
+   "states": [
+    "disabled"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    129,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 5,
+   "label": "Reload",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    177,
+    81,
+    53,
+    24
+   ],
+   "depth": 2,
+   "id": 6,
+   "label": "File",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    238,
+    81,
+    975,
+    24
+   ],
+   "depth": 2,
+   "id": 7,
+   "label": "Address and search bar",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": "file:///demo/checkout.html"
+  },
+  {
+   "bounds": [
+    1221,
+    81,
+    24,
+    24
+   ],
+   "depth": 2,
+   "id": 8,
+   "label": "Bookmark this tab",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1266,
+    76,
+    93,
+    34
+   ],
+   "depth": 2,
+   "id": 9,
+   "label": "Paused",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1364,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 10,
+   "label": "Chrome",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    51,
+    117,
+    1353,
+    723
+   ],
+   "depth": 1,
+   "id": 11,
+   "label": "Checkout - Lantern Books",
+   "label_source": "title",
+   "role": "group",
+   "states": [
+    "focused"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    83,
+    131,
+    1289,
+    32
+   ],
+   "depth": 2,
+   "id": 12,
+   "label": "Lantern Books — Checkout",
+   "label_source": "title",
+   "role": "heading",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    287,
+    229,
+    477,
+    28
+   ],
+   "depth": 2,
+   "id": 13,
+   "label": "Contact",
+   "label_source": "title",
+   "role": "heading",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    287,
+    272,
+    100,
+    18
+   ],
+   "depth": 2,
+   "id": 14,
+   "label": "Email address",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    287,
+    296,
+    477,
+    45
+   ],
+   "depth": 2,
+   "id": 15,
+   "label": "Email address",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": "sam.rivera@example.com"
+  },
+  {
+   "bounds": [
+    287,
+    357,
+    104,
+    18
+   ],
+   "depth": 2,
+   "id": 16,
+   "label": "Phone number",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    287,
+    381,
+    477,
+    45
+   ],
+   "depth": 2,
+   "id": 17,
+   "label": "Phone number",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": ""
+  },
+  {
+   "bounds": [
+    287,
+    505,
+    477,
+    28
+   ],
+   "depth": 2,
+   "id": 18,
+   "label": "Shipping address",
+   "label_source": "title",
+   "role": "heading",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    287,
+    549,
+    69,
+    18
+   ],
+   "depth": 2,
+   "id": 19,
+   "label": "Full name",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    287,
+    573,
+    477,
+    45
+   ],
+   "depth": 2,
+   "id": 20,
+   "label": "Full name",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": "Sam Rivera"
+  },
+  {
+   "bounds": [
+    287,
+    633,
+    105,
+    18
+   ],
+   "depth": 2,
+   "id": 21,
+   "label": "Street address",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    287,
+    657,
+    477,
+    45
+   ],
+   "depth": 2,
+   "id": 22,
+   "label": "Street address",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": "12 College Avenue"
+  },
+  {
+   "bounds": [
+    287,
+    718,
+    29,
+    18
+   ],
+   "depth": 2,
+   "id": 23,
+   "label": "City",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    287,
+    741,
+    232,
+    45
+   ],
+   "depth": 2,
+   "id": 24,
+   "label": "City",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": "Ithaca"
+  },
+  {
+   "bounds": [
+    532,
+    718,
+    64,
+    18
+   ],
+   "depth": 2,
+   "id": 25,
+   "label": "ZIP code",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    532,
+    741,
+    232,
+    45
+   ],
+   "depth": 2,
+   "id": 26,
+   "label": "ZIP code",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": "14850"
+  },
+  {
+   "bounds": [
+    287,
+    802,
+    106,
+    18
+   ],
+   "depth": 2,
+   "id": 27,
+   "label": "Delivery speed",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    287,
+    826,
+    477,
+    14
+   ],
+   "depth": 2,
+   "id": 28,
+   "label": "Delivery speed",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": "Standard (5 to 7 days) - free"
+  },
+  {
+   "bounds": [
+    287,
+    826,
+    477,
+    5
+   ],
+   "depth": 3,
+   "id": 29,
+   "label": "",
+   "label_source": "none",
+   "role": "menuitem",
+   "states": [
+    "selected"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    842,
+    229,
+    327,
+    28
+   ],
+   "depth": 2,
+   "id": 30,
+   "label": "Your order",
+   "label_source": "title",
+   "role": "heading",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    842,
+    270,
+    327,
+    160
+   ],
+   "depth": 2,
+   "id": 31,
+   "label": "",
+   "label_source": "none",
+   "role": "list",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    842,
+    270,
+    327,
+    40
+   ],
+   "depth": 3,
+   "id": 32,
+   "label": "The Left Hand of Darkness - $14.99",
+   "label_source": "child",
+   "role": "row",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    842,
+    310,
+    327,
+    40
+   ],
+   "depth": 3,
+   "id": 33,
+   "label": "A Wizard of Earthsea - $11.50",
+   "label_source": "child",
+   "role": "row",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    842,
+    349,
+    327,
+    40
+   ],
+   "depth": 3,
+   "id": 34,
+   "label": "Shipping - $0.00",
+   "label_source": "child",
+   "role": "row",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    842,
+    389,
+    327,
+    40
+   ],
+   "depth": 3,
+   "id": 35,
+   "label": "Tax - $2.12",
+   "label_source": "child",
+   "role": "row",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    842,
+    445,
+    310,
+    37
+   ],
+   "depth": 2,
+   "id": 36,
+   "label": "This is a local demo page for Beacon. Nothing is charged and nothing leaves t...",
+   "label_source": "title",
+   "role": "text",
+   "states": [
+    "truncated"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    1116,
+    764,
+    169,
+    26
+   ],
+   "depth": 2,
+   "id": 37,
+   "label": "Order total $28.61",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1301,
+    751,
+    60,
+    52
+   ],
+   "depth": 2,
+   "id": 38,
+   "label": "unlabeled, near 'Order total $28.61'",
+   "label_source": "inferred",
+   "role": "button",
+   "states": [
+    "inferred"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    143,
+    36,
+    28,
+    28
+   ],
+   "depth": 1,
+   "id": 39,
+   "label": "Tab search",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1222,
+    30,
+    106,
+    41
+   ],
+   "depth": 1,
+   "id": 52,
+   "label": "Checkout - Lantern Books",
+   "label_source": "title",
+   "role": "tab",
+   "states": [
+    "selected"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    1286,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 53,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1322,
+    30,
+    28,
+    41
+   ],
+   "depth": 1,
+   "id": 54,
+   "label": "New Tab",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    63,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 55,
+   "label": "close window",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    109,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 56,
+   "label": "full screen",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    86,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 57,
+   "label": "minimize window",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  }
+ ],
+ "focused_id": 11,
+ "ok": true,
+ "snapshot_id": "s_checkout",
+ "text": "APP Google Chrome | WINDOW \"Checkout - Lantern Books - Google Chrome\" | FOCUS [11]\n[1] group \"Checkout - Lantern Books - Google Chrome\"\n  [2] toolbar\n    [3] button \"Back\" (disabled)\n    [4] button \"Forward\" (disabled)\n    [5] button \"Reload\"\n    [6] popup \"File\"\n    [7] textfield \"Address and search bar\" value=\"file:///demo/checkout.html\"\n    [8] button \"Bookmark this tab\"\n    [9] button \"Paused\"\n    [10] popup \"Chrome\"\n  [11] group \"Checkout - Lantern Books\" (focused)\n    [12] heading \"Lantern Books — Checkout\"\n    [13] heading \"Contact\"\n    [14] text \"Email address\"\n    [15] textfield \"Email address\" value=\"sam.rivera@example.com\"\n    [16] text \"Phone number\"\n    [17] textfield \"Phone number\" value=\"\"\n    [18] heading \"Shipping address\"\n    [19] text \"Full name\"\n    [20] textfield \"Full name\" value=\"Sam Rivera\"\n    [21] text \"Street address\"\n    [22] textfield \"Street address\" value=\"12 College Avenue\"\n    [23] text \"City\"\n    [24] textfield \"City\" value=\"Ithaca\"\n    [25] text \"ZIP code\"\n    [26] textfield \"ZIP code\" value=\"14850\"\n    [27] text \"Delivery speed\"\n    [28] popup \"Delivery speed\" value=\"Standard (5 to 7 days) - free\"\n      [29] menuitem (selected)\n    [30] heading \"Your order\"\n    [31] list 4 rows\n      [32] row \"The Left Hand of Darkness - $14.99\"\n      [33] row \"A Wizard of Earthsea - $11.50\"\n      [34] row \"Shipping - $0.00\"\n      [35] row \"Tax - $2.12\"\n    [36] text \"This is a local demo page for Beacon. Nothing is charged and nothing leaves t...\" (truncated)\n    [37] text \"Order total $28.61\"\n    [38] button \"unlabeled, near 'Order total $28.61'\" (inferred)\n  [39] popup \"Tab search\"\n  [52] tab \"Checkout - Lantern Books\" (selected)\n    [53] button \"Close\"\n  [54] button \"New Tab\"\n[55] button \"close window\"\n[56] button \"full screen\"\n[57] button \"minimize window\"",
+ "total_elements": 57,
+ "truncated": false,
+ "window": "Checkout - Lantern Books - Google Chrome"
+}

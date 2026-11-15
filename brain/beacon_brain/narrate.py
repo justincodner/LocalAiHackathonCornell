@@ -22,6 +22,9 @@ def action_text(call, snapshot: dict) -> str:
     args = call.arguments
     element = element_for(call, snapshot) or {}
     label = element.get("label") or "the selected control"
+    near = re.fullmatch(r"unlabeled, near '(.+)'", label)
+    if near:
+        label = f"the unlabeled {element.get('role', 'control')} near {near.group(1)}"
     if call.name == "click":
         return f"Clicking {label}."
     if call.name == "type_text":
@@ -66,6 +69,11 @@ def past_action(call, snapshot: dict) -> str:
     if call.name == "scroll":
         return f"scrolled {args['direction']}"
     return f"pressed {args.get('keys', '').replace('+', ' ')}"
+
+
+def did(actions: list[str]) -> str:
+    """What Beacon did, spoken: "I typed: 607 555 0100; then clicked Save." """
+    return f"I {'; then '.join(actions)}." if actions else "Done."
 
 
 def honest_summary(summary: str, actions: list[str], committed: bool) -> str:

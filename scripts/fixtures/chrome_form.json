@@ -1,0 +1,548 @@
+{
+ "app": "Google Chrome",
+ "build_ms": 37,
+ "elements": [
+  {
+   "bounds": [
+    51,
+    30,
+    1353,
+    810
+   ],
+   "depth": 0,
+   "id": 1,
+   "label": "Volunteer sign-up - Google Chrome",
+   "label_source": "title",
+   "role": "group",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    51,
+    70,
+    1353,
+    46
+   ],
+   "depth": 1,
+   "id": 2,
+   "label": "",
+   "label_source": "none",
+   "role": "toolbar",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    57,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 3,
+   "label": "Back",
+   "label_source": "title",
+   "role": "button",
+   "states": [
+    "disabled"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    93,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 4,
+   "label": "Forward",
+   "label_source": "title",
+   "role": "button",
+   "states": [
+    "disabled"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    129,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 5,
+   "label": "Reload",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    177,
+    81,
+    53,
+    24
+   ],
+   "depth": 2,
+   "id": 6,
+   "label": "File",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    238,
+    81,
+    975,
+    24
+   ],
+   "depth": 2,
+   "id": 7,
+   "label": "Address and search bar",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": "file:///demo/form.html"
+  },
+  {
+   "bounds": [
+    1221,
+    81,
+    24,
+    24
+   ],
+   "depth": 2,
+   "id": 8,
+   "label": "Bookmark this tab",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1266,
+    76,
+    93,
+    34
+   ],
+   "depth": 2,
+   "id": 9,
+   "label": "Paused",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1364,
+    76,
+    34,
+    34
+   ],
+   "depth": 2,
+   "id": 10,
+   "label": "Chrome",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    51,
+    117,
+    1353,
+    723
+   ],
+   "depth": 1,
+   "id": 11,
+   "label": "Volunteer sign-up",
+   "label_source": "title",
+   "role": "group",
+   "states": [
+    "focused"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    448,
+    184,
+    560,
+    35
+   ],
+   "depth": 2,
+   "id": 12,
+   "label": "Volunteer sign-up",
+   "label_source": "title",
+   "role": "heading",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    448,
+    237,
+    84,
+    20
+   ],
+   "depth": 2,
+   "id": 13,
+   "label": "First name",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    448,
+    264,
+    560,
+    45
+   ],
+   "depth": 2,
+   "id": 14,
+   "label": "First name",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": ""
+  },
+  {
+   "bounds": [
+    448,
+    326,
+    82,
+    21
+   ],
+   "depth": 2,
+   "id": 15,
+   "label": "Last name",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    448,
+    353,
+    560,
+    45
+   ],
+   "depth": 2,
+   "id": 16,
+   "label": "Last name",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": ""
+  },
+  {
+   "bounds": [
+    448,
+    415,
+    43,
+    21
+   ],
+   "depth": 2,
+   "id": 17,
+   "label": "Email",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    448,
+    442,
+    560,
+    45
+   ],
+   "depth": 2,
+   "id": 18,
+   "label": "Email",
+   "label_source": "title",
+   "role": "textfield",
+   "states": [],
+   "value": ""
+  },
+  {
+   "bounds": [
+    448,
+    505,
+    110,
+    20
+   ],
+   "depth": 2,
+   "id": 19,
+   "label": "Preferred role",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    448,
+    531,
+    560,
+    43
+   ],
+   "depth": 2,
+   "id": 20,
+   "label": "Preferred role",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": "Greeter"
+  },
+  {
+   "bounds": [
+    448,
+    531,
+    560,
+    6
+   ],
+   "depth": 3,
+   "id": 21,
+   "label": "",
+   "label_source": "none",
+   "role": "menuitem",
+   "states": [
+    "selected"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    448,
+    589,
+    560,
+    68
+   ],
+   "depth": 2,
+   "id": 22,
+   "label": "Availability",
+   "label_source": "title",
+   "role": "group",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    463,
+    591,
+    81,
+    21
+   ],
+   "depth": 3,
+   "id": 23,
+   "label": "Availability",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    466,
+    626,
+    14,
+    13
+   ],
+   "depth": 3,
+   "id": 24,
+   "label": "Saturday",
+   "label_source": "title",
+   "role": "radio",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    573,
+    626,
+    14,
+    13
+   ],
+   "depth": 3,
+   "id": 25,
+   "label": "Sunday",
+   "label_source": "title",
+   "role": "radio",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    448,
+    674,
+    212,
+    21
+   ],
+   "depth": 2,
+   "id": 26,
+   "label": "Anything we should know?",
+   "label_source": "title",
+   "role": "text",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    448,
+    701,
+    560,
+    90
+   ],
+   "depth": 2,
+   "id": 27,
+   "label": "Anything we should know?",
+   "label_source": "title",
+   "role": "textarea",
+   "states": [],
+   "value": ""
+  },
+  {
+   "bounds": [
+    452,
+    819,
+    13,
+    13
+   ],
+   "depth": 2,
+   "id": 28,
+   "label": "Send me event updates",
+   "label_source": "title",
+   "role": "checkbox",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    143,
+    36,
+    28,
+    28
+   ],
+   "depth": 1,
+   "id": 29,
+   "label": "Tab search",
+   "label_source": "title",
+   "role": "popup",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1229,
+    30,
+    99,
+    41
+   ],
+   "depth": 1,
+   "id": 43,
+   "label": "Volunteer sign-up",
+   "label_source": "title",
+   "role": "tab",
+   "states": [
+    "selected"
+   ],
+   "value": null
+  },
+  {
+   "bounds": [
+    1286,
+    36,
+    28,
+    28
+   ],
+   "depth": 2,
+   "id": 44,
+   "label": "Close",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    1322,
+    30,
+    28,
+    41
+   ],
+   "depth": 1,
+   "id": 45,
+   "label": "New Tab",
+   "label_source": "title",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    63,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 46,
+   "label": "close window",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    109,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 47,
+   "label": "full screen",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  },
+  {
+   "bounds": [
+    86,
+    43,
+    16,
+    16
+   ],
+   "depth": 0,
+   "id": 48,
+   "label": "minimize window",
+   "label_source": "description",
+   "role": "button",
+   "states": [],
+   "value": null
+  }
+ ],
+ "focused_id": 11,
+ "ok": true,
+ "snapshot_id": "s_form",
+ "text": "APP Google Chrome | WINDOW \"Volunteer sign-up - Google Chrome\" | FOCUS [11]\n[1] group \"Volunteer sign-up - Google Chrome\"\n  [2] toolbar\n    [3] button \"Back\" (disabled)\n    [4] button \"Forward\" (disabled)\n    [5] button \"Reload\"\n    [6] popup \"File\"\n    [7] textfield \"Address and search bar\" value=\"file:///demo/form.html\"\n    [8] button \"Bookmark this tab\"\n    [9] button \"Paused\"\n    [10] popup \"Chrome\"\n  [11] group \"Volunteer sign-up\" (focused)\n    [12] heading \"Volunteer sign-up\"\n    [13] text \"First name\"\n    [14] textfield \"First name\" value=\"\"\n    [15] text \"Last name\"\n    [16] textfield \"Last name\" value=\"\"\n    [17] text \"Email\"\n    [18] textfield \"Email\" value=\"\"\n    [19] text \"Preferred role\"\n    [20] popup \"Preferred role\" value=\"Greeter\"\n      [21] menuitem (selected)\n    [22] group \"Availability\"\n      [23] text \"Availability\"\n      [24] radio \"Saturday\"\n      [25] radio \"Sunday\"\n    [26] text \"Anything we should know?\"\n    [27] textarea \"Anything we should know?\" value=\"\"\n    [28] checkbox \"Send me event updates\"\n  [29] popup \"Tab search\"\n  [43] tab \"Volunteer sign-up\" (selected)\n    [44] button \"Close\"\n  [45] button \"New Tab\"\n[46] button \"close window\"\n[47] button \"full screen\"\n[48] button \"minimize window\"",
+ "total_elements": 48,
+ "truncated": false,
+ "window": "Volunteer sign-up - Google Chrome"
+}

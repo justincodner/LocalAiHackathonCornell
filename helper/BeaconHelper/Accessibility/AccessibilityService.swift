@@ -273,6 +273,13 @@ final class AccessibilityService: AccessibilityProviding, @unchecked Sendable {
         let el = try table.resolve(snapshotID: snapshotID, elementID: elementID).element
         switch action {
         case "press":
+            // Web pages often act only on real pointer events (pointerdown/up, mousedown), and
+            // Chrome's AXPress sends neither: it reports success and the page does nothing.
+            // So in web content, click the element for real when it is visibly on top.
+            if let point = webClickPoint(el) {
+                try SyntheticEvents.click(at: point, restoreCursor: true)
+                return "click"
+            }
             return try withClickFallback(el, AXUIElementPerformAction(el, kAXPressAction as CFString), what: "press")
         case "focus":
             return try withClickFallback(el, AXUIElementSetAttributeValue(el, kAXFocusedAttribute as CFString, kCFBooleanTrue),
@@ -348,6 +355,55 @@ final class AccessibilityService: AccessibilityProviding, @unchecked Sendable {
             try SyntheticEvents.click(at: CGPoint(x: f.midX, y: f.midY), right: right)
             return "click"
         }
+    }
+
+    // MARK: Web clicks
+
+    /// Where to click `el` with a real mouse event, or nil to use AXPress: only for elements inside
+    /// a web page, whose centre is on screen and is not covered by another window or element.
+    func webClickPoint(_ el: AXUIElement) -> CGPoint? {
+        guard Self.isInWebArea(el), let f = AX.frame(el) else { return nil }
+        let point = CGPoint(x: f.midX, y: f.midY)
+        guard Self.canClick(frame: f, screen: AX.displaysFrame()) else { return nil }
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit)
+                == .success, let hit else { return nil }
+        var elPID: pid_t = 0, hitPID: pid_t = 0
+        AXUIElementGetPid(el, &elPID)
+        AXUIElementGetPid(hit, &hitPID)
+        // Another window (the HUD, a popup) on top: a click there would not reach the element.
+        guard elPID == hitPID, Self.isSelfOrAncestor(el, of: hit) else { return nil }
+        return point
+    }
+
+    /// The frame has a size and its centre is on a display.
+    static func canClick(frame f: CGRect, screen: CGRect?) -> Bool {
+        guard f.width > 0, f.height > 0 else { return false }
+        let point = CGPoint(x: f.midX, y: f.midY)
+        return screen.map { $0.contains(point) } ?? true
+    }
+
+    static func isInWebArea(_ el: AXUIElement) -> Bool {
+        var current: AXUIElement? = el
+        for _ in 0..<80 {
+            guard let c = current else { return false }
+            if AX.role(c) == "AXWebArea" { return true }
+            if AX.role(c) == "AXWindow" { return false }
+            current = AX.element(AX.attribute(c, "AXParent"))
+        }
+        return false
+    }
+
+    /// True when `el` is `hit` or one of its ancestors (the click lands on the button's own text).
+    static func isSelfOrAncestor(_ el: AXUIElement, of hit: AXUIElement) -> Bool {
+        var current: AXUIElement? = hit
+        for _ in 0..<12 {
+            guard let c = current else { return false }
+            if CFEqual(c, el) { return true }
+            if AX.role(c) == "AXWebArea" { return false }
+            current = AX.element(AX.attribute(c, "AXParent"))
+        }
+        return false
     }
 
     // MARK: Frame
