@@ -8,8 +8,8 @@ bar, and typing there then Return searches or loads the site.
 """
 
 import re
-from urllib.parse import quote_plus
 from dataclasses import dataclass
+from urllib.parse import parse_qs, quote_plus, urlsplit
 
 from .llm import ToolCall
 from .page_summary import BROWSERS
@@ -217,3 +217,76 @@ def named_tab(utterance: str, snapshot: dict) -> Plan | None:
     if "selected" in tab.get("states", []):
         return Plan([], "", f"You're already on the {short} tab.")
     return Plan([ToolCall("browser-1", "click", {"id": tab["id"]})], f"Switching to {short}", f"Switched to {short}.")
+
+
+RESULT_COMMAND = re.compile(r"^(?P<verb>click|tap|open|go to|select|choose) (?:on )?(?:the )?(?P<name>.+)$")
+RESULT_SUFFIX = re.compile(r"\s+(?:from|in|on) (?:the |these )?(?:(?:google|web|search) )?results?$")
+RESULT_KIND = re.compile(r"\s+(?:(?:web|search) )?(?:result|article|website|site|link)$")
+GOOGLE_HOST = re.compile(r"(?:www\.)?google\.(?:com(?:\.[a-z]{2})?|co\.[a-z]{2}|[a-z]{2})")
+RESULT_BREADCRUMB = re.compile(r"\s+https?://([\w.-]+)(?:/[^\s›]*)?\s*(?:›|$)", re.IGNORECASE)
+
+
+@dataclass
+class ResultRequest:
+    name: str
+    query: str
+    explicit: bool
+
+
+def search_result_request(utterance: str, snapshot: dict) -> ResultRequest | None:
+    """A named result on the active Google results page."""
+    text = _clean(utterance)
+    match = RESULT_COMMAND.fullmatch(text)
+    if snapshot["app"].casefold() not in BROWSERS or not match or MORE_STEPS.search(text):
+        return None
+    target = match["name"]
+    name = RESULT_SUFFIX.sub("", target)
+    explicit = name != target or bool(RESULT_KIND.search(name) and not name.endswith(" link"))
+    name = RESULT_KIND.sub("", name)
+    if not name or name in {"it", "this", "that", "first", "second", "third", "last", "next", "previous",
+                            "top", "bottom", "result", "article", "link", "one"}:
+        return None
+    if not explicit and match["verb"] not in {"click", "tap"}:
+        return None
+    address = next((item.get("value") for item in snapshot["elements"]
+                    if item["role"] == "textfield" and item.get("label") == "Address and search bar"), None)
+    if not address:
+        return None
+    try:
+        url = urlsplit(address if "://" in address else f"https://{address}")
+        host = url.hostname or ""
+    except ValueError:
+        return None
+    if GOOGLE_HOST.fullmatch(host) and url.path == "/search":
+        query = parse_qs(url.query).get("q", [""])[0]
+        if query:
+            return ResultRequest(name, query, explicit)
+    return None
+
+
+def result_words(text: str) -> list[str]:
+    return re.findall(r"[^\W_]+", text.casefold())
+
+
+def matching_search_results(request: ResultRequest, matches: list[dict]) -> list[tuple[dict, str]]:
+    """Rank Google's web links and return the best match, or all equally good choices."""
+    wanted = set(result_words(request.name))
+    query = " ".join(result_words(request.query))
+    ranked = []
+    for item in matches:
+        if item.get("role") != "link" or not item.get("snapshot_id") or "disabled" in item.get("states", []):
+            continue
+        label = item.get("full_label") or item.get("label", "")
+        breadcrumb = RESULT_BREADCRUMB.search(label)
+        if not breadcrumb:
+            continue  # AI Overview and the knowledge panel expose links without the web result breadcrumb.
+        title = label[:breadcrumb.start()].strip()
+        title_words = result_words(title)
+        site_words = set(result_words(breadcrumb[1]))
+        if not title or not wanted or not wanted <= set(title_words) | site_words:
+            continue
+        score = (wanted <= site_words, wanted == set(title_words),
+                 bool(query and f" {query} " in f" {' '.join(title_words)} "))
+        ranked.append((score, item, title))
+    best = max((score for score, _, _ in ranked), default=None)
+    return [(item, title) for score, item, title in ranked if score == best]
