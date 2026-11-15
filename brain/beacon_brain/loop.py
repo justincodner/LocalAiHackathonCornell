@@ -14,6 +14,7 @@ from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall
 from .log import append_step
 from .memory import TaskMemory
+from . import drafts  # Mail replies and "send it" on a draft, run in code
 
 
 LOGGER = logging.getLogger(__name__)
@@ -248,6 +249,8 @@ class Brain:
         if quick is not None:
             await self.run_browser_plan(quick, text, snapshot, stt_ms)
             return
+        if not (screen_question or screen_summary) and await drafts.run(self, text, snapshot, stt_ms):
+            return
         previous_snapshot = None
         task_summary = ""
         consecutive_invalid = 0
@@ -433,6 +436,7 @@ class Brain:
                     last_typed = call.arguments.get("text", "")
                 committed = committed or verdict == "confirm" or (
                     call.name == "press_key" and risk.normal_keys(call.arguments["keys"]).split("+")[-1] in {"return", "enter"}
+                    and compose.return_sends(screen)
                 )  # Return sends in many chat apps, so don't claim "nothing has been sent"
                 fresh_request = False
             target = tools.element_for(call, screen) if "id" in call.arguments else None
