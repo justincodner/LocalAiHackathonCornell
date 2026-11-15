@@ -65,6 +65,10 @@ class HelperClient:
         snapshot = await self.request("/ax/snapshot", {"scope": "window", "max_elements": self.max_elements})
         return labels.clean_snapshot(snapshot)
 
+    async def frontmost(self) -> dict:
+        """The frontmost app with only its focused element: ~10 ms, where a window read takes 100-500."""
+        return await self.request("/ax/snapshot", {"scope": "focused", "max_elements": 1})
+
     async def read(self, snapshot_id: str, element_id: int) -> str:
         result = await self.request("/ax/read", {"snapshot_id": snapshot_id, "element_id": element_id})
         return result["text"]

@@ -8,7 +8,8 @@ from dataclasses import replace
 
 import httpx
 
-from . import browser, compose, fastpath, followup, grounding, locate, narrate, page_summary, questions, risk, route, screen_words, tools
+from . import (browser, commands, compose, fastpath, followup, grounding, locate, narrate, page_summary, questions,
+               risk, route, screen_words, tools)
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall
@@ -328,6 +329,10 @@ class Brain:
         available_tools = SCREEN_SUMMARY_TOOLS if screen_summary else tools.TOOL_DEFINITIONS
         task_id = f"t_{self.task_number}"
         generation = self.screen_generation
+        if not (screen_question or screen_summary) and commands.plan(text, None) is not None:
+            # "Press enter", "next tab": one key or scroll, no model call and no window read.
+            if await self.run_command(text, stt_ms):
+                return
         try:
             snapshot = await self.helper.snapshot()
         except HelperError as error:
@@ -613,8 +618,22 @@ class Brain:
                       task_summary or (narrate.did(actions_taken) if actions_taken else "The task stopped."),
                       snapshot["app"])
 
-    async def run_browser_plan(self, plan: "browser.Plan", text: str, snapshot: dict, stt_ms: int) -> None:
-        """Open a tab, search or go to a site with keyboard steps (browser.py), no model call."""
+    async def run_command(self, text: str, stt_ms: int) -> bool:
+        """Run a one-step command (commands.py) on the frontmost app; False leaves it to the full loop."""
+        try:
+            front = await self.helper.frontmost()
+        except HelperError as error:
+            LOGGER.info("Could not read the frontmost app for a quick command: %s", error.code)
+            return False
+        plan = commands.plan(text, front["app"])
+        if plan is None or any(risk.check(call, front) != "allow" for call in plan.steps):
+            return False  # "go back" in Mail, or a key the risk check wants to confirm or refuse
+        await self.run_browser_plan(plan, text, front, stt_ms, kind="command")
+        return True
+
+    async def run_browser_plan(self, plan: "browser.Plan", text: str, snapshot: dict, stt_ms: int,
+                               *, kind: str = "browser") -> None:
+        """Run planned keyboard steps (browser.py, commands.py), no model call."""
         task_id = f"t_{self.task_number}"
         await self.set_state("acting", caption=plan.caption)
         summary = plan.summary
@@ -624,17 +643,18 @@ class Brain:
                 result = await tools.execute(self.helper, call, snapshot, None)
             except HelperError as failure:
                 result = {"ok": False, "error": {"code": failure.code, "message": str(failure)}}
-            append_step(self.config.log_path, task_id=task_id, step=step, utterance=text, kind="browser",
-                        route="browser", model=None, snapshot_id=snapshot["snapshot_id"], snapshot_tokens=0,
+            append_step(self.config.log_path, task_id=task_id, step=step, utterance=text, kind=kind,
+                        route=kind, model=None, snapshot_id=snapshot["snapshot_id"], snapshot_tokens=0,
                         tool=call.name, args=call.arguments, valid=True, risk="allow", ok=bool(result.get("ok")),
                         ms={"stt": stt_ms, "snapshot": snapshot.get("build_ms", 0), "llm": 0,
                             "act": round((time.perf_counter() - started) * 1000)})
             if not result.get("ok"):
-                summary = "I couldn't do that in the browser. Please try again."
+                summary = ("I couldn't do that in the browser." if kind == "browser"
+                           else "I couldn't do that.") + " Please try again."
                 break
-            if call.name == "press_key" and step < len(plan.steps):
-                # The new tab or address bar takes a moment to take keyboard focus.
-                await asyncio.sleep(min(self.config.settle_ms, 300) / 1000)
+            if step < len(plan.steps) and (kind == "browser" or call.name == "scroll"):
+                # A new tab or address bar takes a moment to take keyboard focus; a scroll to finish.
+                await asyncio.sleep(min(self.config.settle_ms, 300 if kind == "browser" else 150) / 1000)
         await self.say(summary)
         self.remember(text, summary, snapshot.get("app") or "")
 
