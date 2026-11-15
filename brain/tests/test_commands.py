@@ -153,3 +153,77 @@ def test_restricted_app_is_not_fast_pathed():
     terminal = {**fixture("notes_list"), "app": "Terminal"}
     helper, model = run(terminal, "Press enter", ToolCall("a", "press_key", {"keys": "return"}))
     assert ("/input/key", {"keys": "return"}) not in helper.actions  # risk.check refuses in Terminal
+
+
+RUNNING = ["Finder", "Google Chrome", "Mail", "Messages", "Notes"]
+INSTALLED = ["App Store", "Calculator", "Discord", "FaceTime", "Finder", "Google Chrome", "IntelliJ IDEA",
+             "IntelliJ IDEA CE", "Mail", "Messages", "Notes", "Photo Booth", "Photos", "Safari", "System Settings",
+             "Terminal", "zoom.us"]
+
+
+def opened(utterance):
+    request = commands.app_request(utterance)
+    return None if request is None else commands.match_app(request[0], RUNNING, INSTALLED)
+
+
+@pytest.mark.parametrize("utterance, app", [
+    ("Open messages.", "Messages"), ("open the messages app", "Messages"), ("Launch Discord", "Discord"),
+    ("switch to chrome", "Google Chrome"), ("Bring up notes", "Notes"), ("open settings", "System Settings"),
+    ("go to safari", "Safari"), ("open zoom", "zoom.us"), ("bring Mail to the front", "Mail"),
+    ("Can you open up Finder please", "Finder"), ("open discored", "Discord"), ("open calculator", "Calculator"),
+    ("open intellij", "IntelliJ IDEA"), ("start facetime", "FaceTime"), ("open photos", "Photos"),
+    ("open my email", "Mail"), ("Can you open messages?", "Messages"), ("could you please launch discord", "Discord"), ("open imessage", "Messages"), ("Open the App Store", "App Store"),
+])
+def test_open_requests_name_an_installed_app(utterance, app):
+    assert opened(utterance) == app
+
+
+@pytest.mark.parametrize("utterance", [
+    "open youtube", "open the reply", "open the first email", "open this", "open it", "open a new tab",
+    "open amazon on the new tab", "open the link", "open messages and text sam", "open youtube.com",
+    "open the youtube website", "go back", "switch to the next tab", "open word",  # Word isn't installed
+])
+def test_other_open_requests_are_not_apps(utterance):
+    assert opened(utterance) is None
+
+
+@pytest.mark.loop
+def test_open_app_runs_without_a_model_call():
+    helper, model = run(chrome(), "Open messages.")
+    assert helper.actions == [("/app/open", {"name": "Messages"})]
+    assert model.requests == [] and helper.snapshot_calls == 0
+    assert helper.spoken == ["Opened Messages."]
+
+
+@pytest.mark.loop
+def test_go_to_a_site_name_in_a_browser_stays_a_website():
+    helper, model = run(chrome(), "Go to discord")
+    assert ("/app/open", {"name": "Discord"}) not in helper.actions
+    assert ("/input/key", {"keys": "cmd+l"}) in helper.actions  # browser.py types discord.com
+
+
+@pytest.mark.loop
+def test_open_terminal_is_left_to_the_guarded_loop():
+    helper, model = run(chrome(), "Open terminal", ToolCall("a", "open_app", {"name": "Terminal"}))
+    assert ("/app/open", {"name": "Terminal"}) not in helper.actions
+
+
+@pytest.mark.loop
+def test_unknown_app_falls_back_to_the_model():
+    helper, model = run(chrome(), "Open youtube", ToolCall("a", "say", {"text": "Which one?"}))
+    assert len(model.requests) == 1
+
+
+@pytest.mark.loop
+def test_polite_open_question_opens_the_app():
+    helper, model = run(chrome(), "Can you open messages?")
+    assert helper.actions == [("/app/open", {"name": "Messages"})] and model.requests == []
+
+
+@pytest.mark.loop
+def test_asking_the_user_how_to_do_the_request_is_a_failed_step():
+    helper, model = run(chrome(), "Open the inbox",
+                        ToolCall("a", "ask_user", {"question": "How do I access messages in this app?"}),
+                        ToolCall("b", "ask_user", {"question": "How do I open the inbox?"}),
+                        ToolCall("c", "done", {"summary": "stopped"}))
+    assert not any("How do I" in text for text in helper.spoken)

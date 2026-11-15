@@ -69,6 +69,10 @@ class HelperClient:
         """The frontmost app with only its focused element: ~10 ms, where a window read takes 100-500."""
         return await self.request("/ax/snapshot", {"scope": "focused", "max_elements": 1})
 
+    async def apps(self) -> dict:
+        """Running and installed app names (/app/list, a few ms)."""
+        return await self.request("/app/list")
+
     async def read(self, snapshot_id: str, element_id: int) -> str:
         result = await self.request("/ax/read", {"snapshot_id": snapshot_id, "element_id": element_id})
         return result["text"]

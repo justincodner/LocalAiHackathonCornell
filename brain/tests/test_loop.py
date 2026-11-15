@@ -40,6 +40,11 @@ class ReplayHelper:
     async def frontmost(self):
         return {**self.screen, "elements": []}
 
+    async def apps(self):
+        return {"running": [self.screen["app"], "Finder", "Messages", "Mail"],
+                "installed": ["Messages", "Mail", "Notes", "Safari", "Google Chrome", "Discord", "Calculator",
+                              "System Settings", "Terminal", "Finder", "zoom.us"]}
+
     async def hud(self, state, **fields):
         self.hud_states.append(state)
 

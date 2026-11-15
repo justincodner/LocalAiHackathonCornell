@@ -8,6 +8,7 @@ shortcuts that differ between apps. Anything the grammar does not match whole, s
 "press call" or "go back to the inbox", is left to the model.
 """
 
+import difflib
 import re
 
 from .browser import Plan, _clean
@@ -175,3 +176,69 @@ def plan(utterance: str, app: str | None) -> Plan | None:
         keys, caption, summary = shortcut
         return _keys(keys, count, caption, summary if count == 1 else f"{summary[:-1]}{times}.")
     return None
+
+
+# "Open messages", "launch discord", "switch to chrome", "bring up the notes app".
+OPEN_APP = re.compile(r"^(?:open(?:\s+up)?|launch|start(?:\s+up)?|run|switch\s+(?:over\s+)?(?:to|into)|go\s+(?:over\s+)?to|"
+                      r"bring\s+up|pull\s+up|show(?:\s+me)?|take\s+me\s+to|get\s+me|bring\s+(?:the\s+)?(?P<front>.+?)"
+                      r"\s+(?:to\s+the\s+front|into\s+view|up\s+front|forward))\s*(?P<name>.*)$")
+APP_FILLER = re.compile(r"^(?:the|my|a)\s+|\s+(?:app|application|program|window)$|^(?:apple|mac)\s+")
+APP_ALIASES = {
+    "settings": "System Settings", "system preferences": "System Settings", "preferences": "System Settings",
+    "browser": "Safari", "web browser": "Safari", "internet": "Safari", "email": "Mail", "mail app": "Mail",
+    "itunes": "Music", "apple music": "Music", "files": "Finder", "file browser": "Finder",
+    "text editor": "TextEdit", "calc": "Calculator", "chrome": "Google Chrome", "facetime": "FaceTime",
+    "face time": "FaceTime", "imessage": "Messages", "imessages": "Messages", "texts": "Messages",
+    "text messages": "Messages", "message": "Messages", "note": "Notes", "app store": "App Store",
+    "vs code": "Visual Studio Code", "vscode": "Visual Studio Code", "word": "Microsoft Word",
+    "excel": "Microsoft Excel", "powerpoint": "Microsoft PowerPoint", "voice memos": "VoiceMemos",
+    "find my": "FindMy", "quicktime": "QuickTime Player", "zoom": "zoom.us", "photo": "Photos",
+    "reminder": "Reminders", "calendars": "Calendar", "contact": "Contacts", "maps app": "Maps",
+}
+
+
+def _app_key(name: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", name.casefold().removesuffix(".app"))
+
+
+def app_request(utterance: str) -> tuple[str, bool] | None:
+    """(the spoken app name, whether the verb was "go to") for "open X"-style requests, or None."""
+    text = " ".join(re.sub(r"[.,!?;:]", " ", _clean(utterance)).split())
+    text = re.sub(r"\s+(?:for\s+me|now|right\s+now|please)$", "", text)
+    match = OPEN_APP.match(text)
+    if not match:
+        return None
+    name = (match.group("front") or match.group("name") or "").strip()
+    if match.group("front") and match.group("name"):
+        return None
+    previous = None
+    while previous != name:
+        previous, name = name, APP_FILLER.sub("", name).strip()
+    if not name or len(name.split()) > 4 or MORE_APP_STEPS.search(name):
+        return None
+    return name, text.startswith(("go ", "take me", "show"))
+
+
+MORE_APP_STEPS = re.compile(r"\b(?:and|then|tab|tabs|website|site|page|link|\.com|on|in|from|with|to|for)\b")
+
+
+def match_app(spoken: str, running: list[str], installed: list[str]) -> str | None:
+    """The installed or running app the user named, or None when it is not clearly an app."""
+    names = list(dict.fromkeys([*running, *installed]))
+    by_key = {_app_key(name): name for name in names}
+    alias = APP_ALIASES.get(spoken)
+    if alias and _app_key(alias) in by_key:
+        return by_key[_app_key(alias)]
+    key = _app_key(spoken)
+    if len(key) < 2:
+        return None
+    if key in by_key:
+        return by_key[key]
+    # "zoom" -> "zoom.us", "intellij" -> "IntelliJ IDEA": the spoken words begin the app's name.
+    starts = sorted((name for name in names if re.split(r"[^a-z0-9]+", name.casefold())[0] == spoken.split()[0]
+                     and _app_key(name).startswith(key)), key=len)
+    if starts and len(key) >= 4:
+        return starts[0]
+    # One misheard letter or two ("discored", "safary").
+    close = difflib.get_close_matches(key, list(by_key), n=1, cutoff=0.85 if len(key) >= 6 else 0.9)
+    return by_key[close[0]] if close else None

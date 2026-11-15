@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import replace
 
@@ -35,6 +36,9 @@ TALK_KEY_NAMES = {"right_command": "Command", "right_cmd": "Command", "right_con
 def answer_hint(ptt_key: str) -> str:
     """How to answer a question. The talk key is push-to-talk: held while speaking (HotkeyMonitor)."""
     return f"Hold the {TALK_KEY_NAMES.get(ptt_key.casefold(), 'Option')} key and say your answer."
+
+
+HOW_DO_I = re.compile(r"^(?:how|where) (?:do|can|should|would) (?:i|we)\b|^how to\b")
 
 
 def snapshot_summary(snapshot: dict) -> ToolCall:
@@ -338,6 +342,10 @@ class Brain:
             # "Press enter", "next tab": one key or scroll, no model call and no window read.
             if await self.run_command(text, stt_ms):
                 return
+        if not (screen_question or screen_summary) and commands.app_request(text) is not None:
+            # "Open messages", "switch to chrome": open or bring the app to the front.
+            if await self.run_open_app(text, stt_ms):
+                return
         try:
             snapshot = await self.helper.snapshot()
         except HelperError as error:
@@ -475,6 +483,11 @@ class Brain:
                     LOGGER.warning("Replaced a done summary that claimed an action Beacon did not take")
                     call = replace(call, arguments={**call.arguments, "summary": honest})
             error = tools.validate(call, snapshot)
+            if (error is None and call.name == "ask_user" and not (screen_question or screen_summary)
+                    and HOW_DO_I.match(fastpath.normalize(str(call.arguments.get("question", ""))))):
+                # "How do I access messages in this app?" asks the user how to do what they asked for.
+                LOGGER.info("ask_user asked how to do the request; treating it as a failed step")
+                error = "Don't ask the user how to do it: take the step yourself with a tool"
             if (error is None and must_act and call.name == "done" and early_stops < 2
                     and (not tried_action or (sending and not last_typed and not committed
                                              and compose.message_for(text, memory.answers)))):
@@ -639,6 +652,32 @@ class Brain:
         if plan is None or any(risk.check(call, front) != "allow" for call in plan.steps):
             return False  # "go back" in Mail, or a key the risk check wants to confirm or refuse
         await self.run_browser_plan(plan, text, front, stt_ms, kind="command")
+        return True
+
+    async def run_open_app(self, text: str, stt_ms: int) -> bool:
+        """Open or bring forward the app the user named; False when it is not clearly an installed app."""
+        spoken, go_to = commands.app_request(text)
+        try:
+            front = await self.helper.frontmost()
+            apps = await self.helper.apps()
+        except HelperError as error:
+            LOGGER.info("Could not list apps for an open request: %s", error.code)
+            return False
+        in_browser = front["app"].casefold() in page_summary.BROWSERS
+        if go_to and (in_browser or spoken in browser.NOT_SITES):
+            return False  # "go to youtube" in Chrome is a website; "go to settings" may mean the page's
+        name = commands.match_app(spoken, apps.get("running", []), apps.get("installed", []))
+        if name is None:
+            return False  # "open youtube", "open the reply": a website or something on the screen
+        call = ToolCall("command-1", "open_app", {"name": name})
+        if risk.check(call, front) != "allow":
+            return False  # the full loop explains why it won't open Terminal or Settings
+        if name.casefold() == front["app"].casefold():
+            await self.say(f"{name} is already open.")
+            self.remember(text, f"{name} is already open.", name)
+            return True
+        await self.run_browser_plan(browser.Plan([call], f"Opening {name}", f"Opened {name}."), text, front,
+                                    stt_ms, kind="command")
         return True
 
     async def run_browser_plan(self, plan: "browser.Plan", text: str, snapshot: dict, stt_ms: int,
