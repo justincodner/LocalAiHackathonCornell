@@ -9,7 +9,7 @@ from dataclasses import replace
 
 import httpx
 
-from . import (browser, commands, compose, fastpath, followup, grounding, locate, narrate, page_summary, questions,
+from . import (browser, chats, commands, compose, fastpath, followup, grounding, locate, narrate, page_summary, questions,
                risk, route, screen_words, tools)
 from .config import Config
 from .helper_client import HelperError
@@ -342,6 +342,11 @@ class Brain:
             # "Press enter", "next tab": one key or scroll, no model call and no window read.
             if await self.run_command(text, stt_ms):
                 return
+        chat = None if screen_question or screen_summary else chats.parse(text)
+        if chat is not None:
+            # "Switch to the poker chat", "send hello to the poker chat": from any app, in code.
+            await self.run_chat(chat, text, stt_ms)
+            return
         if not (screen_question or screen_summary) and commands.app_request(text) is not None:
             # "Open messages", "switch to chrome": open or bring the app to the front.
             if await self.run_open_app(text, stt_ms):
@@ -357,9 +362,14 @@ class Brain:
             LOGGER.info("Heard %r; on screen that is %r", heard, text)
             append_step(self.config.log_path, task_id=task_id, step=0, kind="heard", utterance=heard, corrected=text)
             memory.utterance = text
-        quick = None if screen_question or screen_summary else browser.plan(text, snapshot["app"])
+        quick = None if screen_question or screen_summary else (
+            browser.named_tab(text, snapshot) or browser.plan(text, snapshot["app"]))
         if quick is not None:
             await self.run_browser_plan(quick, text, snapshot, stt_ms)
+            return
+        elsewhere = None if screen_question or screen_summary else chats.person_send(text, snapshot)
+        if elsewhere is not None:
+            await self.run_chat(elsewhere, text, stt_ms)
             return
         if not (screen_question or screen_summary) and await drafts.run(self, text, snapshot, stt_ms):
             return
@@ -653,6 +663,57 @@ class Brain:
             return False  # "go back" in Mail, or a key the risk check wants to confirm or refuse
         await self.run_browser_plan(plan, text, front, stt_ms, kind="command")
         return True
+
+    async def run_chat(self, chat: "chats.Request", text: str, stt_ms: int) -> None:
+        """Open the named chat (chats.py), then type and send the message when there is one."""
+        task_id = f"t_{self.task_number}"
+        started = time.perf_counter()
+        try:
+            front = await self.helper.frontmost()
+        except HelperError:
+            front = {"app": "", "window": ""}
+        app = chats.chat_app(chat, front)
+        await self.set_state("acting", caption=f"Opening the {chat.name} chat")
+        switcher = chats.Switcher(self.helper, min(self.config.settle_ms, 300) / 1000)
+        try:
+            snapshot, shown = await switcher.open(app, chat.name, front)
+        except HelperError as failure:
+            LOGGER.warning("Chat switch failed: %s", failure.code)
+            snapshot, shown = None, f"I couldn't open the {chat.name} chat."
+        append_step(self.config.log_path, task_id=task_id, step=1, utterance=text, kind="chat", route="chat",
+                    model=None, tool="open_chat", args={"app": app, "name": chat.name}, valid=True, risk="allow",
+                    ok=snapshot is not None, ms={"stt": stt_ms, "snapshot": 0, "llm": 0,
+                                                 "act": round((time.perf_counter() - started) * 1000)})
+        if snapshot is None:
+            await self.say(shown)
+            self.remember(text, shown, app)
+            return
+        if not chat.send:
+            summary = f"Opened the {shown} chat."
+            await self.say(summary)
+            self.remember(text, summary, app)
+            return
+        message = chat.message
+        if message is None:
+            message = await self.ask(compose.ASK_MESSAGE)
+            if not message or fastpath.classify(message) in {"stop", "no"}:
+                return
+        if self.config.confirm_sends:
+            reply = await self.ask(f"Send {message} to {shown}?", confirm=True)
+            if fastpath.classify(reply or "") != "yes":
+                await self.say("Okay, I didn't send it.")
+                return
+        field = compose.message_field(snapshot)
+        if field is not None and field["id"] != snapshot.get("focused_id"):
+            await self.helper.request("/ax/act", {**tools.element_ref(snapshot, field["id"]), "action": "focus"})
+        await self.helper.request("/input/type", {"text": message})
+        await self.helper.request("/input/key", {"keys": "return"})
+        append_step(self.config.log_path, task_id=task_id, step=2, utterance=text, kind="chat", route="chat",
+                    model=None, tool="send", args={"app": app, "name": shown}, valid=True, risk="allow", ok=True,
+                    ms={"stt": stt_ms, "snapshot": 0, "llm": 0, "act": round((time.perf_counter() - started) * 1000)})
+        summary = f"Sent {message} to {shown}."
+        await self.say(summary)
+        self.remember(text, summary, app)
 
     async def run_open_app(self, text: str, stt_ms: int) -> bool:
         """Open or bring forward the app the user named; False when it is not clearly an installed app."""

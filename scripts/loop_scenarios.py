@@ -368,6 +368,13 @@ SCENARIOS = [
     Scenario("open app switch to", lambda: load("chrome_article"), "Switch to Discord.",
              lambda h: expect([a for a in h.actions] == [("/app/open", {"name": "Discord"})] and h.asked == 0,
                               f"actions {h.actions}, said {h.spoken}")),
+    # Navigation: a tab by its name, and a chat that isn't there never gets a message.
+    Scenario("nav tab by name", lambda: load("chrome_discord_other_tab"), "Go to my Discord tab.",
+             lambda h: expect([p.get("element_id") for path, p in h.actions if path == "/ax/act"] == [15]
+                              and not h.typed(), f"actions {h.actions}, said {h.spoken}")),
+    Scenario("nav missing chat sends nothing", lambda: load("chrome_article"), "Send hello to the soccer chat.",
+             lambda h: expect(not h.typed().strip("soccer ") and "return" not in h.keys()
+                              and "couldn't" in h.said(), f"typed {h.typed()!r}, keys {h.keys()}, said {h.spoken}")),
     Scenario("command button still found", lambda: load("chrome_poker"), "Press call.",
              lambda h: expect(h.pressed() == ["Call $4"], f"pressed {h.pressed()}")),
     Scenario("read latest email", lambda: load("mail_inbox"), "Read me the latest email.",

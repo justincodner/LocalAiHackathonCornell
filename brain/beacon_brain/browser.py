@@ -159,3 +159,43 @@ def plan(utterance: str, app: str) -> Plan | None:
                  ToolCall("browser-2", "type_text", {"text": typed}),
                  ToolCall("browser-3", "press_key", {"keys": "return"})],
                 caption, f"I {summary}.")
+
+
+NAMED_TAB = [
+    re.compile(r"^(?:go|switch|change|move|jump|flip|take\s+me)\s+(?:over\s+|back\s+)*to\s+(?:the\s+|my\s+)?"
+               r"(?P<name>.+?)\s+tab$"),
+    re.compile(r"^(?:open|show(?:\s+me)?|bring\s+up|pull\s+up)\s+(?:the|my)\s+(?P<name>.+?)\s+tab$"),
+    re.compile(r"^(?:go|switch|change|move|jump)\s+(?:over\s+|back\s+)*to\s+the\s+tab\s+(?:with|for|showing|that\s+has)\s+"
+               r"(?:the\s+|my\s+)?(?P<name>.+)$"),
+]
+NOT_TAB_NAMES = {"next", "previous", "last", "first", "new", "other", "that", "this", "same", "a", "second", "third"}
+TAB_NOISE = re.compile(r"\s+-\s+(?:memory usage|high memory usage)\b.*$|^\(\d+\)\s*|\s+-\s+(?:audio playing|muted)\b.*$",
+                       re.IGNORECASE)
+
+
+def named_tab(utterance: str, snapshot: dict) -> Plan | None:
+    """ "Go to my YouTube tab": click the one tab whose title names it, or None."""
+    text = _clean(utterance)
+    match = next((m for m in (p.match(text) for p in NAMED_TAB) if m), None)
+    if match is None:
+        return None
+    name = match.group("name").strip()
+    if name in NOT_TAB_NAMES or len(name.split()) > 5:
+        return None
+    wanted = re.findall(r"[a-z0-9]+", name)
+    tabs = []
+    for item in snapshot.get("elements", []):
+        if item.get("role") != "tab":
+            continue
+        title = TAB_NOISE.sub("", item.get("label") or "")
+        shown = re.findall(r"[a-z0-9]+", title.casefold())
+        joined = "".join(shown)
+        if all(word in shown or word in joined for word in wanted):
+            tabs.append((item, title))
+    if len(tabs) != 1:
+        return None  # no such tab, or several: the model (or a question) sorts it out
+    tab, title = tabs[0]
+    short = re.sub(r"\s*\|\s*", " ", title.split(" - ")[0]).strip() or name
+    if "selected" in tab.get("states", []):
+        return Plan([], "", f"You're already on the {short} tab.")
+    return Plan([ToolCall("browser-1", "click", {"id": tab["id"]})], f"Switching to {short}", f"Switched to {short}.")
