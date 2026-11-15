@@ -80,6 +80,9 @@ class MessagesHelper:
         if not self.query:
             return []
         words = self.query.casefold()
+        self.polls = getattr(self, "polls", 0) + 1
+        if getattr(self, "group_first", False) and self.polls < 6:
+            return [chat for chat in self.CHATS if words in chat.casefold() and chat.casefold() != words]
         return [chat for chat in self.CHATS if words in chat.casefold()] + (
             ["David", "David & Clav"] if words == "poker" else [])  # messages that mention poker
 
@@ -121,9 +124,9 @@ class MessagesHelper:
         if path == "/ax/act" and payload.get("action") == "focus" and payload["element_id"] == 99:
             self.focus = "message"
         elif path == "/app/open":
+            if payload["name"] == "Messages" and self.app != "Messages":
+                self.window = "David"  # Messages comes forward on its last chat
             self.app = payload["name"]
-            if self.app == "Messages":
-                self.window = "David"
         elif path == "/input/key":
             keys = payload["keys"]
             if keys == "cmd+f":
@@ -358,3 +361,41 @@ def test_switch_to_clav_in_messages_uses_search():
 
     helper = asyncio.run(go())
     assert helper.window == "Clav" and helper.spoken == ["Opened the Clav chat."]
+
+
+
+def selected_list_screen(helper):
+    """Messages' real snapshot: the whole chat list is one selected text holding every name."""
+    original = helper.snapshot
+
+    async def snapshot():
+        screen = await original()
+        row = {"id": 3, "role": "text", "states": ["selected"],
+               "label": "David, How are you doing?, 11:45 PM Clav, Damn, 1:18 AM"}
+        return {**screen, "elements": [row, *screen["elements"]]}
+
+    helper.snapshot = snapshot
+
+
+@pytest.mark.loop
+@pytest.mark.parametrize("group_first", [False, True])
+def test_go_to_david_from_the_clav_chat_opens_david_not_a_group(group_first):
+    async def go():
+        helper = MessagesHelper()
+        helper.CHATS = ["David & Clav", "Alvin, David & Clav", "Clav", "David", "Poker"]
+        helper.app, helper.window, helper.group_first = "Messages", "Clav", group_first
+        selected_list_screen(helper)
+        brain = helper.brain = Brain(helper, None, Config(log_path=Path("/dev/null"), settle_ms=0), "Test")
+        await brain.on_event({"type": "stt.final", "text": "Go to David.", "stt_ms": 0})
+        await brain.active
+        return helper
+
+    helper = asyncio.run(go())
+    assert helper.window == "David"
+    assert helper.spoken == ["Opened the David chat."]
+
+
+def test_exact_name_wins_over_a_group_that_contains_it():
+    labels = ["David & Clav", "Alvin, David & Clav", "David"]
+    assert chats.exact_index("david", labels) == 2
+    assert chats.title_is("David", {"window": "David"}) and not chats.title_is("David", {"window": "David & Clav"})
