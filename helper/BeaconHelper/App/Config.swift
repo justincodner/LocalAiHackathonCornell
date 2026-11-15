@@ -52,9 +52,22 @@ enum Config {
                                 starts: [URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
                                          Bundle.main.executableURL?.deletingLastPathComponent()].compactMap { $0 },
                                 remembered: UserDefaults.standard.string(forKey: rememberedRootKey))
-        if let found { UserDefaults.standard.set(found.path, forKey: rememberedRootKey) }
+        // Remember the main checkout, not a worktree: worktrees come and go, and have no models/ of their own.
+        if let found { UserDefaults.standard.set((mainCheckout(of: found) ?? found).path, forKey: rememberedRootKey) }
         return found
     }()
+
+    /// The main checkout when `root` is a linked git worktree (its `.git` is a file "gitdir: <main>/.git/worktrees/<name>"),
+    /// else nil. Git-ignored files such as `models/` live only in the main checkout.
+    static func mainCheckout(of root: URL, readGitFile: (URL) -> String? = { try? String(contentsOf: $0, encoding: .utf8) }) -> URL? {
+        guard let text = readGitFile(root.appendingPathComponent(".git")) else { return nil }
+        guard let line = text.split(whereSeparator: \.isNewline).first, line.hasPrefix("gitdir:") else { return nil }
+        var gitdir = line.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespaces)
+        if !gitdir.hasPrefix("/") { gitdir = root.appendingPathComponent(gitdir).standardizedFileURL.path }
+        guard let marker = gitdir.range(of: "/.git/worktrees/") else { return nil }
+        let main = String(gitdir[..<marker.lowerBound])
+        return main.isEmpty ? nil : URL(fileURLWithPath: main)
+    }
 
     static let rememberedRootKey = "BeaconRepoRoot"
 
@@ -93,7 +106,21 @@ enum Config {
         let raw = string("BEACON_MODELS_DIR", "models")
         if raw.hasPrefix("/") { return URL(fileURLWithPath: raw) }
         let base = repoRoot ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        return base.appendingPathComponent(raw)
+        return resolveModelsDir(relative: raw, root: base, mainCheckout: mainCheckout(of: base), sttModel: sttModel)
+    }
+
+    /// `<root>/models`, unless `root` is a worktree without the Whisper model and the main checkout has it. Started
+    /// from a worktree, the Helper otherwise cancelled every recording with stt_model_missing. Pure, so it is tested.
+    static func resolveModelsDir(relative: String, root: URL, mainCheckout: URL?, sttModel: String,
+                                 hasWhisperModel: ((URL) -> Bool)? = nil) -> URL {
+        let own = root.appendingPathComponent(relative)
+        guard let mainCheckout, mainCheckout.standardizedFileURL.path != root.standardizedFileURL.path else { return own }
+        let shared = mainCheckout.appendingPathComponent(relative)
+        let has = hasWhisperModel ?? { dir in
+            WhisperModelLocator.resolve(name: sttModel, in: dir.appendingPathComponent("whisperkit-coreml")) != nil
+        }
+        if has(own) { return own }
+        return has(shared) ? shared : own
     }
 
     static var whisperModelsDir: URL { modelsDir.appendingPathComponent("whisperkit-coreml") }
