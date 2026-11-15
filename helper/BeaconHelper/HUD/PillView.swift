@@ -203,6 +203,22 @@ struct PillView: View {
                         .frame(width: size.width, height: size.height)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(0.35), lineWidth: 1))
+                        .overlay {
+                            if model.selectionLoading {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.55))
+                                    ProgressView()
+                                        .progressViewStyle(.circular)
+                                        .controlSize(.regular)
+                                        .tint(.white)
+                                        .colorScheme(.dark)
+                                        .frame(width: 48, height: 48)
+                                        .background(Circle().fill(Color.black.opacity(0.85)))
+                                        .overlay(Circle().strokeBorder(.white.opacity(0.6), lineWidth: 1))
+                                }
+                                .accessibilityLabel("Reading the selection")
+                            }
+                        }
                         .overlay(alignment: .topTrailing) {
                             if let clearSelection {
                                 HUDButton(symbol: "xmark", label: "Remove screenshot",

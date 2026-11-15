@@ -159,7 +159,9 @@ enum RegionReader {
     }
 
     /// `region` is a top-left-origin global rect in points.
-    static func read(region: CGRect, accessibility: AccessibilityProviding) async throws -> Reading {
+    /// `onCaptured` gets the image as soon as it is captured, before the slower OCR, so the HUD can show it.
+    static func read(region: CGRect, accessibility: AccessibilityProviding,
+                     onCaptured: (@MainActor (CGImage) -> Void)? = nil) async throws -> Reading {
         guard CGPreflightScreenCaptureAccess() else {
             throw HelperError(.permissionDenied, "Screen Recording permission is not granted")
         }
@@ -168,6 +170,7 @@ enum RegionReader {
         }
         async let elementsTask = elements(in: target.global, accessibility: accessibility)
         let image = try await capture(displayID: target.display.id, local: target.local)
+        if let onCaptured { await onCaptured(image) }
         let lines = try await recognize(image)
         let (app, elementLines) = await elementsTask
         let ocr = SelectionFocus.readingOrder(lines)

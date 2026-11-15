@@ -123,29 +123,37 @@ final class PromptCoordinator {
         readTask = Task { @MainActor [weak self] in
             let started = Date()
             do {
-                let result = try await RegionReader.read(region: rect, accessibility: accessibility)
+                let result = try await RegionReader.read(region: rect, accessibility: accessibility) { image in
+                    // Show the screenshot right away with a spinner while it is read.
+                    guard !Task.isCancelled else { return }
+                    self?.hud.setSelection(preview: Self.loadingText, image: image, loading: true)
+                }
                 guard !Task.isCancelled, let self else { return }
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
                 Log.info("selection read: \(result.ocrLineCount) OCR lines, \(result.elementCount) elements, \(ms) ms")
                 guard let focus = result.focus, let text = focus["text"] as? String else {
+                    self.hud.setSelection(preview: nil)
                     self.fail("I couldn't read any text in that area. Try selecting a larger area.")
                     return
                 }
                 self.selectionReady(focus: focus, text: text, image: result.image)
             } catch {
-                guard let self else { return }
+                guard let self, !Task.isCancelled else { return }
+                self.hud.setSelection(preview: nil)
                 Log.error("selection read failed: \(error)")
                 self.fail("I couldn't read that part of the screen.")
             }
         }
     }
 
+    static let loadingText = "Reading the selection…"
+
     private func selectionReady(focus: JSONObject, text: String, image: CGImage) {
         focusID = services.events.setPendingFocus(focus)
         hud.setSelection(preview: SelectionFocus.preview(text), image: image)
         hud.play(.listenStop)
-        notify("Selection ready. Hold \(hud.model.talkKey) and ask about it, or press \(hud.model.typeShortcut) to type.",
-               speak: true)
+        // The HUD shows how to ask ("Hold Option to ask, or type it"); speech just confirms.
+        notify("Image is selected.", speak: true)
         scheduleExpiry()
     }
 
@@ -169,6 +177,8 @@ final class PromptCoordinator {
     /// The thumbnail's X: drop the screenshot and its pending focus, and tell the Brain to start a fresh
     /// conversation (it stops any task in progress and forgets earlier exchanges).
     func removeSelectionAndReset() {
+        readTask?.cancel()
+        readTask = nil
         services.events.clearPendingFocus()
         selectionConsumed()
         services.speechOut.stop()

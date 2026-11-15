@@ -232,6 +232,21 @@ final class PromptHUDTests: XCTestCase {
         XCTAssertEqual(requests, [true, false])
     }
 
+    @MainActor
+    func testSelectionShowsTheScreenshotWithASpinnerWhileItIsRead() {
+        let hud = HUDController()
+        let image = HUDTests.sampleInvoiceImage().cgImage(forProposedRect: nil, context: nil, hints: nil)
+        hud.setSelection(preview: PromptCoordinator.loadingText, image: image, loading: true)
+        XCTAssertTrue(hud.model.selectionLoading)
+        XCTAssertTrue(hud.model.showsSelectionThumbnail, "the screenshot shows while it is read")
+        XCTAssertEqual(hud.model.statusText.title, "Reading your selection")
+        hud.setSelection(preview: "Invoice 42", image: image)
+        XCTAssertFalse(hud.model.selectionLoading)
+        XCTAssertEqual(hud.model.statusText.title, "Ask about this selection")
+        hud.setSelection(preview: nil)
+        XCTAssertFalse(hud.model.selectionLoading)
+    }
+
     func testSelectionOverridesAnOlderQuestion() {
         let model = HUDModel()
         model.state = .asking
