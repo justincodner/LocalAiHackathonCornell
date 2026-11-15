@@ -11,10 +11,12 @@ from beacon_brain.llm import BonsaiClient, BonsaiError
 from beacon_brain.tools import TOOL_DEFINITIONS
 
 
-def server(handler):
+def server(handler, slots=None):
     seen = []
 
     def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/props":
+            return httpx.Response(200, json={"total_slots": slots}) if slots else httpx.Response(404)
         if request.url.path.endswith("/models"):
             return httpx.Response(200, json={"data": [{"id": "Ternary-Bonsai-2-2B-PQ2_0.gguf"}]})
         body = json.loads(request.content)
@@ -128,3 +130,70 @@ def test_plain_text_answer_becomes_say_when_say_is_offered():
     call = asyncio.run(run())
     assert (call.name, call.arguments) == ("say", {"text": "The capital of France is Paris."})
     assert len(seen) == 1 and seen[0]["stop"] == ["</think>"]
+
+
+def test_startup_prewarms_every_prompt_family_and_survives_a_failure():
+    from beacon_brain.config import Config
+    from beacon_brain.loop import SCREEN_SUMMARY_TOOLS, prompt_families
+    from beacon_brain.main import prewarm
+
+    warmed = []
+
+    class Model:
+        async def prewarm(self, system, family_tools):
+            warmed.append((system, [tool["function"]["name"] for tool in family_tools]))
+            if len(warmed) == 2:
+                raise BonsaiError("busy")
+            return 1.0
+
+    asyncio.run(prewarm(Config(), Model(), "MAIN"))
+    families = prompt_families("MAIN")
+    assert len(warmed) == len(families) == len({(s, tuple(t)) for s, t in warmed})
+    assert warmed[0] == ("MAIN", [tool["function"]["name"] for tool in TOOL_DEFINITIONS])
+    assert ("MAIN", ["say"]) in warmed and SCREEN_SUMMARY_TOOLS[0]["function"]["name"] == "say"
+
+
+def test_a_one_slot_server_gets_no_slot_pin():
+    transport, seen = server(lambda body, n: tool_reply("say", {"text": "hi"}), slots=1)
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport) as client:
+            await client.next_tool_call([{"role": "system", "content": "A"}], TOOL_DEFINITIONS)
+
+    asyncio.run(run())
+    assert "id_slot" not in seen[0]
+
+
+def test_prewarmed_families_keep_their_slots_and_others_share_the_rest():
+    transport, seen = server(lambda body, n: tool_reply("say", {"text": "hi"}), slots=3)
+    say_only = [tool for tool in TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
+
+    def ask(client, system, tools):
+        return client.next_tool_call(
+            [{"role": "system", "content": system}, {"role": "user", "content": "x"}], tools)
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport) as client:
+            await client.prewarm("MAIN", TOOL_DEFINITIONS)
+            await client.prewarm("MAIN", say_only)  # same prompt, other tools: another family
+            await ask(client, "MAIN", TOOL_DEFINITIONS)
+            await ask(client, "ADVICE", say_only)  # not warmed: the spare slot
+            await ask(client, "DECIDE", say_only)  # takes the spare slot over
+            await ask(client, "MAIN", say_only)
+            await ask(client, "ADVICE", say_only)
+
+    asyncio.run(run())
+    assert [body["id_slot"] for body in seen] == [0, 1, 0, 2, 2, 1, 2]
+
+
+def test_with_every_slot_warm_another_family_is_left_to_the_server():
+    transport, seen = server(lambda body, n: tool_reply("say", {"text": "hi"}), slots=1 + 1)
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport) as client:
+            await client.prewarm("A", TOOL_DEFINITIONS)
+            await client.prewarm("B", TOOL_DEFINITIONS)
+            await client.next_tool_call([{"role": "system", "content": "C"}], TOOL_DEFINITIONS)
+
+    asyncio.run(run())
+    assert [body.get("id_slot") for body in seen] == [0, 1, None]

@@ -139,6 +139,28 @@ All 6 screen questions, 12 of 12 single actions bar the checkbox, and all 4 risk
   "the reply one": `click` Reply, then `done`. The first live try asked twice, because the answer replaced the
   original request. Memory now keeps `REQUEST` plus `USER ANSWERED "<question>": <reply>`.
 
+### Prompt cache per prompt family (Windows laptop, Vulkan on Iris Xe, 2026-11-14)
+
+The Brain sends six fixed system prompt + tool list prefixes: actions, "What's on my screen?", routing, screen
+questions, browser page summaries and follow-up rewrites. Bonsai 2 is a hybrid model (`qwen35`, mostly recurrent
+layers), so llama-server can reuse a cached prefix only up to a saved checkpoint. With one slot, only the prewarmed
+action prefix survived. The others re-read their whole prompt every time: "What's on my screen?" re-read 3,749
+tokens (19 s) in a live session. The RAM prompt cache holds just 4–5 prompts, so prewarming all six on one slot
+still left one family cold.
+
+Same 10 requests after the first action, with the real Brain prompts and the `safari_form.json` screen:
+
+| Server | Prewarm | Total | Cold requests |
+| --- | --- | ---: | --- |
+| `-np 1` | action prefix only | 67.4 s | on-screen 1,807 tok, routing, follow-up, screen question, page summary |
+| `-np 1` | all six families | 61.3 s | first screen question (evicted from the RAM cache) |
+| `-np 4 --kv-unified`, pinned | action prefix only | 97.6 s | every action after another family: a unified cache clears idle slots |
+| **`-np 7 --no-kv-unified --cache-ram 0`, all six prewarmed and pinned** | all six | **51.8–54.0 s** | none |
+
+With pinning, routing takes 1.5–2.5 s, follow-up rewrites 1.9 s, actions 3.9–4.4 s and "What's on my screen?"
+4.5–4.9 s. The remaining time goes on the new snapshot (~430 tokens at ~150 tok/s) and on generation. Startup
+warm-up grows from ~13 s to ~37 s. KV memory is 7 × 6,144 tokens (~500 MiB) instead of 16,384 (192 MiB).
+
 ### Checks from spec 15.2
 
 - [x] `tool_choice: "required"` accepted (M1 and Windows)

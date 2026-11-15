@@ -7,7 +7,8 @@
 # This starts llama-server.exe directly instead of going through PrismML's
 # scripts\start_llama_server.ps1, which hard-codes port 8080 and refuses to start
 # when anything answers on it. Always binds 127.0.0.1 (BONSAI_HOST is ignored).
-# BONSAI_NGL overrides the GPU layer count; BONSAI_CTX sets the default -Context.
+# BONSAI_NGL overrides the GPU layer count; BONSAI_CTX sets the default -Context (total, split
+# across the slots); BONSAI_SLOTS sets the slot count.
 [CmdletBinding()]
 param(
     [ValidateSet('2B', '4B')]
@@ -28,12 +29,19 @@ if (-not (Test-Path -LiteralPath $DemoPath -PathType Container)) {
 }
 $DemoPath = (Resolve-Path -LiteralPath $DemoPath).Path
 
+# One slot per prompt family. The Brain prewarms six (loop.prompt_families) and pins each to its
+# own slot (llm.py, id_slot); the seventh serves anything else. Bonsai 2 is a hybrid model, so a
+# slot shared by several families kept losing their cached prefixes (10-19 s steps; docs/bench.md).
+$slots = 7
+$envSlots = 0
+if ($env:BONSAI_SLOTS -and [int]::TryParse($env:BONSAI_SLOTS, [ref]$envSlots) -and $envSlots -gt 0) { $slots = $envSlots }
+
 if ($Context -le 0) {
     $envCtx = 0
     if ($env:BONSAI_CTX -and [int]::TryParse($env:BONSAI_CTX, [ref]$envCtx) -and $envCtx -gt 0) {
         $Context = $envCtx
     } else {
-        $Context = 16384
+        $Context = 6144 * $slots  # an action step peaked at ~3,800 tokens
     }
 }
 
@@ -81,7 +89,9 @@ $ngl = if ($env:BONSAI_NGL) { $env:BONSAI_NGL } elseif ($binRel -like 'bin\cpu\*
 # Windows PowerShell 5.1 does not escape embedded quotes for native commands.
 $templateKwargs = if ($PSVersionTable.PSEdition -eq 'Desktop') { '{\"enable_thinking\":false}' } else { '{"enable_thinking":false}' }
 
-# -np 1: a single slot keeps the warm prompt cache from being evicted.
+# --no-kv-unified: with a shared cache, llama-server clears idle slots when another one starts.
+# --cache-ram 0: the slots keep their own prefixes, so the RAM prompt cache (4-5 prompts, up to
+# 8 GB) only added ~0.1-0.3 s of saving per request.
 # Sampling: PrismML's non-thinking small-model profile (small_model_sampling.ps1, BONSAI_THINKING=0).
 $serverArgs = @(
     '-m', $modelFile.FullName,
@@ -89,7 +99,7 @@ $serverArgs = @(
     '--port', "$Port",
     '-ngl', $ngl, '-fa', 'on',
     '-c', "$Context",
-    '-np', '1',
+    '-np', "$slots", '--no-kv-unified', '--cache-ram', '0',
     '--jinja',
     '--temp', '0.7', '--top-p', '0.8', '--top-k', '20', '--min-p', '0',
     '--presence-penalty', '1.5', '--repeat-penalty', '1.0', '--repeat-last-n', '64',
@@ -103,7 +113,7 @@ Write-Host "  Model:   $($modelFile.Name)"
 Write-Host "  URL:     http://127.0.0.1:$Port  (API /v1/chat/completions)"
 Write-Host "  Binary:  $bin"
 Write-Host "  GPU:     -ngl $ngl ($nglNote)"
-Write-Host "  Context: -c $Context"
+Write-Host "  Context: -c $Context, $slots slots of $([math]::Floor($Context / $slots)) tokens"
 Write-Host '  Press Ctrl+C to stop.'
 Write-Host ''
 

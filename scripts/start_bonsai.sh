@@ -5,8 +5,8 @@
 #   scripts/start_bonsai.sh            start, wait until ready, stay in the foreground (Ctrl-C stops it)
 #   scripts/start_bonsai.sh --detach   start, wait until ready, return (pid in logs/bonsai.pid)
 #
-# Env: BONSAI_MODEL (2B if installed, otherwise 4B), BONSAI_CTX (16384), BONSAI_DIR (../Bonsai-demo), BEACON_VISION=1 keeps the vision
-# projector loaded (P2 only; it costs ~0.4-0.6 GB). BONSAI_HOST is never set: the server binds 127.0.0.1.
+# Env: BONSAI_MODEL (2B if installed, otherwise 4B), BONSAI_SLOTS (7), BONSAI_CTX (total, 6144 x slots),
+# BONSAI_DIR (../Bonsai-demo), BEACON_VISION=1 keeps the vision projector loaded (P2 only; it costs ~0.4-0.6 GB). BONSAI_HOST is never set: the server binds 127.0.0.1.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -46,12 +46,17 @@ if [[ "${BEACON_VISION:-0}" != "1" && -z "${BONSAI_GGUF:-}" ]]; then
   done
 fi
 
-echo "==> Starting Bonsai $MODEL_SIZE (vision: ${BEACON_VISION:-0}, ctx ${BONSAI_CTX:-16384}, thinking off); log: $LOG"
+# One slot per prompt family: the Brain prewarms six (loop.prompt_families) and pins each to its own
+# slot (llm.py, id_slot). Bonsai 2 is a hybrid model, so families sharing a slot lost their cached
+# prefixes (docs/bench.md). Separate KV per slot; the RAM prompt cache is no longer needed.
+SLOTS="${BONSAI_SLOTS:-7}"
+CTX="${BONSAI_CTX:-$((6144 * SLOTS))}"
+echo "==> Starting Bonsai $MODEL_SIZE (vision: ${BEACON_VISION:-0}, ctx $CTX across $SLOTS slots, thinking off); log: $LOG"
 (
   cd "$BONSAI_DIR"
   if [[ -n "$GGUF_OVERRIDE" ]]; then export BONSAI_GGUF="$GGUF_OVERRIDE"; unset BONSAI_MMPROJ; fi
-  BONSAI_MODEL="$MODEL_SIZE" BONSAI_THINKING=0 BONSAI_CTX="${BONSAI_CTX:-16384}" \
-    exec ./scripts/start_llama_server.sh
+  BONSAI_MODEL="$MODEL_SIZE" BONSAI_THINKING=0 BONSAI_CTX="$CTX" \
+    exec ./scripts/start_llama_server.sh -np "$SLOTS" --no-kv-unified --cache-ram 0
 ) >"$LOG" 2>&1 &
 PID=$!
 echo "$PID" >"$PID_FILE"

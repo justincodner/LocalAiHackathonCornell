@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -73,6 +74,12 @@ class BonsaiClient:
         }
         self._model: str | None = None
         self._required_tool_choice = True
+        # Server slots, read from /props. With more than one, every prewarmed prompt family keeps
+        # a slot of its own (see _slot_for); other families share whatever slots are left.
+        self._root_url = re.sub(r"/v1/?$", "", base_url.rstrip("/")) + "/"
+        self._slot_count = 1
+        self._slots: OrderedDict[tuple[str, tuple[str, ...]], int] = OrderedDict()
+        self._warm_families: set[tuple[str, tuple[str, ...]]] = set()
 
     async def __aenter__(self) -> "BonsaiClient":
         return self
@@ -98,8 +105,49 @@ class BonsaiClient:
                 model_id = model.get("id") if isinstance(model, dict) else None
                 if isinstance(model_id, str) and model_id.strip():
                     self._model = model_id
+                    await self._discover_slots()
                     return model_id
         raise BonsaiError("Bonsai reported no loaded model")
+
+    async def _discover_slots(self) -> None:
+        """Read the server's slot count; without it, requests stay unpinned."""
+        try:
+            async with asyncio.timeout(self._timeout_s):
+                response = await self._http.get(f"{self._root_url}props")
+                response.raise_for_status()
+                total = response.json().get("total_slots")
+        except (httpx.HTTPError, TimeoutError, ValueError, AttributeError):
+            return
+        if type(total) is int and total > 0:
+            self._slot_count = total
+
+    def _slot_for(self, messages: Sequence[Mapping[str, Any]], tools: Sequence[Mapping[str, Any]],
+                  *, warm: bool = False) -> int | None:
+        """The slot holding this prompt family's cached prefix, or None to let the server choose.
+
+        Bonsai 2 is a hybrid model: a cached prefix is reusable only up to a saved checkpoint, and
+        llama-server's RAM prompt cache keeps just 4-5 prompts. Families sharing one slot evicted
+        each other, and an evicted family re-read its whole ~1,400-2,500-token prefix (10-19 s on
+        the Windows laptop). A family is its system prompt plus tool names. Prewarmed families
+        keep their slot for good; the others take turns on the rest, least recently used first.
+        """
+        if self._slot_count <= 1:
+            return None
+        system = messages[0].get("content") if messages and messages[0].get("role") == "system" else ""
+        names = tuple(str(tool.get("function", {}).get("name", "")) for tool in tools)
+        family = (system if isinstance(system, str) else json.dumps(system), names)
+        if family in self._slots:
+            self._slots.move_to_end(family)
+        elif len(self._slots) < self._slot_count:
+            self._slots[family] = len(self._slots)
+        else:
+            oldest = next((key for key in self._slots if key not in self._warm_families), None)
+            if oldest is None:
+                return None
+            self._slots[family] = self._slots.pop(oldest)
+        if warm:
+            self._warm_families.add(family)
+        return self._slots[family]
 
     async def prewarm(self, system_prompt: str, tools: Sequence[Mapping[str, Any]]) -> float:
         """Fill the server's prompt cache with the fixed system prompt + tool schemas (spec 10.3).
@@ -118,6 +166,9 @@ class BonsaiClient:
             ],
             "tools": [dict(tool) for tool in tools],
         }
+        slot = self._slot_for(payload["messages"], tools, warm=True)
+        if slot is not None:
+            payload["id_slot"] = slot
         loop = asyncio.get_running_loop()
         started = loop.time()
         limit = max(self._timeout_s, 120)  # a cold prefix takes ~20 s on a laptop CPU
@@ -150,6 +201,9 @@ class BonsaiClient:
             "messages": [dict(message) for message in messages],
             "tools": [dict(tool) for tool in tools],
         }
+        slot = self._slot_for(payload["messages"], tools)
+        if slot is not None:
+            payload["id_slot"] = slot
         for attempt in range(self._attempts):
             try:
                 response, allow_text = await self._request_completion(payload)

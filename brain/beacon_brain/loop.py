@@ -24,6 +24,24 @@ DECIDE_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["nam
 SCREEN_SUMMARY_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
 
 
+def prompt_families(prompt: str) -> list[tuple[str, list[dict]]]:
+    """The fixed system prompt + tool list prefixes the Brain sends, most used first.
+
+    Bonsai 2 is a hybrid model: llama-server can reuse a cached prefix only up to a saved
+    checkpoint, and a prefix gets one where it ends only if it was prewarmed on its own.
+    Any family left out re-reads its whole prompt on every request (a "What's on my screen?"
+    step took 19 s that way on the Windows laptop).
+    """
+    return [
+        (prompt, tools.TOOL_DEFINITIONS),  # actions
+        (prompt, SCREEN_SUMMARY_TOOLS),  # "What's on my screen?" outside a browser
+        (questions.ROUTING_PROMPT, SCREEN_SUMMARY_TOOLS + questions.ROUTE_TOOLS),  # questions
+        (questions.SCREEN_PROMPT, SCREEN_SUMMARY_TOOLS),  # questions about the screen
+        (page_summary.PROMPT, SCREEN_SUMMARY_TOOLS),  # "What's on my screen?" in a browser
+        (followup.PROMPT, followup.REWRITE_TOOLS),  # follow-up rewrites
+    ]
+
+
 def snapshot_summary(snapshot: dict) -> ToolCall:
     app = snapshot["app"]
     title = snapshot["window"].strip()

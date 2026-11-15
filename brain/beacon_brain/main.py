@@ -9,8 +9,7 @@ from websockets.exceptions import WebSocketException
 from .config import ROOT, Config
 from .helper_client import HelperClient, HelperError
 from .llm import BonsaiClient, BonsaiError
-from .loop import Brain
-from .tools import TOOL_DEFINITIONS
+from .loop import Brain, prompt_families
 
 
 LOGGER = logging.getLogger(__name__)
@@ -28,13 +27,16 @@ def make_client(config: Config, url: str, *, question: bool = False) -> BonsaiCl
 
 
 async def prewarm(config: Config, model: BonsaiClient, prompt: str) -> None:
+    """Warm every prompt family (loop.prompt_families), so none re-reads its fixed prefix."""
     if not config.prewarm:
         return
-    try:
-        seconds = await model.prewarm(prompt, TOOL_DEFINITIONS)
-        LOGGER.info("Prompt cache warmed in %.1f s", seconds)
-    except BonsaiError as error:  # an optimisation only; the first request will be slow
-        LOGGER.warning("Prompt cache not warmed: %s", error)
+    total = 0.0
+    for system, family_tools in prompt_families(prompt):
+        try:
+            total += await model.prewarm(system, family_tools)
+        except BonsaiError as error:  # an optimisation only; that family's requests will be slow
+            LOGGER.warning("Prompt cache not warmed for %r: %s", system[:40], error)
+    LOGGER.info("Prompt cache warmed in %.1f s", total)
 
 
 async def run(config: Config) -> None:

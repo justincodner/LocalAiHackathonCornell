@@ -103,8 +103,8 @@ $env:BEACON_LLM_QUESTION_URL = "http://127.0.0.1:8082/v1"; brain\.venv\Scripts\p
 ```
 
 `scripts/start_bonsai.ps1` now starts `llama-server.exe` directly, because PrismML's launcher hard-codes port 8080
-and refuses to start when anything answers there. It binds to 127.0.0.1 only, uses one slot (`-np 1`), and refuses a
-busy port. The evals route the same way when `BEACON_LLM_QUESTION_URL` (or `--question-url`) is set, and print a
+and refuses to start when anything answers there. It binds to 127.0.0.1 only, starts seven slots with separate
+caches (`-np 7 --no-kv-unified`, one per prompt family; see `docs/bench.md`), and refuses a busy port. The evals route the same way when `BEACON_LLM_QUESTION_URL` (or `--question-url`) is set, and print a
 score per route.
 
 For Justin (Mac): `run_all.sh` would start a second server, `BONSAI_MODEL=4B` on port 8082, and export
