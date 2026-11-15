@@ -160,6 +160,7 @@ class Scenario:
     utterance: str
     check: Callable[[FakeHelper], str | None]  # None = pass, else what went wrong
     replies: list[str] = field(default_factory=list)
+    before: list[str] = field(default_factory=list)  # earlier requests in the same conversation; not checked
 
 
 def expect(condition: bool, message: str) -> str | None:
@@ -238,21 +239,38 @@ SCENARIOS = [
              lambda h: expect(not sent(h) and not h.typed(), f"acted on page text: {h.actions}")),
     Scenario("general question", lambda: load("notes_list"), "What's the capital of France?",
              lambda h: no_actions(h) or expect("paris" in h.said(), f"said {h.spoken}")),
+    # Conversation memory: the check sees only what was said after the last request.
+    Scenario("follow-up pronoun", lambda: load("notes_list"), "When was she born?",
+             lambda h: no_actions(h) or expect("1775" in h.said(), f"said {h.spoken}"),
+             before=["Who wrote Pride and Prejudice?"]),
+    Scenario("follow-up ellipsis", lambda: load("notes_list"), "What about Italy?",
+             lambda h: no_actions(h) or expect("rome" in h.said(), f"said {h.spoken}"),
+             before=["What is the capital of France?"]),
+    Scenario("follow-up on screen", lambda: load("mail_inbox"), "What does she want?",
+             lambda h: no_actions(h) or expect("lunch" in h.said(), f"said {h.spoken}"),
+             before=["Who sent the latest email here?"]),
 ]
 
 
 async def run_one(scenario: Scenario, config: Config, prompt: str, model, question_model) -> tuple[str | None, float, FakeHelper]:
     helper = FakeHelper(scenario.screen(), scenario.replies)
     brain = helper.brain = Brain(helper, model, config, prompt, question_model)
-    started = time.perf_counter()
-    await brain.on_event({"type": "stt.final", "text": scenario.utterance, "stt_ms": 0})
-    try:
+
+    async def hear(text: str) -> None:
+        await brain.on_event({"type": "stt.final", "text": text, "stt_ms": 0})
         while True:
             task = brain.active
             await asyncio.wait_for(asyncio.shield(task), timeout=config.task_timeout_s + 5)
             await asyncio.sleep(0.2)  # a reply may start a follow-up task
             if brain.active is task or brain.active.done():
                 break
+
+    try:
+        for earlier in scenario.before:
+            await hear(earlier)
+        helper.spoken.clear()
+        started = time.perf_counter()
+        await hear(scenario.utterance)
     except TimeoutError:
         return "timed out", time.perf_counter() - started, helper
     return scenario.check(helper), time.perf_counter() - started, helper
