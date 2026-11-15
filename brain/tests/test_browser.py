@@ -30,7 +30,14 @@ RETURN = ("press_key", {"keys": "return"})
 
 
 @pytest.mark.parametrize("utterance, expected", [
-    ("Open a new tab and search amazon", [NEW_TAB, ("type_text", {"text": "amazon"}), RETURN]),
+    ("Open a new tab and search amazon", [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ("Search for Christmas Gifts, in the Amazon search bar.",
+     [ADDRESS_BAR, ("type_text", {"text": "amazon.com/s?k=christmas+gifts"}), RETURN]),
+    ("search amazon for headphones", [ADDRESS_BAR, ("type_text", {"text": "amazon.com/s?k=headphones"}), RETURN]),
+    ("look up lofi music on youtube",
+     [ADDRESS_BAR, ("type_text", {"text": "youtube.com/results?search_query=lofi+music"}), RETURN]),
+    ("Search, Amazon,", [ADDRESS_BAR, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ("Open a new tab and search for Amazon.com", [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
     ("Open a new tab.", [NEW_TAB]),
     ("new tab", [NEW_TAB]),
     ("Can you open a new tab, then go to github dot com please",
@@ -122,7 +129,7 @@ def run(screen, utterance, *calls, replies=(), **config):
 
 @pytest.mark.loop
 @pytest.mark.parametrize("utterance, typed, first_key, summary", [
-    ("Open a new tab and search amazon", "amazon", "cmd+t", "I opened a new tab and searched for amazon."),
+    ("Open a new tab and search amazon", "amazon.com", "cmd+t", "I opened a new tab and went to amazon.com."),
     ("Open a new tab", None, "cmd+t", "I opened a new tab."),
     ("Search for cats", "cats", "cmd+l", "I searched for cats."),
     ("Go to youtube", "youtube.com", "cmd+l", "I went to youtube.com."),

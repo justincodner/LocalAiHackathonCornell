@@ -6,6 +6,7 @@ Uses the FakeHelper from loop_scenarios.py: nothing touches the real screen.
     brain/.venv/bin/python scripts/demo_sweep_safety.py delete -n 5  # names containing "delete"
 """
 
+import os
 import argparse
 import asyncio
 import copy
@@ -19,6 +20,8 @@ from typing import Callable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from loop_scenarios import FakeHelper, load  # noqa: E402
+# Pin only Bonsai's last slot, so a run never evicts the live Beacon's cached prompts (config.llm_slots).
+os.environ.setdefault("BEACON_LLM_SLOTS", "last")
 from beacon_brain.config import Config  # noqa: E402
 from beacon_brain.loop import Brain  # noqa: E402
 from beacon_brain.main import make_client  # noqa: E402

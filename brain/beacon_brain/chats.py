@@ -4,7 +4,8 @@ The model can't do this: Messages shows its whole conversation list as one text 
 there is nothing to click, and in another app the chat isn't on screen at all. Each chat app
 has a keyboard route instead:
 
-- Messages: Cmd+F, type the name, wait for the "Conversations" results, arrow down to the one
+- Messages: if the chat is listed in the sidebar under exactly that name, press its row (no typing).
+  Otherwise Cmd+F, type the name, wait for the "Conversations" results, arrow down to the one
   that matches, Return opens it, Escape puts the cursor in the message field. The first
   Return after a fresh search is sometimes ignored, so the name is retyped and tried again.
 - Discord and Slack (app or browser tab): Cmd+K opens the quick switcher; type the name,
@@ -21,6 +22,7 @@ from dataclasses import dataclass
 
 from . import compose
 from .browser import LEAD
+from .helper_client import HelperError
 from .page_summary import BROWSERS
 
 I = re.IGNORECASE
@@ -141,6 +143,16 @@ def window_shows(name: str, snapshot: dict) -> bool:
     return name_score(name, window) >= 0.75 or compose.chat_open(name, snapshot)
 
 
+def exact_index(name: str, labels: list[str]) -> int | None:
+    spoken = " ".join(_words(name))
+    return next((i for i, label in enumerate(labels) if " ".join(_words(label)) == spoken), None)
+
+
+def title_is(name: str, snapshot: dict) -> bool:
+    """The window title is exactly this chat ("David", not "David & Clav")."""
+    return " ".join(_words(name)) == " ".join(_words(snapshot.get("window") or "")) != ""
+
+
 def results(snapshot: dict) -> list[dict]:
     """The "Conversations" buttons in Messages' search results, in order."""
     elements = snapshot.get("elements", [])
@@ -154,6 +166,24 @@ def results(snapshot: dict) -> list[dict]:
             break
         found.append(item)
     return found
+
+
+def sidebar_rows(name: str, matches: list[dict]) -> list[dict]:
+    """Messages sidebar rows ("Name, last message, time") whose chat name is exactly `name`, top first.
+
+    "David" matches "David, How are you?, 12:59 AM" but not "David & Clav, ...". Rows are tall texts
+    (two lines, ~80 pt); sender names and timestamps in the open chat are one-line and left out.
+    """
+    spoken = " ".join(_words(name))
+    rows = []
+    for item in matches:
+        label = (item.get("label") or "").replace("\u200e", "")
+        bounds = item.get("bounds") or [0, 0, 0, 0]
+        head = label.split(",", 1)[0]
+        if (item.get("role") == "text" and "," in label and bounds[3] >= 40 and spoken
+                and " ".join(_words(head)) == spoken):
+            rows.append(item)
+    return sorted(rows, key=lambda item: (item.get("bounds") or [0, 0])[1])
 
 
 class Switcher:
@@ -179,23 +209,36 @@ class Switcher:
         """Open the named Messages conversation. (snapshot showing it, its name), or (None, why)."""
         await self.helper.request("/app/open", {"name": "Messages"})
         await self.wait(self.settle_s)
-        snapshot = await self.helper.snapshot()
-        if window_shows(name, snapshot) and compose.message_field(snapshot):
+        # Only the window title says which chat is open: the "selected" chat list holds every name.
+        if title_is(name, await self.helper.frontmost()):
+            snapshot = await self.helper.snapshot()
             return snapshot, snapshot.get("window") or name
+        opened = await self.sidebar(name)
+        if opened is not None:
+            return opened, name
         await self.key("cmd+f")
         for attempt in range(3):
             await self.key("cmd+a")
             await self.type(name)
             found, previous = [], None
-            for _ in range(int(4 / self.POLL_S)):
+            polls = int(4 / self.POLL_S)
+            for poll in range(polls):
                 await self.wait(self.POLL_S)
-                snapshot = await self.helper.snapshot()
+                try:
+                    snapshot = await self.helper.snapshot()
+                except HelperError:
+                    continue  # a slow read while results load: look again
                 labels = [item.get("label") or "" for item in results(snapshot)]
-                if labels and labels == previous and best_match(name, labels) is not None:
-                    found = labels
-                    break
+                stable = bool(labels) and labels == previous
                 previous = labels
-            index = best_match(name, found)
+                if stable and best_match(name, labels) is not None:
+                    found = labels
+                    # "David & Clav" can list before "David" while results load: settle for a partial
+                    # match only once the results have had time to fill in.
+                    if exact_index(name, labels) is not None or poll >= polls // 2:
+                        break
+            index = exact_index(name, found)
+            index = best_match(name, found) if index is None else index
             if index is None:
                 await self.key("escape")
                 return None, f"I couldn't find a Messages chat called {name}."
@@ -208,12 +251,41 @@ class Switcher:
             for _ in range(8):
                 await self.wait(0.25)
                 snapshot = await self.helper.snapshot()
-                if window_shows(found[index], snapshot) or window_shows(name, snapshot):
+                if title_is(found[index], snapshot):
                     await self.key("escape")  # leave search: the cursor goes to the message field
                     await self.wait(self.settle_s)
                     return await self.helper.snapshot(), found[index]
         await self.key("escape")
         return None, f"I found {name} in Messages but couldn't open the chat."
+
+    async def sidebar(self, name: str) -> dict | None:
+        """Click the chat in Messages' sidebar when it is listed there: one press, no typing.
+
+        The window read merges the sidebar into one text, but /ax/find returns each row on its own
+        ("David, Draft: How are you doing?, 12:59 AM"). A row whose name is exactly the spoken one is
+        pressed; the window title must then match, or the next such row is tried ("Alvin" could also
+        start "Alvin, David & Clav"). None when no row worked: the caller searches instead.
+        """
+        try:
+            found = await self.helper.request("/ax/find", {"query": name, "limit": 30})
+        except HelperError:
+            return None
+        for row in sidebar_rows(name, found.get("matches") or []):
+            try:
+                await self.helper.request("/ax/act", {"snapshot_id": row["snapshot_id"], "element_id": row["id"],
+                                                      "action": "press"})
+            except HelperError:
+                continue
+            for _ in range(8):
+                await self.wait(0.25)
+                try:
+                    front = await self.helper.frontmost()
+                except HelperError:
+                    continue
+                if title_is(name, front):
+                    await self.wait(self.settle_s)
+                    return await self.helper.snapshot()
+        return None
 
     async def quick_switcher(self, app: str, name: str, front: dict) -> tuple[dict | None, str | None]:
         """Discord or Slack: bring it forward (its browser tab, or the app), then Cmd+K, name, Return."""
@@ -299,3 +371,41 @@ def here_send(utterance: str, snapshot: dict) -> Request | None:
     window = re.sub(r"\s+-\s+(?:Google Chrome|Safari|Arc|Brave|Microsoft Edge|Firefox)$", "", snapshot.get("window") or "")
     window = re.sub(r"^(?:\(\d+\)\s*)?(?:Discord|Slack)\s*[|:-]\s*[@#]?", "", window).strip()
     return Request(window or "this chat", snapshot.get("app"), message, True)
+
+
+BARE_SWITCH = re.compile(r"^(?:switch|change|go|move|jump|flip|head)\s+(?:over\s+|back\s+)*(?:to|into|the)\s+"
+                         r"(?:the\s+|my\s+)?(?P<name>[\w&'.@ -]+?)"
+                         r"(?:\s*,?\s+(?:and|then)\s+(?:then\s+)?(?:send|say|text|tell\s+(?:them|him|her)|ask|write)\s*"
+                         r"[,:]?\s*(?P<body>.+))?$", I)
+
+
+def bare_switch(utterance: str) -> Request | None:
+    """ "Switch to Clav", "please switch the clav", "go to Clav and send how are you": a chat name with no
+    "chat" word. Only a chat when a chat app is in front (the loop checks); None if it isn't this shape."""
+    text = " ".join(re.sub(r"[\"“”]", "", utterance).split()).rstrip(" .!")
+    text = re.sub(r"(?i)^(?:(?:hey\s+)?beacon|ok(?:ay)?|so|um)\s*[,.]\s*", "", text)
+    text = re.sub(r"(?i)[\s,]+please$", "", LEAD_ANY_CASE.sub("", text)).strip()
+    match = BARE_SWITCH.match(text)
+    if not match:
+        return None
+    body = (match.group("body") or "").strip(" ,.") or None
+    name = match.group("name").casefold()
+    if (re.search(r"\b(?:tab|tabs|page|window|top|bottom|site|website|link|inbox|settings|home|start|end|next|"
+                  r"previous|last|first|line|bar|field|menu|folder|messages?|imessage|discord|slack|app)\b", name)
+            or (body and re.match(r"(?i)(?:a|an|the)\s+(?:message|text|dm)\b|to\s+", body))):
+        return None  # a place on screen or an app, or "send a message to Sam" after it: not a chat name
+    return _request(re.sub(r"(?i)\s+(?:chat|conversation)$", "", match.group("name")), None, body, send=body is not None)
+
+
+def in_chat_app(front: dict) -> bool:
+    app = (front.get("app") or "").casefold()
+    window = (front.get("window") or "").casefold()
+    return app in {"messages", "discord", "slack"} or (app in BROWSERS and ("discord" in window or "slack" in window))
+
+
+TIMESTAMP = re.compile(r"\b\d{1,2}:\d{2}\s*[AP]M\b", re.IGNORECASE)
+
+
+def is_conversation_list(element: dict | None) -> bool:
+    """Messages' whole chat list as one text element ("David, How are you?, 11:45 PM Kai, alr, 10:46 PM ...")."""
+    return bool(element) and len(TIMESTAMP.findall(element.get("label") or "")) >= 2

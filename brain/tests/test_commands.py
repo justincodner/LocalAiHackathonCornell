@@ -287,3 +287,27 @@ def test_an_answer_naming_a_button_overrides_the_models_pick():
 def test_choice_questions_get_advice_from_the_screen(utterance):
     from beacon_brain import fastpath
     assert fastpath.wants_advice(utterance) and fastpath.needs_screen(utterance) and fastpath.is_question(utterance)
+
+
+@pytest.mark.parametrize("utterance, answer", [
+    ("What time is it?", "It's 1:05 AM."), ("Can you tell me the time from my screen", "It's 1:05 AM."),
+    ("what's the time", "It's 1:05 AM."), ("tell me the time please", "It's 1:05 AM."),
+    ("What's the date?", "It's Sunday, November 15, 2026."), ("what day is it today", "It's Sunday, November 15, 2026."),
+    ("what's today's date", "It's Sunday, November 15, 2026."), ("time and date", "It's 1:05 AM on Sunday, November 15."),
+])
+def test_clock_answers_from_this_macs_clock(utterance, answer):
+    import datetime
+    assert commands.clock_answer(utterance, now=datetime.datetime(2026, 11, 15, 1, 5)) == answer
+
+
+@pytest.mark.parametrize("utterance", ["what time does the store close", "set a timer", "what's the date of the meeting",
+                                       "what time is my flight"])
+def test_other_time_questions_go_to_the_model(utterance):
+    assert commands.clock_answer(utterance) is None
+
+
+@pytest.mark.loop
+def test_time_question_needs_no_model_or_screen():
+    helper, model = run(chrome(), "Can you tell me the time from my screen?")
+    assert model.requests == [] and helper.snapshot_calls == 0 and helper.actions == []
+    assert helper.spoken[0].startswith("It's ")

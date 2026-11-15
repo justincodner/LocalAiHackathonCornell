@@ -279,3 +279,31 @@ def named_button(words: str, snapshot: dict, *, bare: bool = False) -> dict | No
             leading.append(item)
     found = exact or leading
     return found[0] if len(found) == 1 else None
+
+
+CLOCK_TIME = re.compile(r"^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:tell me|say|give me|read(?: me)?|check)?\s*"
+                        r"(?:what\s+(?:time\s+it\s+is|the\s+time\s+is)|the\s+(?:current\s+)?time|what(?:s| is)\s+the\s+"
+                        r"(?:current\s+)?time|what\s+time\s+is\s+it|time)(?:\s+(?:is\s+it|now|right\s+now|please|"
+                        r"(?:on|from|in)\s+(?:my|the)\s+(?:screen|computer|mac|clock)|here))*$")
+CLOCK_DATE = re.compile(r"^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:tell me\s+)?(?:what(?:s| is)\s+(?:the\s+|today'?s\s+)?"
+                        r"(?:date|day)(?:\s+today)?|what\s+day\s+is\s+(?:it|today)|what\s+(?:is\s+)?(?:the\s+)?date\s+is\s+it|"
+                        r"the\s+date|today'?s\s+date|what\s+day\s+of\s+the\s+week\s+is\s+it)(?:\s+(?:today|please|now))*$")
+
+
+def clock_answer(utterance: str, now=None) -> str | None:
+    """ "What time is it?", "what's the date?": answered from this Mac's clock, in local time."""
+    import datetime
+
+    text = " ".join(re.sub(r"[^\w ]", " ", utterance.casefold().replace("'", "").replace("’", "")).split())
+    text = re.sub(r"^(?:hey\s+)?beacon\s+", "", text)
+    now = now or datetime.datetime.now()
+    hour = now.strftime("%I").lstrip("0")
+    clock = f"{hour}:{now.strftime('%M %p')}"
+    day = f"{now.strftime('%A, %B')} {now.day}"
+    if CLOCK_TIME.match(text):
+        return f"It's {clock}."
+    if CLOCK_DATE.match(text):
+        return f"It's {day}, {now.year}."
+    if re.fullmatch(r"(?:what(?:s| is) the )?(?:time and (?:the )?date|date and (?:the )?time)(?: please)?", text):
+        return f"It's {clock} on {day}."
+    return None

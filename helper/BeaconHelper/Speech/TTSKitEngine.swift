@@ -1,4 +1,4 @@
-// Owner: Mac owner (H5). TTSKit (Qwen3-TTS 0.6B, voice "ryan", English) with streaming playback through StreamingPlayer.
+// Owner: Mac owner (H5). TTSKit (Qwen3-TTS 0.6B, voice "ryan", English): renders whole utterances to PCM for ClipPlayer.
 import Foundation
 import TTSKit
 
@@ -16,6 +16,7 @@ enum TTSKitEngineError: Error, CustomStringConvertible {
 
 final class TTSKitEngine: SpeechEngine, @unchecked Sendable {
     let name = "ttskit"
+    let rendersRate = false
     static let voice = Qwen3Speaker.ryan.rawValue
     static let language = Qwen3Language.english.rawValue
 
@@ -23,37 +24,17 @@ final class TTSKitEngine: SpeechEngine, @unchecked Sendable {
     let tokenizerFolder: URL
     private let lock = NSLock()
     private var tts: TTSKit?
-    private var player: StreamingPlayer?
     private var prepareTask: Task<Void, Error>?
     private var inflight: Task<Void, Never>?
 
     /// Measurements from `prepare()`, for logs and /health-style reporting.
     private(set) var loadSeconds: Double = 0
-    private(set) var warmupFirstAudioSeconds: Double = 0
-    /// Seconds of audio generated per wall-clock second during warm-up (above 1 streams without gaps).
+    /// Seconds of audio generated per wall-clock second during warm-up.
     private(set) var warmupSpeedFactor: Double = 0
-    /// Time to first audio of the most recent real sentence.
-    private(set) var lastFirstAudioSeconds: Double = 0
     /// Running estimate of generation speed (audio seconds per wall-clock second), seeded by the warm-up.
-    private let speedEstimate = LockedValue(1.0)
+    private let speedEstimate = LockedValue(0.0)
 
-    /// Upper bound on the pre-buffer. On the M1 TTSKit generates at ~0.8x real time, so a fully gap-free start
-    /// would need over 1 s of buffering for long sentences; capping it keeps time to first audio near the
-    /// 1 s budget at the cost of a possible short pause late in a long sentence.
-    static let maxPreBuffer = 0.5
-
-    /// Pre-buffer so playback at `rate` does not run dry when generation is slower than playback.
-    /// Expected audio length is ~0.075 s per character at normal speed.
-    static func preBuffer(for sentence: String, rate: Double, speedFactor: Double) -> Double {
-        let expectedAudio = max(0.5, Double(sentence.count) * 0.075)
-        let deficit = max(0, 1 - speedFactor / max(rate, 0.1))
-        return min(maxPreBuffer, 0.12 + expectedAudio * deficit)
-    }
-
-    /// Called with each real sentence's time to first audio (seconds), so the service can fall back if it is slow.
-    var onTimeToFirstAudio: (@Sendable (Double) -> Void)?
-    /// Called after each sentence plays: true when playback ran dry mid-sentence (generation fell behind).
-    var onSentencePlayed: (@Sendable (_ ranDry: Bool) -> Void)?
+    var speedFactor: Double { isLoaded ? speedEstimate.get() : 0 }
 
     init(modelFolder: URL = Config.ttsModelsDir,
          tokenizerFolder: URL = Config.ttsModelsDir.appendingPathComponent("tokenizer")) {
@@ -115,32 +96,17 @@ final class TTSKitEngine: SpeechEngine, @unchecked Sendable {
         try await kit.buildPromptCache(voice: Self.voice, language: Self.language)
         loadSeconds = CFAbsoluteTimeGetCurrent() - start
 
-        // Warm-up generation (not played) to compile ANE graphs and measure time to first audio.
+        // Warm-up generation (not played) to compile ANE graphs and measure generation speed.
+        let warmText = "Mail, inbox. Newest is from Sarah Chen about lunch tomorrow."
         let warmStart = CFAbsoluteTimeGetCurrent()
-        let firstAudio = StartedFlag()
-        let firstAt = LockedValue<Double>(0)
-        let warm = try await kit.generate(text: "Mail, inbox. Newest is from Sarah Chen about lunch tomorrow.", voice: Self.voice, language: Self.language,
-                                   options: Self.options(for: "Mail, inbox. Newest is from Sarah Chen about lunch tomorrow."),
-                                   callback: { progress in
-                                       if !progress.audio.isEmpty, firstAudio.setOnce() {
-                                           firstAt.set(CFAbsoluteTimeGetCurrent() - warmStart)
-                                       }
-                                       return true
-                                   })
-        warmupFirstAudioSeconds = firstAt.get()
+        let warm = try await kit.generate(text: warmText, voice: Self.voice, language: Self.language,
+                                          options: Self.options(for: warmText), callback: { _ in true })
         let audioSeconds = Double(warm.audio.count) / Double(warm.sampleRate)
         warmupSpeedFactor = audioSeconds / max(0.001, CFAbsoluteTimeGetCurrent() - warmStart)
         speedEstimate.set(warmupSpeedFactor)
-        Log.info(String(format: "tts: warm-up generated %.2fs of audio at %.2fx real time", audioSeconds, warmupSpeedFactor))
-
-        let player = StreamingPlayer(sampleRate: Double(kit.sampleRate))
-        try player.startEngine()
-        lock.withLock {
-            self.tts = kit
-            self.player = player
-        }
-        Log.info(String(format: "tts: ttskit loaded in %.2fs, warm-up time to first audio %.0f ms",
-                        loadSeconds, warmupFirstAudioSeconds * 1000))
+        lock.withLock { self.tts = kit }
+        Log.info(String(format: "tts: ttskit loaded in %.2fs; warm-up generated %.2fs of audio at %.2fx real time",
+                        loadSeconds, audioSeconds, warmupSpeedFactor))
     }
 
     static func options(for sentence: String) -> GenerationOptions {
@@ -152,79 +118,49 @@ final class TTSKitEngine: SpeechEngine, @unchecked Sendable {
         return options
     }
 
-    func speak(_ sentence: String, rate: Double, token: SpeechCancelToken,
-               onFirstAudio: @escaping @Sendable () -> Void) async throws {
-        guard let (kit, player) = lock.withLock({ tts.flatMap { t in player.map { (t, $0) } } }) else {
-            throw TTSKitEngineError.notLoaded
-        }
-        if token.isCancelled { return }
-        let start = CFAbsoluteTimeGetCurrent()
-        let sentStart = StartedFlag()
-        let firstAudioWrapped: @Sendable () -> Void = { [weak self] in
-            if sentStart.setOnce() {
-                let ttfa = CFAbsoluteTimeGetCurrent() - start
-                self?.lastFirstAudioSeconds = ttfa
-                self?.onTimeToFirstAudio?(ttfa)
-            }
-            onFirstAudio()
-        }
-        // A cancelled sentence's generation may still be finishing its current step; never overlap two.
+    func render(_ sentences: [String], rate: Double, token: SpeechCancelToken) async throws -> [[Float]] {
+        guard let kit = lock.withLock({ tts }) else { throw TTSKitEngineError.notLoaded }
+        // A cancelled render's generation may still be finishing its current step; never overlap two.
         if let previous = lock.withLock({ inflight }) { _ = await previous.value }
-        if token.isCancelled { return }
-
-        let preBuffer = Self.preBuffer(for: sentence, rate: rate, speedFactor: speedEstimate.get())
-        try player.begin(rate: rate, preBuffer: preBuffer, onFirstAudio: firstAudioWrapped)
-        let underrunsBefore = player.underruns
-
-        let options = Self.options(for: sentence)
-        let sampleRate = Double(kit.sampleRate)
-        let speed = speedEstimate
-        let generation = Task.detached { () -> Error? in
-            let genStart = CFAbsoluteTimeGetCurrent()
-            do {
-                let result = try await kit.generate(
-                    text: sentence, voice: Self.voice, language: Self.language, options: options,
-                    callback: { progress in
-                        if token.isCancelled { return false }
-                        player.append(progress.audio)
-                        return !token.isCancelled
-                    })
-                // Track generation speed (audio seconds per wall second) to size the next pre-buffer.
-                let audioSeconds = Double(result.audio.count) / sampleRate
-                let wall = CFAbsoluteTimeGetCurrent() - genStart
-                if !token.isCancelled, audioSeconds > 0.5, wall > 0 {
-                    speed.set(0.7 * speed.get() + 0.3 * audioSeconds / wall)
-                }
-                return nil
-            } catch {
-                return error
-            }
+        let start = CFAbsoluteTimeGetCurrent()
+        let sourceRate = Double(kit.sampleRate)
+        var clips: [[Float]] = []
+        var audioSeconds = 0.0
+        for sentence in sentences {
+            if token.isCancelled { return [] }
+            let samples = try await generate(kit, sentence, token: token)
+            if token.isCancelled { return [] }
+            audioSeconds += Double(samples.count) / sourceRate
+            clips.append(SpeechAudio.resample(samples, from: sourceRate))
         }
-        let inflightTask = Task { _ = await generation.value }
-        lock.withLock { inflight = inflightTask }
-
-        // Return as soon as generation ends or the token is cancelled, whichever comes first, so a stop
-        // finishes the item at once instead of waiting for the current generation step.
-        let once = OnceResume()
-        let error: Error? = await withCheckedContinuation { (cont: CheckedContinuation<Error?, Never>) in
-            once.set(cont)
-            token.onCancel {
-                player.stopNow()
-                once.resume(nil)
-            }
-            Task { once.resume(await generation.value) }
+        let wall = CFAbsoluteTimeGetCurrent() - start
+        if audioSeconds > 0.5, wall > 0 {
+            speedEstimate.set(0.7 * speedEstimate.get() + 0.3 * audioSeconds / wall)
         }
-        if token.isCancelled { return }
-        if let error {
-            player.stopNow()
-            throw error
-        }
-        await player.finishAndWait()
-        if !token.isCancelled { onSentencePlayed?(player.underruns > underrunsBefore) }
+        return clips
     }
 
-    func stopAll() {
-        lock.withLock { player }?.stopNow()
+    /// One sentence's audio at the model's sample rate. Returns as soon as `token` is cancelled (with no audio),
+    /// leaving the generation to stop at its next step.
+    private func generate(_ kit: TTSKit, _ sentence: String, token: SpeechCancelToken) async throws -> [Float] {
+        let options = Self.options(for: sentence)
+        let generation = Task.detached { () -> Result<[Float], Error> in
+            do {
+                let result = try await kit.generate(text: sentence, voice: Self.voice, language: Self.language,
+                                                    options: options, callback: { _ in !token.isCancelled })
+                return .success(result.audio)
+            } catch {
+                return .failure(error)
+            }
+        }
+        lock.withLock { inflight = Task { _ = await generation.value } }
+        let once = OnceResume<Result<[Float], Error>>()
+        let result = await withCheckedContinuation { (cont: CheckedContinuation<Result<[Float], Error>, Never>) in
+            once.set(cont)
+            token.onCancel { once.resume(.success([])) }
+            Task { once.resume(await generation.value) }
+        }
+        return try result.get()
     }
 }
 
@@ -239,12 +175,12 @@ final class LockedValue<T>: @unchecked Sendable {
 
 /// Resumes a continuation exactly once, from whichever caller gets there first.
 /// `set` is called synchronously inside `withCheckedContinuation`, before any `resume` can run.
-final class OnceResume: @unchecked Sendable {
+final class OnceResume<T>: @unchecked Sendable {
     private let lock = NSLock()
-    private var cont: CheckedContinuation<Error?, Never>?
-    func set(_ c: CheckedContinuation<Error?, Never>) { lock.withLock { cont = c } }
-    func resume(_ value: Error?) {
-        let c = lock.withLock { () -> CheckedContinuation<Error?, Never>? in
+    private var cont: CheckedContinuation<T, Never>?
+    func set(_ c: CheckedContinuation<T, Never>) { lock.withLock { cont = c } }
+    func resume(_ value: T) {
+        let c = lock.withLock { () -> CheckedContinuation<T, Never>? in
             let c = cont
             cont = nil
             return c

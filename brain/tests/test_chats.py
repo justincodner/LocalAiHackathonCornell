@@ -80,11 +80,18 @@ class MessagesHelper:
         if not self.query:
             return []
         words = self.query.casefold()
+        self.polls = getattr(self, "polls", 0) + 1
+        if getattr(self, "group_first", False) and self.polls < 6:
+            return [chat for chat in self.CHATS if words in chat.casefold() and chat.casefold() != words]
         return [chat for chat in self.CHATS if words in chat.casefold()] + (
             ["David", "David & Clav"] if words == "poker" else [])  # messages that mention poker
 
     async def frontmost(self):
         return {"app": self.app, "window": self.window, "elements": [], "snapshot_id": "s_front"}
+
+    async def apps(self):
+        return {"running": ["Messages", "Google Chrome", "Notes"],
+                "installed": ["Messages", "Google Chrome", "Notes", "Calculator", "Clock", "Calendar", "Discord"]}
 
     async def snapshot(self):
         elements = [{"id": 1, "role": "textfield", "label": "Search", "value": self.query or "",
@@ -112,14 +119,29 @@ class MessagesHelper:
     async def listen(self, mode):
         pass
 
+    SIDEBAR = []  # chat names listed in Messages' sidebar (empty: only search finds them)
+
     async def request(self, path, payload=None):
         self.actions.append((path, payload))
+        if path == "/ax/find":
+            if self.app != "Messages" or self.query is not None:
+                return {"ok": True, "matches": []}
+            rows = [{"id": 50 + i, "snapshot_id": "s_find", "role": "text", "bounds": [305, 136 + 80 * i, 300, 80],
+                     "label": f"{chat}, \u200eHow are you?, 12:59 AM", "states": []}
+                    for i, chat in enumerate(self.SIDEBAR)]
+            # A sender name in the open chat matches too, but it is a one-line text.
+            rows.append({"id": 90, "snapshot_id": "s_find", "role": "text", "bounds": [635, 381, 28, 13],
+                         "label": f"{payload['query']}, Oh mb, 1:14 AM", "states": []})
+            words = payload["query"].casefold()
+            return {"ok": True, "matches": [row for row in rows if words in row["label"].casefold()]}
+        if path == "/ax/act" and payload.get("action") == "press" and 50 <= payload["element_id"] < 90:
+            self.window = self.SIDEBAR[payload["element_id"] - 50]
         if path == "/ax/act" and payload.get("action") == "focus" and payload["element_id"] == 99:
             self.focus = "message"
         elif path == "/app/open":
+            if payload["name"] == "Messages" and self.app != "Messages":
+                self.window = "David"  # Messages comes forward on its last chat
             self.app = payload["name"]
-            if self.app == "Messages":
-                self.window = "David"
         elif path == "/input/key":
             keys = payload["keys"]
             if keys == "cmd+f":
@@ -315,3 +337,123 @@ def test_send_to_this_chat_types_and_sends_without_asking():
 def test_send_a_message_without_text_still_asks():
     assert chats.here_send("Send Emmett a message.", chat_screen("Emmett")) is None
     assert chats.here_send("send a text", chat_screen()) is None
+
+
+@pytest.mark.parametrize("utterance, name, message", [
+    ("Switch to Clav", "Clav", None), ("Please switch the clav", "clav", None),
+    ('Can you go to Clav and send, "How are you doing?"', "Clav", "How are you doing?"),
+    ("go to Kai and say on my way", "Kai", "on my way"),
+])
+def test_bare_switch_names_a_chat(utterance, name, message):
+    assert chats.bare_switch(utterance) == chats.Request(name, None, message, message is not None)
+
+
+@pytest.mark.parametrize("utterance", [
+    "switch to the next tab", "go to the top", "go back", "Go to discord and send a message to KingSneapeshot.hello",
+    "switch to messages", "go to the inbox",
+])
+def test_bare_switch_leaves_places_and_apps_alone(utterance):
+    assert chats.bare_switch(utterance) is None
+
+
+def test_a_conversation_row_is_spoken_by_its_name():
+    from beacon_brain import labels
+    assert labels.short("Clav, Damn, 1:18 AM Mostly White People, Sure, 1:18 AM David, How are you doing?") == "Clav"
+    assert labels.short("Fold") == "Fold"
+    assert chats.is_conversation_list({"label": "David, How are you?, 11:45 PM Kai Kuriyama, alr, 10:46 PM"})
+
+
+@pytest.mark.loop
+def test_switch_to_clav_in_messages_uses_search():
+    async def go():
+        helper = MessagesHelper()
+        helper.CHATS = [*MessagesHelper.CHATS, "Clav"]
+        helper.app, helper.window = "Messages", "David"
+        brain = helper.brain = Brain(helper, None, Config(log_path=Path("/dev/null"), settle_ms=0), "Test")
+        await brain.on_event({"type": "stt.final", "text": "Switch to Clav", "stt_ms": 0})
+        await brain.active
+        return helper
+
+    helper = asyncio.run(go())
+    assert helper.window == "Clav" and helper.spoken == ["Opened the Clav chat."]
+
+
+
+def selected_list_screen(helper):
+    """Messages' real snapshot: the whole chat list is one selected text holding every name."""
+    original = helper.snapshot
+
+    async def snapshot():
+        screen = await original()
+        row = {"id": 3, "role": "text", "states": ["selected"],
+               "label": "David, How are you doing?, 11:45 PM Clav, Damn, 1:18 AM"}
+        return {**screen, "elements": [row, *screen["elements"]]}
+
+    helper.snapshot = snapshot
+
+
+@pytest.mark.loop
+@pytest.mark.parametrize("group_first", [False, True])
+def test_go_to_david_from_the_clav_chat_opens_david_not_a_group(group_first):
+    async def go():
+        helper = MessagesHelper()
+        helper.CHATS = ["David & Clav", "Alvin, David & Clav", "Clav", "David", "Poker"]
+        helper.app, helper.window, helper.group_first = "Messages", "Clav", group_first
+        selected_list_screen(helper)
+        brain = helper.brain = Brain(helper, None, Config(log_path=Path("/dev/null"), settle_ms=0), "Test")
+        await brain.on_event({"type": "stt.final", "text": "Go to David.", "stt_ms": 0})
+        await brain.active
+        return helper
+
+    helper = asyncio.run(go())
+    assert helper.window == "David"
+    assert helper.spoken == ["Opened the David chat."]
+
+
+def test_exact_name_wins_over_a_group_that_contains_it():
+    labels = ["David & Clav", "Alvin, David & Clav", "David"]
+    assert chats.exact_index("david", labels) == 2
+    assert chats.title_is("David", {"window": "David"}) and not chats.title_is("David", {"window": "David & Clav"})
+
+
+@pytest.mark.loop
+@pytest.mark.parametrize("utterance", ["Switch the David", "Go to David", "switch to David", "Go to the David chat"])
+def test_a_chat_in_the_sidebar_is_clicked_not_searched(utterance):
+    async def go():
+        helper = MessagesHelper()
+        helper.SIDEBAR = ["Clav", "David & Clav", "Alvin, David & Clav", "David", "Poker"]
+        helper.app, helper.window = "Messages", "Clav"
+        brain = helper.brain = Brain(helper, None, Config(log_path=Path("/dev/null"), settle_ms=0), "Test")
+        await brain.on_event({"type": "stt.final", "text": utterance, "stt_ms": 0})
+        await brain.active
+        return helper
+
+    helper = asyncio.run(go())
+    assert helper.window == "David" and helper.spoken == ["Opened the David chat."]
+    presses = [p for path, p in helper.actions if path == "/ax/act" and p.get("action") == "press"]
+    assert [p["element_id"] for p in presses] == [53]  # the "David" row, not "David & Clav"
+    assert not any(path in {"/input/type", "/input/key"} for path, _ in helper.actions)
+
+
+@pytest.mark.loop
+def test_a_chat_not_in_the_sidebar_falls_back_to_search():
+    async def go():
+        helper = MessagesHelper()
+        helper.SIDEBAR = ["Clav", "David & Clav"]
+        helper.app, helper.window = "Messages", "Clav"
+        brain = helper.brain = Brain(helper, None, Config(log_path=Path("/dev/null"), settle_ms=0), "Test")
+        await brain.on_event({"type": "stt.final", "text": "Go to Poker", "stt_ms": 0})
+        await brain.active
+        return helper
+
+    helper = asyncio.run(go())
+    assert helper.window == "Poker" and ("/input/key", {"keys": "cmd+f"}) in helper.actions
+
+
+def test_sidebar_rows_need_the_exact_name():
+    rows = [{"id": 1, "role": "text", "bounds": [305, 136, 300, 80], "label": "Alvin, David & Clav, hey, 1:00 AM"},
+            {"id": 2, "role": "text", "bounds": [305, 216, 300, 80], "label": "David & Clav, yo, 1:00 AM"},
+            {"id": 3, "role": "text", "bounds": [305, 297, 300, 80], "label": "David, \u200eDraft: Hi, 12:59 AM"},
+            {"id": 4, "role": "group", "bounds": [295, 381, 1024, 30], "label": "David, Oh mb, 1:14 AM"}]
+    assert [row["id"] for row in chats.sidebar_rows("david", rows)] == [3]
+    assert [row["id"] for row in chats.sidebar_rows("Alvin", rows)] == [1]  # the title check then rejects it

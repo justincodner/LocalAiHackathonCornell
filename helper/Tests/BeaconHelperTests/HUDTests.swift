@@ -382,8 +382,10 @@ final class HUDTests: XCTestCase {
         try render(selection, to: URL(fileURLWithPath: dir).appendingPathComponent("pill_selection_text.png"))
         selection.selectionImage = Self.sampleInvoiceImage()
         try render(selection, to: URL(fileURLWithPath: dir).appendingPathComponent("pill_selection.png"))
+        selection.selectionLoading = true
+        try render(selection, to: URL(fileURLWithPath: dir).appendingPathComponent("pill_selection_loading.png"))
         let typed = TypedPromptPanel()
-        typed.configure(heading: "Type a request for Beacon", placeholder: "For example: what's on my screen?")
+        typed.configure(heading: "Ask Beacon a question", placeholder: "Ask Beacon a question")
         let typedView = try XCTUnwrap(typed.contentView)
         typedView.layoutSubtreeIfNeeded()
         let typedBitmap = try XCTUnwrap(typedView.bitmapImageRepForCachingDisplay(in: typedView.bounds))

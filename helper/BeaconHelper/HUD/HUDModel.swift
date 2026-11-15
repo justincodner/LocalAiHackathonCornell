@@ -19,6 +19,8 @@ final class HUDModel: ObservableObject {
     @Published var selectionPreview: String?
     /// The captured region itself, drawn as a small preview instead of the selected text.
     @Published var selectionImage: NSImage?
+    /// True while the captured region is still being read (OCR): the thumbnail shows a spinner.
+    @Published var selectionLoading = false
     /// Whether questions go to the Bonsai 4B (⋯ menu toggle).
     @Published var questionModel: QuestionModelState = .off
     /// Name of the push-to-talk key as people say it ("Option").
@@ -60,7 +62,7 @@ final class HUDModel: ObservableObject {
 
     var statusText: HUDStatusText {
         HUDStatusText.of(state: state, pendingQuestion: pendingQuestion, transcript: transcript, talkKey: talkKey,
-                         selection: showsSelection)
+                         selection: showsSelection, selectionLoading: selectionLoading)
     }
 }
 
@@ -76,8 +78,11 @@ struct HUDStatusText: Equatable {
     let detailIsHint: Bool
 
     static func of(state: HUDState, pendingQuestion: String?, transcript: String, talkKey: String = "Option",
-                   selection: Bool = false) -> HUDStatusText {
+                   selection: Bool = false, selectionLoading: Bool = false) -> HUDStatusText {
         let said = transcript.isEmpty ? nil : transcript
+        if selection, selectionLoading {
+            return HUDStatusText(title: "Reading your selection", word: nil, detail: "One moment…", detailIsHint: true)
+        }
         if selection {
             if state == .listening {
                 return HUDStatusText(title: "Asking about your selection", word: nil,

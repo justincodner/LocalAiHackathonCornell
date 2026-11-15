@@ -77,7 +77,7 @@ This laptop is roughly 3–5× slower than an M1 at prompt processing, so use it
 Time ≈ new prompt tokens ÷ prompt speed + generated tokens ÷ generation speed. With the prefix warm, a 40-element
 screen is ~520 new tokens. To fit 2.5 s, the 2B on the M1 needs about 350+ tok/s of prompt processing, plus
 generation that stays at tool-call length (~30 tokens). Snapshots over ~80 elements will probably miss the budget, so
-the Brain asks for `max_elements` 120 by default and `BEACON_SNAPSHOT_MAX_ELEMENTS` can lower it.
+the Brain asks for `max_elements` 60 by default (both Helpers collapse window chrome before content to fit) and `BEACON_SNAPSHOT_MAX_ELEMENTS` can lower it.
 
 ### Evaluation (B5), Bonsai 2 2B on Windows, synthetic screens (`--fixtures mock_helper/fixtures`)
 

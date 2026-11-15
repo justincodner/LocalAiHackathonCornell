@@ -50,7 +50,8 @@ Reset first to test a clean machine: `tccutil reset Microphone dev.beacon.helper
 - [ ] Start a long read (`demo/article.html`, or a long `/tts/speak`), then `time curl -s -XPOST 127.0.0.1:8765/tts/stop`: audio is silent within 100 ms (judge by ear and the `tts.finished` event with `interrupted: true`).
 - [ ] Barge-in: during a long read, press the talk key. Audio stops within 100 ms, a `barge_in` event is emitted, and the microphone opens for the new request.
 - [ ] Repeat barge-in five times in a row: no stuck audio, no crash, no overlapping voices.
-- [ ] `BEACON_TTS=system` fallback speaks with `AVSpeechSynthesizer`, and `/health` shows `tts_engine: "system"`.
+- [ ] Default (`BEACON_TTS=system`) speaks with `AVSpeechSynthesizer`, and `/health` shows `tts_engine: "system"`. Each reply is rendered in full, then plays as one smooth clip (no crackle, no mid-reply voice change).
+- [ ] `BEACON_TTS=ttskit`: once loaded, `/health` shows `tts_engine: "ttskit"`; short phrases may use the TTSKit voice, longer replies use the system voice (logs: `tts: <engine> rendered ...`).
 
 ## 6. Accessibility and actions (spot checks)
 

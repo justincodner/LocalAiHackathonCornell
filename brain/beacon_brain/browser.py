@@ -8,6 +8,7 @@ bar, and typing there then Return searches or loads the site.
 """
 
 import re
+from urllib.parse import quote_plus
 from dataclasses import dataclass
 
 from .llm import ToolCall
@@ -23,6 +24,15 @@ GO_TO = re.compile(r"^(?:go\s+to|navigate\s+to|visit|take\s+me\s+to|bring\s+up|l
                    r"\s+(?P<site>.+)$")
 WEB_SUFFIX = re.compile(r"\s+(?:on\s+(?:google|the\s+web|the\s+internet|the\s+browser|chrome|safari)"
                         r"|in\s+(?:google|the\s+browser|chrome|safari|the\s+new\s+tab|a\s+new\s+tab))$")
+# Sites whose search page Beacon can load straight from the address bar.
+SITE_SEARCH = {
+    "amazon": "amazon.com/s?k={}", "youtube": "youtube.com/results?search_query={}", "ebay": "ebay.com/sch/i.html?_nkw={}",
+    "wikipedia": "en.wikipedia.org/w/index.php?search={}", "reddit": "reddit.com/search/?q={}",
+    "google": "google.com/search?q={}", "github": "github.com/search?q={}", "walmart": "walmart.com/search?q={}",
+    "target": "target.com/s?searchTerm={}", "etsy": "etsy.com/search?q={}", "spotify": "open.spotify.com/search/{}",
+}
+ON_SITE = re.compile(r"(?P<query>.+?),?\s+(?:on|in|at|from|using)\s+(?:the\s+)?(?P<site>" + "|".join(SITE_SEARCH) +
+                     r")(?:\.com)?(?:'s)?(?:\s+(?:search\s+bar|search\s+box|search\s+field|search|website|site|page))?")
 SITE_WORDS = re.compile(r"\s+(?:website|web\s+site|site|homepage|home\s+page)$")
 DOMAIN = re.compile(r"^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:/\S*)?$")
 # "search for X on this page", "go to the next page": about the page itself, not the web.
@@ -45,7 +55,9 @@ class Plan:
 def _clean(text: str) -> str:
     text = text.casefold().strip()
     text = re.sub(r"[\"“”]", "", text)
-    text = re.sub(r"[.!?]+$", "", text).strip()
+    text = re.sub(r"[.!?,;:\s]+$", "", text).strip()
+    # Dictation commas after the verb: "Search, Amazon," is "search amazon".
+    text = re.sub(r"^((?:please\s+)?(?:search(?:\s+for)?|google|look\s+up|go\s+to|open))\s*,\s*", r"\1 ", text)
     text = re.sub(r"\s+", " ", text)
     text = LEAD.sub("", text)
     return re.sub(r"[\s,]+please$", "", text).strip()
@@ -85,11 +97,17 @@ def _web_step(rest: str, *, in_new_tab: bool = False) -> tuple[str, str, str] | 
         query = search.group("query").strip()
         if not query or query in {"it", "that", "this", "something"}:
             return None
-        on_site = re.fullmatch(r"(?P<site>[a-z0-9-]+(?:\.[a-z]{2,})?)\s+for\s+(?P<query>.+)", query)
-        if on_site:  # "search amazon for headphones"
-            return (f"{on_site.group('site')} {on_site.group('query')}",
-                    f"Searching {on_site.group('site')} for {on_site.group('query')}",
-                    f"searched {on_site.group('site')} for {on_site.group('query')}")
+        if query in SITE_SEARCH or query.removesuffix(".com") in SITE_SEARCH:  # "search amazon": the site itself
+            site = query.removesuffix(".com") + ".com"
+            return site, f"Going to {site}", f"went to {site}"
+        on_site = (re.fullmatch(r"(?P<site>[a-z0-9-]+(?:\.[a-z]{2,})?)\s+for\s+(?P<query>.+)", query)
+                   or ON_SITE.fullmatch(query))
+        if on_site:  # "search amazon for headphones", "search for gifts in the amazon search bar"
+            site, wanted = on_site.group("site"), on_site.group("query").strip(" ,")
+            name = site.split(".")[0]
+            url = SITE_SEARCH.get(name)
+            typed = url.format(quote_plus(wanted)) if url else f"{site} {wanted}"
+            return typed, f"Searching {name.title()} for {wanted}", f"searched {name.title()} for {wanted}"
         return query, f"Searching for {query}", f"searched for {query}"
     go = GO_TO.match(rest)
     if go:
