@@ -51,7 +51,7 @@ Once `uv` is installed, the equivalents are `uv run --project brain ...` as in t
 
 ## Latency work (after Justin's M1 numbers)
 
-- `config.py`: `BEACON_SNAPSHOT_MAX_ELEMENTS` (default 120) is sent as `max_elements` on every snapshot.
+- `config.py`: `BEACON_SNAPSHOT_MAX_ELEMENTS` (default 60) is sent as `max_elements` on every snapshot.
   `BEACON_PREWARM` (default on) caches the system prompt + tools prefix at start-up.
   `BEACON_THINKING_FILLER_MS` (default 1500) sets when "One moment." is spoken if the model is still thinking.
   `BEACON_PROMPT_PATH` selects the system prompt file.

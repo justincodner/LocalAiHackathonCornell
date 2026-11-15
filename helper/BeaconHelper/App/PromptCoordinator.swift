@@ -52,20 +52,25 @@ final class PromptCoordinator {
 
     func openTypedPrompt() {
         guard !selector.isActive else { return }
+        // The keyboard button and Control+Option+Space toggle: pressed again, they close the field.
+        if typed.isVisible {
+            typed.cancel()
+            return
+        }
         if hud.isMinimized { hud.restore() }
         let heading: String
         let placeholder: String
         if hud.model.showsSelection {
             heading = "Ask about your selection"
-            placeholder = "Type your question about the selected text."
+            placeholder = "Ask Beacon about the selection"
         } else if hud.model.state == .asking || hud.model.state == .confirm, let question = hud.model.pendingQuestion ?? nonEmpty(hud.model.caption) {
             heading = "Answer Beacon's question"
             placeholder = SelectionFocus.preview(question, limit: 60)
         } else {
-            heading = "Type a request for Beacon"
-            placeholder = "For example: what's on my screen?"
+            heading = "Ask Beacon a question"
+            placeholder = "Ask Beacon a question"
         }
-        typed.present(near: hud.pillPanel.frame, heading: heading, placeholder: placeholder)
+        typed.present(attachedTo: hud.pillPanel, heading: heading, placeholder: placeholder)
         Log.info("typed prompt opened (\(heading))")
     }
 
@@ -118,29 +123,37 @@ final class PromptCoordinator {
         readTask = Task { @MainActor [weak self] in
             let started = Date()
             do {
-                let result = try await RegionReader.read(region: rect, accessibility: accessibility)
+                let result = try await RegionReader.read(region: rect, accessibility: accessibility) { image in
+                    // Show the screenshot right away with a spinner while it is read.
+                    guard !Task.isCancelled else { return }
+                    self?.hud.setSelection(preview: Self.loadingText, image: image, loading: true)
+                }
                 guard !Task.isCancelled, let self else { return }
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
                 Log.info("selection read: \(result.ocrLineCount) OCR lines, \(result.elementCount) elements, \(ms) ms")
                 guard let focus = result.focus, let text = focus["text"] as? String else {
+                    self.hud.setSelection(preview: nil)
                     self.fail("I couldn't read any text in that area. Try selecting a larger area.")
                     return
                 }
                 self.selectionReady(focus: focus, text: text, image: result.image)
             } catch {
-                guard let self else { return }
+                guard let self, !Task.isCancelled else { return }
+                self.hud.setSelection(preview: nil)
                 Log.error("selection read failed: \(error)")
                 self.fail("I couldn't read that part of the screen.")
             }
         }
     }
 
+    static let loadingText = "Reading the selection…"
+
     private func selectionReady(focus: JSONObject, text: String, image: CGImage) {
         focusID = services.events.setPendingFocus(focus)
         hud.setSelection(preview: SelectionFocus.preview(text), image: image)
         hud.play(.listenStop)
-        notify("Selection ready. Hold \(hud.model.talkKey) and ask about it, or press \(hud.model.typeShortcut) to type.",
-               speak: true)
+        // The HUD shows how to ask ("Hold Option to ask, or type it"); speech just confirms.
+        notify("Image is selected.", speak: true)
         scheduleExpiry()
     }
 
@@ -164,6 +177,8 @@ final class PromptCoordinator {
     /// The thumbnail's X: drop the screenshot and its pending focus, and tell the Brain to start a fresh
     /// conversation (it stops any task in progress and forgets earlier exchanges).
     func removeSelectionAndReset() {
+        readTask?.cancel()
+        readTask = nil
         services.events.clearPendingFocus()
         selectionConsumed()
         services.speechOut.stop()

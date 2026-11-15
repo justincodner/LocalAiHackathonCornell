@@ -145,8 +145,10 @@ final class HUDController: HUDProviding {
     // MARK: Selection (Control+Option+S)
 
     /// Shows (preview text and a thumbnail of the captured region) or clears (nil) the "Ask about this selection" look.
-    func setSelection(preview: String?, image: CGImage? = nil) {
+    /// `loading` shows the thumbnail with a spinner while the region is still being read.
+    func setSelection(preview: String?, image: CGImage? = nil, loading: Bool = false) {
         model.selectionPreview = preview
+        model.selectionLoading = preview != nil && loading
         model.selectionImage = preview == nil ? nil : image.map { NSImage(cgImage: $0, size: .zero) }
         if preview != nil {
             if isMinimized { placeAtRestoreCorner() }

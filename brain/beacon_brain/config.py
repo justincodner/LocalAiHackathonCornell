@@ -35,8 +35,9 @@ class Config:
     max_tokens: int = 300
     cache_prompt: bool = True
     # Prompt processing is the bottleneck (~170 tok/s for the 4B on the M1), so ask the
-    # Helper for fewer elements than its 250 default; tune from docs/bench.md.
-    snapshot_max_elements: int = 120
+    # Helper for fewer elements than its 250 default; tune from docs/bench.md. Both Helpers collapse window
+    # chrome (toolbars, sidebars, tab strips) before page content to fit, so 60 keeps what the model needs.
+    snapshot_max_elements: int = 60
     # Conversation memory (memory.Conversation): at most this many tokens of earlier exchanges,
     # sent only with follow-ups ("how old is he?"). 0 turns it off.
     memory_tokens: int = 240
