@@ -114,9 +114,14 @@ fi
 
 echo
 echo "Beacon is running. Logs: $LOG_DIR  (tail -f $LOG_DIR/session.jsonl for latency). Ctrl-C to stop."
-# Stay up until Ctrl-C, or until something we started dies.
+# Stay up until Ctrl-C, or until Bonsai or the Brain dies. The Helper quitting (the HUD's Turn off button) leaves
+# Bonsai and the Brain running, so reopening the Helper app brings Beacon straight back.
 while true; do
-  for pid in $STARTED_BONSAI $STARTED_HELPER $STARTED_BRAIN; do
+  if [[ -n "$STARTED_HELPER" ]] && ! kill -0 "$STARTED_HELPER" 2>/dev/null; then
+    echo "==> Helper turned off; Bonsai and the Brain stay up. Reopen it with: open \"${APP:-$ROOT/build/Beacon Helper.app}\" (Ctrl-C here stops everything)"
+    STARTED_HELPER=""
+  fi
+  for pid in $STARTED_BONSAI $STARTED_BRAIN; do
     if ! kill -0 "$pid" 2>/dev/null; then
       echo "warning: process $pid exited; check $LOG_DIR" >&2
       exit 1
