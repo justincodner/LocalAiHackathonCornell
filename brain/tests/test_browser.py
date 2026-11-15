@@ -41,6 +41,18 @@ RETURN = ("press_key", {"keys": "return"})
     ("Go to youtube", [ADDRESS_BAR, ("type_text", {"text": "youtube.com"}), RETURN]),
     ("Go to wikipedia.org", [ADDRESS_BAR, ("type_text", {"text": "wikipedia.org"}), RETURN]),
     ("Open the youtube website", [ADDRESS_BAR, ("type_text", {"text": "youtube.com"}), RETURN]),
+    ('Please open Amazon on the new tab.', [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ('open amazon on a new tab', [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ('Open a new tab with amazon', [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ('open a new tab to amazon', [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ('new tab amazon', [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ('open a new tab for amazon', [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ('In a new tab, open amazon', [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ('open a tab with amazon', [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ('open a new tab with amazon on it', [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ('Open a new tab with the Amazon website', [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ('Create a new tab and open amazon', [NEW_TAB, ("type_text", {"text": "amazon.com"}), RETURN]),
+    ("new tab, search for cats", [NEW_TAB, ("type_text", {"text": "cats"}), RETURN]),
 ])
 def test_browser_requests_plan_keyboard_steps(utterance, expected):
     assert steps(utterance) == expected
@@ -55,6 +67,11 @@ def test_browser_requests_plan_keyboard_steps(utterance, expected):
     "send a message to Emmett",
     "click search",
     "scroll down",
+    "open a new tab and read it to me",
+    "open a new tab and wait",
+    "open a new tab with my email",
+    "open the new tab settings",
+    "open tabs",
 ])
 def test_other_requests_are_left_to_the_model(utterance):
     assert steps(utterance) is None

@@ -15,8 +15,8 @@ from .page_summary import BROWSERS
 
 LEAD = re.compile(r"^(?:(?:please|hey beacon|beacon|ok|okay|can you|could you|would you|will you|"
                   r"go ahead and|i want to|i'd like to|i would like to)\s+)+")
-NEW_TAB = re.compile(r"^(?:open|make|create|start|add|give me)\s+(?:up\s+)?(?:a\s+)?(?:new|another|fresh)\s+tab"
-                     r"|^new\s+tab")
+NEW_TAB = re.compile(r"^(?:(?:open|make|create|start|add|give me|pull up)\s+(?:up\s+)?(?:a\s+)?(?:(?:new|another|fresh)\s+)?tab"
+                     r"|^new\s+tab)(?!\w)")
 THEN = re.compile(r"^(?:,\s*)?(?:(?:and|then)\s+)+(?:then\s+)?|^,\s*")
 SEARCH = re.compile(r"^(?:search(?:\s+(?:for|up))?|google|look\s+up)\s+(?P<query>.+)$")
 GO_TO = re.compile(r"^(?:go\s+to|navigate\s+to|visit|take\s+me\s+to|bring\s+up|load|pull\s+up|open(?:\s+up)?)"
@@ -67,7 +67,12 @@ def _site(words: str, explicit: bool) -> str | None:
 
 MORE_STEPS = re.compile(r"\bthen\b|,\s*and\b|\band\s+(?:open|click|press|tap|read|tell|play|go|scroll|select|"
                         r"choose|type|send|show|pick|watch|buy|add|sign|log)\b")
-IN_NEW_TAB = re.compile(r"\s+in\s+(?:a\s+)?new\s+tab$")
+IN_NEW_TAB = re.compile(r"\s+(?:in|on|into|onto|using)\s+(?:a\s+|the\s+)?(?:new|another|fresh)\s+tab$")
+# "In a new tab, open amazon": the same request with the tab first.
+NEW_TAB_FIRST = re.compile(r"^(?:in|on)\s+(?:a\s+|the\s+)?(?:new|another|fresh)\s+tab\s*,?\s*")
+# "Open a new tab with amazon", "new tab to youtube.com", "new tab amazon": the site follows directly.
+LINK = re.compile(r"^(?:(?:with|to|for|on|at|showing|that\s+(?:opens|goes\s+to|shows))\s+)?")
+NOT_BARE_SITES = {"now", "again", "too", "also", "quickly", "first", "real", "quick", "wait", "stop", "please"}
 
 
 def _web_step(rest: str, *, in_new_tab: bool = False) -> tuple[str, str, str] | None:
@@ -95,11 +100,26 @@ def _web_step(rest: str, *, in_new_tab: bool = False) -> tuple[str, str, str] | 
     return None
 
 
+def _bare_site(words: str) -> tuple[str, str, str] | None:
+    """ "amazon", "the amazon website", "youtube.com on it" right after "new tab"; None if not a site."""
+    words = re.sub(r"\s+(?:on|in)\s+it$", "", WEB_SUFFIX.sub("", words.strip())).strip()
+    if not words or words in NOT_BARE_SITES or ON_PAGE.search(words) or MORE_STEPS.search(words):
+        return None
+    web = _web_step(words, in_new_tab=True)  # "new tab, search for cats"
+    if web is not None:
+        return web
+    site = _site(words, explicit=True)
+    return None if site is None else (site, f"Going to {site}", f"went to {site}")
+
+
 def plan(utterance: str, app: str) -> Plan | None:
     """The keyboard steps for a simple browser request, or None to leave it to the model."""
     if app.casefold() not in BROWSERS:
         return None
     text = _clean(utterance)
+    first = NEW_TAB_FIRST.match(text)
+    if first and not NEW_TAB.match(text):
+        text = f"{text[first.end():]} in a new tab"
     suffix = IN_NEW_TAB.search(text)
     if suffix and not NEW_TAB.match(text):
         # "Open youtube in a new tab" is "open a new tab and go to youtube".
@@ -120,7 +140,10 @@ def plan(utterance: str, app: str) -> Plan | None:
         if not rest:
             return Plan([open_tab], "Opening a new tab", "I opened a new tab.")
         joined = THEN.match(rest)
-        web = _web_step(rest[joined.end():], in_new_tab=True) if joined else None
+        if joined:
+            web = _web_step(rest[joined.end():], in_new_tab=True)
+        else:
+            web = _bare_site(rest[LINK.match(rest).end():])
         if web is None:
             return None  # "open a new tab and read it to me": more than this fast path knows
         typed, caption, summary = web
