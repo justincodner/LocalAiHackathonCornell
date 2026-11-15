@@ -20,6 +20,8 @@ from loop_scenarios import (  # noqa: E402
     Config, FakeHelper, Scenario, expect, load, make_client, no_actions,
 )
 import loop_scenarios  # noqa: E402
+# Pin only Bonsai's last slot, so a run never evicts the live Beacon's cached prompts (config.llm_slots).
+os.environ.setdefault("BEACON_LLM_SLOTS", "last")
 from beacon_brain.loop import Brain  # noqa: E402
 
 RUNS = int(os.environ.get("RUNS", "3"))

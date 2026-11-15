@@ -17,7 +17,14 @@ class Config:
     llm_question_timeout_s: float = 8  # one attempt, then the fast model answers instead
     token: str = ""
     max_steps: int = 8
+    # A task stops after task_timeout_s with no new step (each step restarts the clock), and
+    # after task_max_s in all. One 45 s budget for the whole task cut off searches mid-way
+    # once steps slowed to 12-15 s (a cold prompt cache, or a test run sharing Bonsai).
     task_timeout_s: float = 45
+    task_max_s: float = 120
+    # Bonsai slots this Brain pins (llm.BonsaiClient.slot_ids): the live Brain leaves the last
+    # slot to scenario scripts, which set BEACON_LLM_SLOTS=last.
+    llm_slots: str = "rest"
     llm_timeout_s: float = 12
     settle_ms: int = 400
     reply_timeout_s: float = 15
@@ -71,6 +78,8 @@ class Config:
             token=get("TOKEN", cls.token),
             max_steps=int(get("MAX_STEPS", str(cls.max_steps))),
             task_timeout_s=float(get("TASK_TIMEOUT_S", str(cls.task_timeout_s))),
+            task_max_s=float(get("TASK_MAX_S", str(cls.task_max_s))),
+            llm_slots=get("LLM_SLOTS", cls.llm_slots),
             llm_timeout_s=float(get("LLM_TIMEOUT_S", str(cls.llm_timeout_s))),
             settle_ms=int(get("SETTLE_MS", str(cls.settle_ms))),
             reply_timeout_s=float(get("REPLY_TIMEOUT_S", str(cls.reply_timeout_s))),

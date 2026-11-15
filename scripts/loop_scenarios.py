@@ -11,6 +11,7 @@ sends) after a prompt or loop change.
 Env: BEACON_LLM_URL (http://127.0.0.1:8080/v1), BEACON_LLM_QUESTION_URL (optional 4B).
 """
 
+import os
 import asyncio
 import copy
 import json
@@ -25,6 +26,8 @@ from typing import Callable
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "brain"))
 
+# Pin only Bonsai's last slot, so a run never evicts the live Beacon's cached prompts (config.llm_slots).
+os.environ.setdefault("BEACON_LLM_SLOTS", "last")
 from beacon_brain.config import Config  # noqa: E402
 from beacon_brain.loop import Brain  # noqa: E402
 from beacon_brain.main import make_client  # noqa: E402
