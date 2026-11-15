@@ -10,6 +10,7 @@ from .config import ROOT, Config
 from .helper_client import HelperClient, HelperError
 from .llm import BonsaiClient, BonsaiError
 from .loop import Brain
+from .question_switch import QuestionModelSwitch
 from .tools import TOOL_DEFINITIONS
 
 
@@ -43,6 +44,7 @@ async def run(config: Config) -> None:
     helper = HelperClient(config.helper_url, config.token, max_elements=config.snapshot_max_elements)
     model = make_client(config, config.llm_url)
     question_model = make_client(config, config.llm_question_url, question=True) if config.llm_question_url else None
+    brain = None
     try:
         model_name = await model.discover_model()
         LOGGER.info("Bonsai model %s (actions)", model_name)
@@ -56,6 +58,7 @@ async def run(config: Config) -> None:
                 await question_model.aclose()
                 question_model = None
         brain = Brain(helper, model, config, prompt, question_model)
+        brain.question_switch = QuestionModelSwitch(config, make_client)
         while True:
             try:
                 health = await helper.health()
@@ -63,6 +66,7 @@ async def run(config: Config) -> None:
                 if version != expected_version:
                     raise RuntimeError(f"Helper contract version {version!r} differs from {expected_version}")
                 LOGGER.info("Helper contract v%s; listening for voice events", version)
+                await brain.set_state("idle", question_model=brain.question_model is not None)  # the ⋯ menu's check
                 async for event in helper.events():
                     await brain.on_event(event)
                 LOGGER.warning("Helper event stream disconnected")
@@ -74,7 +78,9 @@ async def run(config: Config) -> None:
     finally:
         await helper.aclose()
         await model.aclose()
-        if question_model is not None:
+        if brain is not None and brain.question_switch is not None:
+            await brain.question_switch.stop(brain.question_model)  # stops a 4B this Brain started
+        elif question_model is not None:
             await question_model.aclose()
 
 

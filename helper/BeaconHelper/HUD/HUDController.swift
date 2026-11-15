@@ -30,6 +30,8 @@ final class HUDController: HUDProviding {
     private var newRequestSinceMinimize = false
     /// Called by the Turn off button. Defaults to quitting the app (which runs AppDelegate's terminate cleanup).
     var turnOff: () -> Void = { NSApp.terminate(nil) }
+    /// "Use 4B model" in the ⋯ menu. Set by AppDelegate; receives the requested state.
+    var toggleQuestionModel: (_ enable: Bool) -> Void = { _ in }
     /// Keyboard and viewfinder buttons. Set by PromptCoordinator.
     var typePrompt: () -> Void = {}
     var askAboutRegion: () -> Void = {}
@@ -49,6 +51,7 @@ final class HUDController: HUDProviding {
             },
             minimize: { [weak self] in self?.minimize() },
             turnOff: { [weak self] in self?.turnOff() },
+            toggleQuestionModel: { [weak self] in self?.requestQuestionModelToggle() },
             typePrompt: { [weak self] in self?.typePrompt() },
             askAboutRegion: { [weak self] in self?.askAboutRegion() },
             clearSelection: { [weak self] in self?.clearSelection() }
@@ -123,6 +126,20 @@ final class HUDController: HUDProviding {
         case .asking?, .confirm?: return true
         default: return newRequestSinceMinimize
         }
+    }
+
+    // MARK: 4B question model (⋯ menu)
+
+    func setQuestionModel(_ state: QuestionModelState) {
+        model.questionModel = state
+    }
+
+    /// Asks the Brain to load or unload the 4B. Shows "loading" right away; the Brain reports the outcome.
+    func requestQuestionModelToggle() {
+        guard model.questionModel != .loading else { return }
+        let enable = model.questionModel == .off
+        if enable { model.questionModel = .loading }
+        toggleQuestionModel(enable)
     }
 
     // MARK: Selection (Control+Option+S)

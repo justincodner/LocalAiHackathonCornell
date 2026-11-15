@@ -17,6 +17,7 @@ from .llm import BonsaiError, ToolCall
 from .log import append_step
 from .memory import Conversation, TaskMemory
 from . import drafts  # Mail replies and "send it" on a draft, run in code
+from . import question_switch
 
 
 LOGGER = logging.getLogger(__name__)
@@ -54,6 +55,8 @@ class Brain:
         self.model = model  # fast model: actions and multi-step tasks
         self.question_model = question_model  # optional accurate model for questions (route.py)
         self.question_paused_until = 0.0  # after a question-model failure, skip it for a while
+        self.question_switch = None  # QuestionModelSwitch, set by main: the HUD's 4B toggle
+        self.switching: asyncio.Task | None = None
         self.last_answered_by: str | None = None  # which model answered the latest call, for the log
         self.config = config
         self.prompt = prompt
@@ -77,6 +80,32 @@ class Brain:
         except (HelperError, httpx.HTTPError):
             LOGGER.debug("HUD update failed", exc_info=True)
 
+    async def switch_question_model(self, enable: bool) -> None:
+        """Load or unload the Bonsai 4B for questions without restarting Beacon (the HUD's ⋯ menu)."""
+        on = self.question_model is not None
+        if enable == on or self.question_switch is None:
+            if self.question_switch is None and enable:
+                await self.set_state("error", caption="The 4B model can't be switched in this setup.", question_model=False)
+            else:
+                await self.set_state("idle", question_model=on)
+            return
+        if not enable:
+            client, self.question_model = self.question_model, None
+            await self.question_switch.stop(client)
+            await self.set_state("idle", caption=question_switch.DISABLED, question_model=False)
+            await self.say(question_switch.DISABLED)
+            return
+        await self.set_state("thinking", caption=question_switch.LOADING, question_model="loading")
+        try:
+            self.question_model = await self.question_switch.start()
+        except (BonsaiError, OSError) as error:
+            LOGGER.warning("Could not load the 4B question model: %s", error)
+            await self.set_state("error", caption="I couldn't load the 4B model. Staying on the 2B.", question_model=False)
+            return
+        self.question_paused_until = 0.0
+        await self.set_state("idle", caption=question_switch.ENABLED, question_model=True)
+        await self.say(question_switch.ENABLED)
+
     async def cancel_active(self) -> None:
         if self.active is None or self.active.done():
             return
@@ -99,6 +128,9 @@ class Brain:
                 self.finished_speech[speech_id] = interrupted
         elif kind == "barge_in":
             await self.cancel_active()
+        elif kind == "model.question" and isinstance(event.get("enabled"), bool):
+            if self.switching is None or self.switching.done():
+                self.switching = asyncio.create_task(self.switch_question_model(event["enabled"]))
         elif kind == "conversation.reset":
             # The HUD's X on a screenshot: stop whatever is running and start a fresh conversation.
             await self.cancel_active()

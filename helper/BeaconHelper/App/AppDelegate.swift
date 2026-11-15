@@ -56,6 +56,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wireEventsToHUD(hud)
         observeFrontmostApp()
         startHotkey()
+        hud.toggleQuestionModel = { enable in
+            // The Brain loads or unloads the 4B and reports back through /hud's question_model field.
+            guard events.clientCount > 0 else {
+                hud.setQuestionModel(.off)
+                hud.update(state: .error, transcript: "", caption: "The Brain isn't running, so the 4B model can't be switched.",
+                           latencyMS: nil)
+                return
+            }
+            events.emit("model.question", ["enabled": enable])
+            Log.info("4B question model \(enable ? "requested" : "turned off") from the HUD menu")
+        }
         let prompts = PromptCoordinator(services: services, hud: hud)
         prompts.start()
         self.prompts = prompts

@@ -278,6 +278,7 @@ paths:
               required: [state]
               properties:
                 state: {type: string, enum: [idle, listening, thinking, acting, speaking, asking, confirm, error]}
+                question_model: {description: "Optional. Whether questions use the Bonsai 4B: true, false or \"loading\" (the HUD ⋯ menu shows it)."}
                 transcript: {type: string}
                 caption: {type: string}
                 latency_ms: {type: integer}
