@@ -8,7 +8,7 @@ from dataclasses import replace
 
 import httpx
 
-from . import browser, compose, fastpath, grounding, narrate, page_summary, questions, risk, route, tools
+from . import browser, compose, fastpath, grounding, locate, narrate, page_summary, questions, risk, route, tools
 from .config import Config
 from .helper_client import HelperError
 from .llm import BonsaiError, ToolCall
@@ -545,6 +545,10 @@ class Brain:
         return None
 
     async def answer_from_screen(self, snapshot: dict, request: str, *, advisory: bool | None = None) -> ToolCall:
+        located = locate.where(snapshot, request)
+        if located:  # "Where do I pay?": ring the control and say where it is, no model call
+            await self.set_state("speaking", caption=located[0], highlight=tools.element_ref(snapshot, located[1]))
+            return ToolCall("screen-locate", "say", {"text": located[0]})
         advisory = fastpath.wants_advice(request) if advisory is None else advisory
         prompt = questions.ADVICE_PROMPT if advisory else questions.SCREEN_PROMPT
         if snapshot["app"].casefold() in page_summary.BROWSERS:
@@ -650,8 +654,7 @@ class Brain:
             await self.say(narrate.clean_speech(args.get("text") or args["summary"]))
             return {"ok": True, "spoken": True}
         if call.name == "read_element":
-            text = await self.helper.read(snapshot["snapshot_id"], args["id"])
-            await self.say(text)
+            text = await locate.read_aloud(self, snapshot, args["id"])
             return {"ok": True, "text": text[:1500]}
         if call.name == "ask_user":
             reply = await self.ask(narrate.clean_speech(args["question"]))
