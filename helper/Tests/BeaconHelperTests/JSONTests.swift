@@ -49,17 +49,35 @@ final class WorktreeModelsTests: XCTestCase {
     func testAWorktreeWithoutTheWhisperModelUsesTheMainCheckoutsModels() {
         let onlyMain: (URL) -> Bool = { $0.path == "/Users/me/Beacon/models" }
         // The bug: started from a worktree, the Helper looked in wt-scroll/models and rejected every recording.
-        XCTAssertEqual(Config.resolveModelsDir(relative: "models", root: worktree, mainCheckout: main, sttModel: "tiny.en",
+        XCTAssertEqual(Config.resolveModelsDir(relative: "models", root: worktree, mainCheckout: main, sttModels: ["tiny.en"],
                                                hasWhisperModel: onlyMain).path, "/Users/me/Beacon/models")
         // A worktree with its own model keeps it.
-        XCTAssertEqual(Config.resolveModelsDir(relative: "models", root: worktree, mainCheckout: main, sttModel: "tiny.en",
+        XCTAssertEqual(Config.resolveModelsDir(relative: "models", root: worktree, mainCheckout: main, sttModels: ["tiny.en"],
                                                hasWhisperModel: { _ in true }).path, "/Users/me/wt-scroll/models")
         // Neither has it: report the worktree's own folder, as before.
-        XCTAssertEqual(Config.resolveModelsDir(relative: "models", root: worktree, mainCheckout: main, sttModel: "tiny.en",
+        XCTAssertEqual(Config.resolveModelsDir(relative: "models", root: worktree, mainCheckout: main, sttModels: ["tiny.en"],
                                                hasWhisperModel: { _ in false }).path, "/Users/me/wt-scroll/models")
         // Not a worktree: unchanged.
-        XCTAssertEqual(Config.resolveModelsDir(relative: "models", root: main, mainCheckout: nil, sttModel: "tiny.en",
+        XCTAssertEqual(Config.resolveModelsDir(relative: "models", root: main, mainCheckout: nil, sttModels: ["tiny.en"],
                                                hasWhisperModel: { _ in false }).path, "/Users/me/Beacon/models")
+    }
+
+    func testSTTModelDefaultsToSmallAndFallsBackToWhatIsInstalled() {
+        let dir = URL(fileURLWithPath: "/Users/me/Beacon/models/whisperkit-coreml")
+        let choices = Config.sttModelChoices
+        XCTAssertEqual(choices, ["small.en", "base.en", "tiny.en"])
+        XCTAssertEqual(Config.defaultSTTModel, "small.en")
+        // All installed: small.en.
+        XCTAssertEqual(Config.pickSTTModel(candidates: choices, in: dir, isInstalled: { _, _ in true }), "small.en")
+        // Only the older models: the most accurate one present.
+        XCTAssertEqual(Config.pickSTTModel(candidates: choices, in: dir, isInstalled: { name, _ in name != "small.en" }),
+                       "base.en")
+        XCTAssertEqual(Config.pickSTTModel(candidates: choices, in: dir, isInstalled: { name, _ in name == "tiny.en" }),
+                       "tiny.en")
+        // Nothing installed: the default, so the missing-model log names it.
+        XCTAssertEqual(Config.pickSTTModel(candidates: choices, in: dir, isInstalled: { _, _ in false }), "small.en")
+        // BEACON_STT_MODEL set: only that model, installed or not.
+        XCTAssertEqual(Config.pickSTTModel(candidates: ["base.en"], in: dir, isInstalled: { _, _ in false }), "base.en")
     }
 
     func testRepeatingCancelsAreExplainedAndOneOffsAreNot() {

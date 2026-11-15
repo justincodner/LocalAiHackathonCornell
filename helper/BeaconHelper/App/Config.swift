@@ -94,7 +94,27 @@ enum Config {
 
     /// `system` by default: TTSKit renders at only ~0.4-0.8x real time on the 8 GB M1, too slow for render-then-play.
     static var tts: String { string("BEACON_TTS", "system") }
-    static var sttModel: String { string("BEACON_STT_MODEL", "tiny.en") }
+    /// Whisper models Beacon is set up for, most accurate first (scripts/download_whisper_models.py fetches them).
+    /// small.en is the default; base.en and tiny.en are faster and less accurate.
+    static let sttModelChoices = ["small.en", "base.en", "tiny.en"]
+    static var defaultSTTModel: String { sttModelChoices[0] }
+
+    /// Models to try, in order: just BEACON_STT_MODEL when it is set, else every choice.
+    static var sttModelCandidates: [String] {
+        let configured = string("BEACON_STT_MODEL", "")
+        return configured.isEmpty ? sttModelChoices : [configured]
+    }
+
+    /// BEACON_STT_MODEL if set. Otherwise the first installed choice, so a Mac that only has tiny.en keeps
+    /// working; with none installed, the default (its name then appears in the stt_model_missing log).
+    static var sttModel: String { pickSTTModel(candidates: sttModelCandidates, in: whisperModelsDir) }
+
+    /// Pure, so it is tested: the first candidate whose model folder is in `dir`, else the first candidate.
+    static func pickSTTModel(candidates: [String], in dir: URL,
+                             isInstalled: ((String, URL) -> Bool)? = nil) -> String {
+        let installed = isInstalled ?? { name, dir in WhisperModelLocator.resolve(name: name, in: dir) != nil }
+        return candidates.first { installed($0, dir) } ?? candidates.first ?? defaultSTTModel
+    }
     /// Feed visible on-screen words to Whisper as a decoding prompt (BEACON_STT_SCREEN_HINTS=0 turns it off).
     static var sttScreenHints: Bool { bool("BEACON_STT_SCREEN_HINTS", true) }
     static var pttKey: String { string("BEACON_PTT_KEY", "right_option") }
@@ -106,18 +126,19 @@ enum Config {
         let raw = string("BEACON_MODELS_DIR", "models")
         if raw.hasPrefix("/") { return URL(fileURLWithPath: raw) }
         let base = repoRoot ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        return resolveModelsDir(relative: raw, root: base, mainCheckout: mainCheckout(of: base), sttModel: sttModel)
+        return resolveModelsDir(relative: raw, root: base, mainCheckout: mainCheckout(of: base),
+                                sttModels: sttModelCandidates)
     }
 
-    /// `<root>/models`, unless `root` is a worktree without the Whisper model and the main checkout has it. Started
-    /// from a worktree, the Helper otherwise cancelled every recording with stt_model_missing. Pure, so it is tested.
-    static func resolveModelsDir(relative: String, root: URL, mainCheckout: URL?, sttModel: String,
+    /// `<root>/models`, unless `root` is a worktree without any of the Whisper models and the main checkout has one.
+    /// Started from a worktree, the Helper otherwise cancelled every recording with stt_model_missing. Pure, so it is tested.
+    static func resolveModelsDir(relative: String, root: URL, mainCheckout: URL?, sttModels: [String],
                                  hasWhisperModel: ((URL) -> Bool)? = nil) -> URL {
         let own = root.appendingPathComponent(relative)
         guard let mainCheckout, mainCheckout.standardizedFileURL.path != root.standardizedFileURL.path else { return own }
         let shared = mainCheckout.appendingPathComponent(relative)
         let has = hasWhisperModel ?? { dir in
-            WhisperModelLocator.resolve(name: sttModel, in: dir.appendingPathComponent("whisperkit-coreml")) != nil
+            sttModels.contains { WhisperModelLocator.resolve(name: $0, in: dir.appendingPathComponent("whisperkit-coreml")) != nil }
         }
         if has(own) { return own }
         return has(shared) ? shared : own
