@@ -77,12 +77,11 @@ final class SystemSpeechEngine: NSObject, SpeechEngine, AVSpeechSynthesizerDeleg
             lock.withLock { active = (utterance, cont) }
             token.onCancel { [weak self] in self?.cancel(utterance) }
             if token.isCancelled { return }   // onCancel already cancelled and resumed
-            synthesizer.write(utterance) { [weak self] buffer in
-                guard let pcm = buffer as? AVAudioPCMBuffer else { return }
-                if pcm.frameLength == 0 {     // end of the utterance
-                    self?.finish(utterance)
-                    return
-                }
+            synthesizer.write(utterance) { buffer in
+                // A zero-length buffer is NOT the end: the synthesizer also sends one between internal segments of
+                // a long utterance (measured: at 10.9 s of a 17.3 s reply), and stopping there cut replies short.
+                // The utterance ends in the delegate's didFinish.
+                guard let pcm = buffer as? AVAudioPCMBuffer, pcm.frameLength > 0 else { return }
                 let samples = SpeechAudio.monoFloat(pcm)
                 sourceRate.set(pcm.format.sampleRate)
                 collected.append(samples)
@@ -108,9 +107,10 @@ final class SystemSpeechEngine: NSObject, SpeechEngine, AVSpeechSynthesizerDeleg
         finish(utterance)
     }
 
-    /// Backup for systems that never send the empty end-of-utterance buffer; delayed so late buffers still land.
+    /// The end of a rendered utterance. Buffers and this callback both arrive on the main run loop, in order;
+    /// the short delay only guards against a late buffer.
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.finish(utterance) }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.finish(utterance) }
     }
 
     private func finish(_ utterance: AVSpeechUtterance) {
