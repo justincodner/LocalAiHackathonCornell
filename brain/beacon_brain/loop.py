@@ -95,6 +95,11 @@ class Brain:
                 self.finished_speech[speech_id] = interrupted
         elif kind == "barge_in":
             await self.cancel_active()
+        elif kind == "conversation.reset":
+            # The HUD's X on a screenshot: stop whatever is running and start a fresh conversation.
+            await self.cancel_active()
+            self.conversation.forget()
+            await self.set_state("idle")
         elif kind == "listen.started" and self.state == "idle":
             await self.set_state("listening")
         elif kind == "listen.cancelled" and self.state == "listening":
