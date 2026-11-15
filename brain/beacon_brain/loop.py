@@ -563,6 +563,8 @@ class Brain:
                 await self.run_browser_plan(browser.Plan([click], f"Pressing {label}", f"I pressed {label}."), text,
                                             snapshot, stt_ms, kind="command")
                 return
+        if not (screen_question or screen_summary) and await self.run_search_result(text, snapshot, stt_ms):
+            return
         if not (screen_question or screen_summary) and await steps.run(
                 self, text, snapshot, stt_ms, task_route=route.classify(text) if self.question_model else "single"):
             # "In the Amazon search bar search for X": find the field (code, else the model), then
@@ -1136,6 +1138,13 @@ class Brain:
         spoken, go_to = commands.app_request(text)
         try:
             front = await self.helper.frontmost()
+        except HelperError as error:
+            if go_to or error.code != "element_not_found":
+                LOGGER.info("Could not identify the front app for an open request: %s", error.code)
+                return False
+            # An explicit app launch can proceed when there is no focused window.
+            front = {"app": "", "elements": [], "snapshot_id": None}
+        try:
             apps = await self.helper.apps()
         except HelperError as error:
             LOGGER.info("Could not list apps for an open request: %s", error.code)
@@ -1157,9 +1166,44 @@ class Brain:
                                     stt_ms, kind="command")
         return True
 
+    async def run_search_result(self, text: str, snapshot: dict, stt_ms: int) -> bool:
+        request = browser.search_result_request(text, snapshot)
+        if request is None:
+            return False
+        query = max(browser.result_words(request.name), key=len, default="")
+        if not query:
+            return False
+        try:
+            response = await self.helper.request("/ax/find", {"query": query, "limit": 50})
+            choices = browser.matching_search_results(request, response["matches"])
+        except CONNECTION_ERRORS:
+            LOGGER.info("Could not look up the named search result", exc_info=True)
+            choices = []
+        if not choices:
+            if request.explicit:
+                await self.say(f"I couldn't find a web result for {request.name} on this page.")
+            return request.explicit
+        if len(choices) > 1:
+            titles = ", ".join(title for _, title in choices[:3])
+            await self.say(f"I found more than one result for {request.name}. Say the title you want. {titles}.")
+            return True
+        target, title = choices[0]
+        current = await self.helper.frontmost()
+        if (current["app"], current["window"]) != (snapshot["app"], snapshot["window"]):
+            await self.say("The active page changed. Ask me again on the search results page.")
+            return True
+        element = {**target, "label": target.get("full_label") or target["label"]}
+        found = {**snapshot, "snapshot_id": target["snapshot_id"], "elements": [element]}
+        click = ToolCall("browser-result", "click", {"id": target["id"]})
+        if risk.check(click, found) != "allow":
+            await self.say(f"I couldn't open {title} automatically.")
+            return True
+        await self.run_browser_plan(browser.Plan([click], f"Opening {title}", f"I opened {title}."), text, found, stt_ms)
+        return True
+
     async def run_browser_plan(self, plan: "browser.Plan", text: str, snapshot: dict, stt_ms: int,
                                *, kind: str = "browser") -> None:
-        """Run planned keyboard steps (browser.py, commands.py), no model call."""
+        """Run planned browser actions or keyboard commands, with no model call."""
         task_id = f"t_{self.task_number}"
         await self.set_state("acting", caption=plan.caption)
         summary = plan.summary

@@ -89,9 +89,9 @@ def test_fast_path_only_in_a_browser():
     assert steps("Open a new tab", app="Finder") is None
 
 
-def run(screen, utterance, *calls, replies=(), **config):
+def run(screen, utterance, *calls, replies=(), helper_factory=ReplayHelper, **config):
     async def go():
-        helper = ReplayHelper(screen)
+        helper = helper_factory(screen)
         huds = []
         original_hud = helper.hud
 
@@ -125,6 +125,75 @@ def run(screen, utterance, *calls, replies=(), **config):
         return helper, model, huds
 
     return asyncio.run(go())
+
+
+def google_results():
+    return {**chrome(), "window": "james webb - Google Search", "elements": [
+        {"id": 7, "role": "textfield", "label": "Address and search bar", "value": "google.com/search?q=james+webb"},
+        {"id": 46, "role": "link", "label": "James E. Webb - Wikipedia", "states": []},
+    ]}
+
+
+def result(element_id, label, **fields):
+    return {"id": element_id, "snapshot_id": "s_find", "role": "link", "label": label, "states": [], **fields}
+
+
+class SearchResultsHelper(ReplayHelper):
+    def __init__(self, screen, matches, current_window=None):
+        super().__init__(screen)
+        self.matches = matches
+        self.current_window = current_window
+
+    async def request(self, path, payload):
+        response = await super().request(path, payload)
+        return {**response, "matches": self.matches} if path == "/ax/find" else response
+
+    async def frontmost(self):
+        current = await super().frontmost()
+        return {**current, "window": self.current_window} if self.current_window else current
+
+
+@pytest.mark.loop
+@pytest.mark.parametrize("utterance", ["Click on the Wikipedia article.", "Click Wikipedia", "Open the Wikipedia result"])
+def test_click_named_google_result_offscreen(utterance):
+    matches = [
+        result(1, "James E. Webb - Wikipedia"),  # AI Overview
+        result(5, "Wikipedia"),  # knowledge panel
+        result(7, "James E. Webb Wikipedia https://en.wikipedia.org › wiki › James_E"),
+        result(10, "James Webb Space Telescope Wikipedia ...", bounds=[177, 840, 341, 0],
+               full_label="James Webb Space Telescope Wikipedia https://en.wikipedia.org › wiki › James_Webb"),
+    ]
+    helper, model, _ = run(google_results(), utterance, helper_factory=lambda screen: SearchResultsHelper(screen, matches))
+
+    assert model.requests == []
+    assert helper.actions == [
+        ("/ax/find", {"query": "wikipedia", "limit": 50}),
+        ("/ax/act", {"snapshot_id": "s_find", "element_id": 10, "action": "press"}),
+    ]
+    assert helper.spoken == ["I opened James Webb Space Telescope Wikipedia."]
+
+
+@pytest.mark.loop
+@pytest.mark.parametrize("matches, current_window, spoken", [
+    ([result(1, "James E. Webb - Wikipedia")], None, "I couldn't find a web result"),
+    ([result(1, "James Webb Wikipedia https://en.wikipedia.org › wiki › James_Webb"),
+      result(2, "James Webb Telescope Wikipedia https://en.wikipedia.org › wiki › JWST")], None, "I found more than one"),
+    ([result(1, "James Webb Wikipedia https://en.wikipedia.org › wiki › James_Webb")],
+     "Another tab", "The active page changed"),
+])
+def test_explicit_result_requires_one_match_on_the_current_page(matches, current_window, spoken):
+    helper, model, _ = run(google_results(), "Click the Wikipedia result",
+                           helper_factory=lambda screen: SearchResultsHelper(screen, matches, current_window))
+
+    assert model.requests == []
+    assert [path for path, _ in helper.actions] == ["/ax/find"]
+    assert helper.spoken[0].startswith(spoken)
+
+
+def test_result_lookup_leaves_other_pages_and_non_result_commands_alone():
+    assert browser.search_result_request("Click the Wikipedia article", chrome()) is None
+    assert browser.search_result_request("Go to wikipedia.org", google_results()) is None
+    assert browser.search_result_request("Click the first result", google_results()) is None
 
 
 @pytest.mark.loop

@@ -113,6 +113,10 @@
           "type": "string",
           "maxLength": 80
         },
+        "full_label": {
+          "type": "string",
+          "description": "Full label of a link on /ax/find when its display label was shortened"
+        },
         "value": {
           "type": [
             "string",

@@ -199,7 +199,7 @@ final class AXWalker {
         self.document = document
     }
 
-    func walk(_ el: AXUIElement, depth: Int = 0, clip: CGRect?) -> AXNode? {
+    func walk(_ el: AXUIElement, depth: Int = 0, clip: CGRect?, inWebArea: Bool = false) -> AXNode? {
         if nodeCount >= maxNodes || Date() >= deadline {
             truncated = true
             return nil
@@ -218,6 +218,9 @@ final class AXWalker {
         guard let (read, firstRefs) = result else { return nil }
         var node = read
         if prune, let f = node.frame, let c = clip, f.width > 0, f.height > 0, !f.intersects(c) { return nil }
+        // Containers stay (a flat group may still hold visible children); their scrolled-out children go.
+        if prune, inWebArea, let f = node.frame, let c = clip, !["AXGroup", "AXWebArea", "AXScrollArea"].contains(node.axRole),
+           !Self.listRoles.contains(node.axRole), Self.isScrolledOut(f, clip: c) { return nil }
         var childRefs = firstRefs
         if childRefs.isEmpty, node.axRole == "AXWebArea", !node.isZeroSize {
             childRefs = waitForWebContent(el)
@@ -239,17 +242,28 @@ final class AXWalker {
             childClip = clip.map { $0.intersection(f) } ?? f
         }
 
+        let childrenInWebArea = inWebArea || node.axRole == "AXWebArea"
         if Self.listRoles.contains(node.axRole) && !document {
-            walkList(el, &node, childRefs: childRefs, depth: depth, clip: childClip)
+            walkList(el, &node, childRefs: childRefs, depth: depth, clip: childClip, inWebArea: childrenInWebArea)
         } else {
             for c in childRefs {
                 // Closed submenus hang off menu items; never descend into them.
                 if node.axRole == "AXMenuItem" { break }
-                if let child = walk(c, depth: depth + 1, clip: childClip) { node.children.append(child) }
+                if let child = walk(c, depth: depth + 1, clip: childClip, inWebArea: childrenInWebArea) {
+                    node.children.append(child)
+                }
                 if truncated && (nodeCount >= maxNodes || Date() >= deadline) { break }
             }
         }
         return node
+    }
+
+    /// Chrome reports a web element scrolled out of view as a 0-1 px sliver pinned to the viewport's top or
+    /// bottom edge (e.g. y=117 h=1) instead of its real frame. Such elements are not on screen: listing them
+    /// made the model pick a scrolled-away AI Overview card over the visible search result.
+    static func isScrolledOut(_ f: CGRect, clip c: CGRect) -> Bool {
+        guard f.width > 1, f.height <= 1 else { return false }
+        return abs(f.minY - c.minY) <= 1 || abs(f.minY - c.maxY) <= 1 || abs(f.maxY - c.maxY) <= 1
     }
 
     /// Total time one walk may spend waiting for web areas to populate.
@@ -269,7 +283,8 @@ final class AXWalker {
         return []
     }
 
-    private func walkList(_ el: AXUIElement, _ node: inout AXNode, childRefs: [AXUIElement], depth: Int, clip: CGRect?) {
+    private func walkList(_ el: AXUIElement, _ node: inout AXNode, childRefs: [AXUIElement], depth: Int,
+                          clip: CGRect?, inWebArea: Bool) {
         var rowCount: CFIndex = 0
         let hasRows = AXUIElementGetAttributeValueCount(el, "AXRows" as CFString, &rowCount) == .success && rowCount > 0
         var candidates = childRefs
@@ -288,7 +303,7 @@ final class AXWalker {
         var kept = 0
         for c in candidates {
             if kept >= rowCap { break }
-            if let child = walk(c, depth: depth + 1, clip: clip) {
+            if let child = walk(c, depth: depth + 1, clip: clip, inWebArea: inWebArea) {
                 node.children.append(child)
                 if !RoleMap.dropped.contains(child.axRole) && child.axRole != "AXColumn" { kept += 1 }
             }

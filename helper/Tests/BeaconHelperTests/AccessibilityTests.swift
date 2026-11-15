@@ -277,12 +277,21 @@ final class ElementTableTests: XCTestCase {
 }
 
 final class WebClickTests: XCTestCase {
-    func testCanClickNeedsSizeAndOnScreenCentre() {
-        let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
-        XCTAssertTrue(AccessibilityService.canClick(frame: CGRect(x: 360, y: 422, width: 155, height: 49), screen: screen))
-        XCTAssertFalse(AccessibilityService.canClick(frame: CGRect(x: 360, y: 422, width: 0, height: 49), screen: screen))
-        XCTAssertFalse(AccessibilityService.canClick(frame: CGRect(x: 360, y: 1200, width: 155, height: 49), screen: screen))
-        XCTAssertTrue(AccessibilityService.canClick(frame: CGRect(x: 10, y: 10, width: 5, height: 5), screen: nil))
+    func testClickCandidatesStayInsideTheElement() {
+        let f = CGRect(x: 177, y: 254, width: 254, height: 71)
+        let points = AccessibilityService.clickCandidates(f)
+        XCTAssertEqual(points.first, CGPoint(x: f.midX, y: f.midY))
+        XCTAssertTrue(points.allSatisfy { f.contains($0) })
+    }
+
+    func testChromeScrolledOutSliversArePruned() {
+        let viewport = CGRect(x: 50, y: 117, width: 1353, height: 723)
+        // Real values from Chrome on a scrolled Google results page.
+        XCTAssertTrue(AXWalker.isScrolledOut(CGRect(x: 908, y: 117, width: 366, height: 1), clip: viewport))
+        XCTAssertTrue(AXWalker.isScrolledOut(CGRect(x: 177, y: 840, width: 254, height: 0), clip: viewport))
+        XCTAssertFalse(AXWalker.isScrolledOut(CGRect(x: 177, y: 254, width: 254, height: 71), clip: viewport))
+        // A 1x1 screen-reader heading in the middle of the page is not a scrolled-out sliver.
+        XCTAssertFalse(AXWalker.isScrolledOut(CGRect(x: 50, y: 253, width: 1, height: 1), clip: viewport))
     }
 }
 
