@@ -37,3 +37,14 @@ def clean_snapshot(snapshot: dict) -> dict:
     if isinstance(snapshot.get("text"), str):
         snapshot["text"] = TAB_LINE_COUNT.sub(r"\1", MEMORY_NOTE.sub("", snapshot["text"]))
     return snapshot
+
+
+def short(label: str, words: int = 6) -> str:
+    """A label short enough to say: a conversation row's "Clav, Damn, 1:18 AM, ..." is "Clav"."""
+    label = " ".join(label.split())
+    if len(label) <= 40:
+        return label
+    first = label.split(", ")[0].strip()
+    if 2 <= len(first) <= 40:
+        return first
+    return " ".join(label.split()[:words])
