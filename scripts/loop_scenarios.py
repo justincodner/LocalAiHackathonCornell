@@ -102,6 +102,11 @@ class FakeHelper:
     async def frontmost(self):
         return {**self.screen, "elements": []}
 
+    async def apps(self):
+        return {"running": [self.screen["app"], "Finder", "Messages", "Mail"],
+                "installed": ["Messages", "Mail", "Notes", "Safari", "Google Chrome", "Discord", "Calculator",
+                              "System Settings", "Terminal", "Finder", "zoom.us"]}
+
     async def hud(self, state, **fields):
         pass
 
@@ -357,6 +362,12 @@ SCENARIOS = [
                               f"actions {h.actions}, said {h.spoken}")),
     Scenario("command press tab twice", lambda: messages_screen(), "Press tab twice.",
              lambda h: keys_only(h, ["tab", "tab"])),
+    Scenario("open app messages", lambda: load("chrome_article"), "Open messages.",
+             lambda h: expect([a for a in h.actions] == [("/app/open", {"name": "Messages"})] and h.asked == 0,
+                              f"actions {h.actions}, said {h.spoken}")),
+    Scenario("open app switch to", lambda: load("chrome_article"), "Switch to Discord.",
+             lambda h: expect([a for a in h.actions] == [("/app/open", {"name": "Discord"})] and h.asked == 0,
+                              f"actions {h.actions}, said {h.spoken}")),
     Scenario("command button still found", lambda: load("chrome_poker"), "Press call.",
              lambda h: expect(h.pressed() == ["Call $4"], f"pressed {h.pressed()}")),
     Scenario("read latest email", lambda: load("mail_inbox"), "Read me the latest email.",
