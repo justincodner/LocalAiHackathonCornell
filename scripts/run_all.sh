@@ -20,6 +20,17 @@ DEBUG=0
 [[ "${1:-}" == "--debug" ]] && DEBUG=1
 mkdir -p "$LOG_DIR"
 
+# models/ is git-ignored, so a git worktree has none: use the main checkout's (see models_dir.sh).
+# shellcheck source=scripts/models_dir.sh
+source "$ROOT/scripts/models_dir.sh"
+if [[ -z "${BEACON_MODELS_DIR:-}" ]]; then
+  SHARED_MODELS="$(models_dir_for "$ROOT")"
+  if [[ -n "$SHARED_MODELS" ]]; then
+    export BEACON_MODELS_DIR="$SHARED_MODELS"
+    echo "==> Worktree has no models/; using $BEACON_MODELS_DIR"
+  fi
+fi
+
 BRAIN_PYTHON="$ROOT/brain/.venv/bin/python"
 HAS_BRAIN=0
 if [[ -f "$ROOT/brain/pyproject.toml" ]]; then
@@ -105,6 +116,7 @@ else
     HELPER_ENV=(--env "BEACON_ROOT=$ROOT")
     if [[ -n "${BEACON_TTS:-}" ]]; then HELPER_ENV+=(--env "BEACON_TTS=$BEACON_TTS"); fi
     if [[ -n "${BEACON_STT_MODEL:-}" ]]; then HELPER_ENV+=(--env "BEACON_STT_MODEL=$BEACON_STT_MODEL"); fi
+    if [[ -n "${BEACON_MODELS_DIR:-}" ]]; then HELPER_ENV+=(--env "BEACON_MODELS_DIR=$BEACON_MODELS_DIR"); fi
     open -n -g "${HELPER_ENV[@]}" --stdout "$LOG_DIR/helper.log" --stderr "$LOG_DIR/helper.log" "$APP"
     for _ in $(seq 1 50); do
       STARTED_HELPER="$(pgrep -nf "$APP/Contents/MacOS/beacon-helper" || true)"

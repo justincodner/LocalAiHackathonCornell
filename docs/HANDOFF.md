@@ -62,7 +62,7 @@ curl -s localhost:8765/health
 curl -s -X POST localhost:8765/debug/utterance -d '{"text":"what is on my screen"}'
 ```
 
-Models live in git-ignored `models/` (`models/whisperkit-coreml/<model>`, `models/ttskit/`). Set `BEACON_STT_MODEL=tiny.en`
+Models live in git-ignored `models/` (`models/whisperkit-coreml/<model>`, `models/ttskit/`). A git worktree has no `models/`: started from one, the Helper (and `run_all.sh`, via `BEACON_MODELS_DIR`) uses the main checkout's. Set `BEACON_STT_MODEL=tiny.en`
 for fast debugging and `BEACON_TTS=system` if TTSKit is slow or memory is tight.
 
 ## Known issues and blockers

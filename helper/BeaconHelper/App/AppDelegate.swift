@@ -150,7 +150,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case "listen.cancelled":
                     // A Control+Option shortcut cancels a recording its Option press started: no error tone.
                     if reason != "shortcut" { hud.play(.error) }
-                    hud.listenCancelled()
+                    if let message = SpeechInputService.cancelMessage(reason: reason) {
+                        // Every recording fails the same way until this is fixed: say why instead of only a tone.
+                        hud.update(state: .error, transcript: "", caption: message, latencyMS: nil)
+                        _ = speechOut.speak(text: message, interrupt: true, rate: nil)
+                    } else {
+                        hud.listenCancelled()
+                    }
                 case "tts.started":
                     if let speechID, let text { hud.speechStarted(id: speechID, text: text) }
                 case "tts.finished":
