@@ -211,7 +211,10 @@ final class PromptHUDTests: XCTestCase {
         XCTAssertNil(QuestionModelState(json: nil))
         XCTAssertNil(QuestionModelState(json: 3))
         XCTAssertEqual(PillView.questionModelTitle(.loading), "Loading 4B model…")
-        XCTAssertTrue(PillView.questionModelTitle(.off).contains("slower on 8 GB"))
+        XCTAssertEqual(PillView.questionModelTitle(.off, memoryBytes: 8 << 30), "Use 4B model for questions (slower on 8 GB)")
+        XCTAssertEqual(PillView.questionModelTitle(.on, memoryBytes: 12 << 30), "Use 4B model for questions (slower on 12 GB)")
+        XCTAssertEqual(PillView.questionModelTitle(.off, memoryBytes: 16 << 30), "Use 4B model for questions")
+        XCTAssertEqual(PillView.questionModelTitle(.off, memoryBytes: 64 << 30), "Use 4B model for questions")
     }
 
     @MainActor

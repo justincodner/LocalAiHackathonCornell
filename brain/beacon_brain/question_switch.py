@@ -17,7 +17,21 @@ PORT = 8081
 URL = f"http://127.0.0.1:{PORT}/v1"
 PID_FILE = ROOT / "logs" / f"bonsai-{PORT}.pid"
 LOADING = "Loading the 4B model for questions. This can take a minute."
-ENABLED = "Using the 4B model for questions. It's slower on this 8 GB Mac."
+
+
+def memory_gb() -> int | None:
+    try:
+        return round(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 2**30)
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+def enabled_message(gigabytes: int | None = None) -> str:
+    """What Beacon says once the 4B is on: a speed warning only where both models do not fit (under 16 GB)."""
+    gigabytes = memory_gb() if gigabytes is None else gigabytes
+    if gigabytes is not None and gigabytes < 16:
+        return f"Using the 4B model for questions. It's slower on this {gigabytes} GB Mac."
+    return "Using the 4B model for questions."
 DISABLED = "Back to the 2B model for everything."
 
 

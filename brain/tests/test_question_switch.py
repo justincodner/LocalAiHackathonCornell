@@ -67,7 +67,7 @@ def test_toggle_on_loads_4b_and_reports_loading_then_on(tmp_path):
         assert brain.question_model is calls["clients"][0]
         states = [f.get("question_model") for f in helper.hud_fields if "question_model" in f]
         assert states == ["loading", True]
-        assert question_switch.ENABLED in helper.spoken
+        assert question_switch.enabled_message() in helper.spoken
 
         await brain.on_event({"type": "model.question", "enabled": False})
         await asyncio.wait_for(brain.switching, timeout=2)
@@ -98,3 +98,10 @@ def test_failed_load_stays_on_2b(tmp_path):
         assert calls["kill"] == 1, "a half-started 4B is stopped again to free memory"
 
     asyncio.run(run())
+
+
+def test_enabled_message_matches_the_macs_memory():
+    assert question_switch.enabled_message(8) == "Using the 4B model for questions. It's slower on this 8 GB Mac."
+    assert question_switch.enabled_message(12).endswith("this 12 GB Mac.")
+    assert question_switch.enabled_message(16) == "Using the 4B model for questions."
+    assert question_switch.memory_gb() is None or question_switch.memory_gb() > 0

@@ -103,8 +103,9 @@ class Brain:
             await self.set_state("error", caption="I couldn't load the 4B model. Staying on the 2B.", question_model=False)
             return
         self.question_paused_until = 0.0
-        await self.set_state("idle", caption=question_switch.ENABLED, question_model=True)
-        await self.say(question_switch.ENABLED)
+        message = question_switch.enabled_message()
+        await self.set_state("idle", caption=message, question_model=True)
+        await self.say(message)
 
     async def cancel_active(self) -> None:
         if self.active is None or self.active.done():

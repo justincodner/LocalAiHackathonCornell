@@ -112,8 +112,17 @@ struct PillView: View {
         return items
     }
 
-    static func questionModelTitle(_ state: QuestionModelState) -> String {
-        state == .loading ? "Loading 4B model…" : "Use 4B model for questions (slower on 8 GB)"
+    static func questionModelTitle(_ state: QuestionModelState,
+                                   memoryBytes: UInt64 = ProcessInfo.processInfo.physicalMemory) -> String {
+        if state == .loading { return "Loading 4B model…" }
+        let note = memoryNote(memoryBytes)
+        return "Use 4B model for questions" + (note.isEmpty ? "" : " (\(note))")
+    }
+
+    /// "slower on 8 GB" when running both models would swap on this Mac (under 16 GB), otherwise nothing.
+    static func memoryNote(_ memoryBytes: UInt64) -> String {
+        let gigabytes = Int((Double(memoryBytes) / 1_073_741_824).rounded())
+        return gigabytes < 16 ? "slower on \(gigabytes) GB" : ""
     }
     static let removeButtonSize: CGFloat = 24
 
