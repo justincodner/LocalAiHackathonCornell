@@ -90,7 +90,7 @@ protocol SpeechOutputProviding: AnyObject, Sendable {
 // MARK: - HUD (H6)
 
 enum HUDState: String, CaseIterable {
-    case idle, listening, thinking, acting, speaking, confirm, error
+    case idle, listening, thinking, acting, speaking, confirm, asking, error
 }
 
 enum SoundCue: String, CaseIterable {

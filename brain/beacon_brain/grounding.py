@@ -86,6 +86,8 @@ def check_click(call: ToolCall, snapshot: dict, utterance: str) -> ToolCall:
     command = CLICK_COMMAND.match(" ".join(words(utterance)))
     if command is None:
         return call  # not a direct "click X" request; multi-step plans pick their own targets
+    if re.search(r"\b(?:and|then)\b", command.group("target")):
+        return call  # "open a new tab and search amazon": several steps, not one control's name
     target_words = words(command.group("target"))
     elements = snapshot["elements"]
     chosen = next((item for item in elements if item["id"] == call.arguments.get("id")), None)

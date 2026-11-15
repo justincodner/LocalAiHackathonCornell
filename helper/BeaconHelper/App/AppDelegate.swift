@@ -8,15 +8,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkey: HotkeyMonitor?
     private var server: HelperServer?
     private var services: Services!
+    private var prompts: PromptCoordinator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)   // LSUIElement: no Dock icon, never frontmost
         Permissions.requestAtLaunch()
 
         let hud = HUDController()
-        let events = EventHub { placement in
-            Task { @MainActor in hud.move(to: placement) }
-        }
+        let minimized = hud.minimizedFlag
+        let events = EventHub(
+            moveHUD: { placement in
+                Task { @MainActor in hud.move(to: placement) }
+            },
+            restoreHUD: { wakeOnly in
+                Task { @MainActor in
+                    if wakeOnly { hud.play(.listenStop) }
+                    hud.restore(wakeOnly: wakeOnly)
+                }
+            },
+            isHUDMinimized: { minimized.get() })
         services = Services(accessibility: AccessibilityService(),
                             input: InputService(),
                             speechIn: SpeechInputService(events: events),
@@ -35,6 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wireEventsToHUD(hud)
         observeFrontmostApp()
         startHotkey()
+        let prompts = PromptCoordinator(services: services, hud: hud)
+        prompts.start()
+        self.prompts = prompts
         buildMenu()
 
         let server = HelperServer(services: services)
@@ -52,6 +65,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = await (stt, tts)
             Log.info("prewarm finished")
         }
+    }
+
+    /// Runs on Quit and on the HUD's Turn off button: stop the mic and any speech before the process exits.
+    func applicationWillTerminate(_ notification: Notification) {
+        Log.info("Beacon Helper quitting")
+        guard let services else { return }
+        if services.speechIn.isListening { services.speechIn.cancelListening(reason: "quit") }
+        if services.speechOut.isSpeaking { services.speechOut.stop() }
     }
 
     // MARK: Push-to-talk and barge-in (spec 9.1, 9.5)
@@ -89,6 +110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let text = event["text"] as? String
             let speechID = event["speech_id"] as? String
             let interrupted = event["interrupted"] as? Bool ?? false
+            let reason = event["reason"] as? String
             Task { @MainActor in
                 switch type {
                 case "stt.partial":
@@ -104,8 +126,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         _ = speechOut.speak(text: Self.brainOfflineMessage, interrupt: true, rate: nil)
                     }
                 case "listen.cancelled":
-                    hud.play(.error)
-                    hud.update(state: .idle, transcript: nil, caption: nil, latencyMS: nil)
+                    // A Control+Option shortcut cancels a recording its Option press started: no error tone.
+                    if reason != "shortcut" { hud.play(.error) }
+                    hud.listenCancelled()
                 case "tts.started":
                     if let speechID, let text { hud.speechStarted(id: speechID, text: text) }
                 case "tts.finished":
@@ -137,12 +160,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(withTitle: "Beacon Helper \(Config.version)", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: "Listening on 127.0.0.1:\(Config.port)", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
+        menu.addItem(withTitle: "Show Beacon", action: #selector(showHUD), keyEquivalent: "")
+            .target = self
+        menu.addItem(withTitle: "Type a Request…", action: #selector(typeRequest), keyEquivalent: "")
+            .target = self
+        menu.addItem(withTitle: "Ask About Part of the Screen…", action: #selector(askAboutRegion), keyEquivalent: "")
+            .target = self
         menu.addItem(withTitle: "Open Accessibility Settings…", action: #selector(openAXSettings), keyEquivalent: "")
             .target = self
         menu.addItem(withTitle: "Quit Beacon Helper", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = menu
         statusItem = item
     }
+
+    @objc private func showHUD() {
+        (services.hud as? HUDController)?.restore()
+    }
+
+    @objc private func typeRequest() { prompts?.openTypedPrompt() }
+    @objc private func askAboutRegion() { prompts?.beginRegionSelection() }
 
     @objc private func openAXSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
