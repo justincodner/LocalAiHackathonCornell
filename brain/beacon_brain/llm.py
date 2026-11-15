@@ -80,6 +80,7 @@ class BonsaiClient:
         cache_prompt: bool = True,
         transport: httpx.AsyncBaseTransport | None = None,
         attempts: int = 2,
+        slots: str = "",
     ) -> None:
         self._http = httpx.AsyncClient(
             base_url=f"{base_url.rstrip('/')}/",
@@ -109,6 +110,7 @@ class BonsaiClient:
         # a slot of its own (see _slot_for); other families share whatever slots are left.
         self._root_url = re.sub(r"/v1/?$", "", base_url.rstrip("/")) + "/"
         self._slot_count = 1
+        self._slot_choice = slots.strip().casefold()  # BEACON_LLM_SLOTS; see slot_ids
         self._slots: OrderedDict[tuple[str, tuple[str, ...]], int] = OrderedDict()
         self._warm_families: set[tuple[str, tuple[str, ...]]] = set()
 
@@ -145,6 +147,27 @@ class BonsaiClient:
         """Server slots read by discover_model() (1 until then, or when the server doesn't say)."""
         return self._slot_count
 
+    @property
+    def slot_ids(self) -> list[int]:
+        """The server slots this client may pin (BEACON_LLM_SLOTS).
+
+        "" = all of them; "rest" = all but the last; "last" = only the last; or ids such as "0,1".
+        Two Brains on one Bonsai (the live one and a scenario run from scripts/) used to pin
+        their families to the same slot ids, so each evicted the other's cached prefix and every
+        live step re-read ~3,500 tokens (10 s) and hit its timeout. The live Brain takes "rest",
+        the scripts take "last", and neither touches the other's cache.
+        """
+        every = list(range(self._slot_count))
+        choice = self._slot_choice
+        if self._slot_count <= 1 or choice in {"", "all"}:
+            return every
+        if choice == "rest":
+            return every[:-1]
+        if choice == "last":
+            return every[-1:]
+        picked = [int(part) for part in re.split(r"[,\s]+", choice) if part.isdigit() and int(part) < self._slot_count]
+        return picked or every
+
     async def _discover_slots(self) -> None:
         """Read the server's slot count; without it, requests stay unpinned."""
         try:
@@ -167,6 +190,7 @@ class BonsaiClient:
         the Windows laptop). A family is its system prompt plus tool names. Prewarmed families
         keep their slot for good; the others take turns on the rest, least recently used first.
         """
+        ids = self.slot_ids
         if self._slot_count <= 1:
             return None
         system = messages[0].get("content") if messages and messages[0].get("role") == "system" else ""
@@ -174,8 +198,8 @@ class BonsaiClient:
         family = (system if isinstance(system, str) else json.dumps(system), names)
         if family in self._slots:
             self._slots.move_to_end(family)
-        elif len(self._slots) < self._slot_count:
-            self._slots[family] = len(self._slots)
+        elif len(self._slots) < len(ids):
+            self._slots[family] = ids[len(self._slots)]
         else:
             oldest = next((key for key in self._slots if key not in self._warm_families), None)
             if oldest is None:

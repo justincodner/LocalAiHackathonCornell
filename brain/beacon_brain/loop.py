@@ -91,6 +91,8 @@ class Brain:
         self.switching: asyncio.Task | None = None
         self.last_answered_by: str | None = None  # which model answered the latest call, for the log
         self.config = config
+        self.task_deadline: asyncio.Timeout | None = None  # the running task's timeout (handle_utterance)
+        self.task_started = 0.0
         self.prompt = prompt
         self.state = "idle"
         self.active: asyncio.Task | None = None
@@ -251,7 +253,8 @@ class Brain:
     async def handle_utterance(self, text: str, stt_ms: int, focus: dict | None = None) -> None:
         command = fastpath.classify(text)
         try:
-            async with asyncio.timeout(self.config.task_timeout_s):
+            self.task_started = asyncio.get_running_loop().time()
+            async with asyncio.timeout(self.config.task_timeout_s) as self.task_deadline:
                 if command == "stop":
                     await self.helper.stop_speech()
                 elif command == "repeat":
@@ -275,7 +278,7 @@ class Brain:
                     request, context = await self.resolve(text)
                     await self.route_request(request, stt_ms, context=context)
         except (TimeoutError, BonsaiError) as error:
-            LOGGER.warning("Task ended: %s", error)
+            LOGGER.warning("Task ended: %s", error or type(error).__name__)
             apology = (
                 "I'm having trouble thinking. Please try again." if isinstance(error, BonsaiError)
                 else "That took too long, so I stopped. Please try again."
@@ -288,7 +291,16 @@ class Brain:
         except CONNECTION_ERRORS:
             LOGGER.warning("Helper interaction failed", exc_info=True)
         finally:
+            self.task_deadline = None
             await self.set_state("idle")
+
+    def keep_going(self) -> None:
+        """A task step finished: give the next one a fresh task_timeout_s, up to task_max_s in all."""
+        if self.task_deadline is None:
+            return
+        now = asyncio.get_running_loop().time()
+        self.task_deadline.reschedule(min(now + self.config.task_timeout_s,
+                                          self.task_started + max(self.config.task_max_s, self.config.task_timeout_s)))
 
     async def resolve(self, text: str) -> tuple[str, str]:
         """Return (the request to carry out, the earlier conversation it still depends on).
@@ -511,6 +523,8 @@ class Brain:
         else:
             task_route = route.QUESTION if screen_question or screen_summary else route.classify(text)
         for step in range(1, self.config.max_steps + 1):
+            if step > 1:
+                self.keep_going()
             if generation != self.screen_generation:
                 generation = self.screen_generation
                 previous_snapshot, snapshot = snapshot, await self.helper.snapshot()

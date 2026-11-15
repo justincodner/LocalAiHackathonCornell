@@ -141,6 +141,7 @@ def test_startup_prewarms_every_prompt_family_and_survives_a_failure():
 
     class Model:
         slot_count = 8
+        slot_ids = list(range(8))
 
         async def prewarm(self, system, family_tools):
             warmed.append((system, [tool["function"]["name"] for tool in family_tools]))
@@ -342,3 +343,44 @@ def test_a_one_slot_server_warms_only_the_action_prompt():
 
     asyncio.run(prewarm(Config(), Model(), "MAIN"))
     assert warmed == ["MAIN"]
+
+
+def test_slot_choice_keeps_live_and_scenario_brains_apart():
+    for choice, expected in [("", [0, 1, 2, 3]), ("rest", [0, 1, 2]), ("last", [3]), ("1, 2", [1, 2]), ("9", [0, 1, 2, 3])]:
+        client = BonsaiClient("http://bonsai.test/v1", slots=choice)
+        client._slot_count = 4
+        assert client.slot_ids == expected, choice
+    one = BonsaiClient("http://bonsai.test/v1", slots="rest")
+    assert one.slot_ids == [0]  # a one-slot server is never left with none
+
+
+def test_a_last_slot_client_pins_every_family_to_the_last_slot_only():
+    transport, seen = server(lambda body, n: tool_reply("say", {"text": "hi"}), slots=4)
+    client = BonsaiClient("http://bonsai.test/v1", transport=transport, slots="last")
+
+    async def run():
+        await client.discover_model()
+        for system in ("A", "B"):
+            await client.next_tool_call([{"role": "system", "content": system}, {"role": "user", "content": "x"}],
+                                         TOOL_DEFINITIONS)
+
+    asyncio.run(run())
+    assert [body.get("id_slot") for body in seen if "messages" in body] == [3, 3]
+
+
+def test_prewarm_warms_only_as_many_families_as_the_brain_may_pin():
+    from beacon_brain.config import Config
+    from beacon_brain.main import prewarm
+
+    warmed = []
+
+    class Model:
+        slot_count = 4
+        slot_ids = [0, 1, 2]
+
+        async def prewarm(self, system, family_tools):
+            warmed.append(system)
+            return 1.0
+
+    asyncio.run(prewarm(Config(), Model(), "MAIN"))
+    assert len(warmed) == 3 and warmed[0] == "MAIN"
