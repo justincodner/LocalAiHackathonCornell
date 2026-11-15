@@ -31,8 +31,18 @@ def classify(text: str) -> str | None:
     return command
 
 
+# Spoken lead-ins that carry no request: "Yeah, what's on my screen?" is the same question.
+_LEAD_IN = re.compile(r"^(?:(?:yeah|yes|yep|ok|okay|so|um+|uh+|hey|hi|well|and|alright|oh|now|beacon|please)\s+)+")
+
+
+def without_lead_in(words: str) -> str:
+    """Normalized words without leading fillers like "yeah", "ok", "hey beacon", "please"."""
+    return _LEAD_IN.sub("", words)
+
+
 def wants_screen_summary(text: str) -> bool:
-    words = normalize(text).removeprefix("please ").removesuffix(" please")
+    words = without_lead_in(normalize(text)).removesuffix(" please")
+    words = re.sub(r"^(?:(?:can|could) you )?tell me ", "", words)
     words = re.sub(r" (?:right now|currently)$", "", words)
     return bool(re.fullmatch(
         r"(?:what(?:s| is) (?:on (?:my|the|this|the current) (?:screen|page|website)|(?:this|the current) (?:page|tab|website))"
@@ -44,7 +54,7 @@ def wants_screen_summary(text: str) -> bool:
 
 
 def is_question(text: str) -> bool:
-    words = normalize(text).removeprefix("please ")
+    words = without_lead_in(normalize(text))
     return wants_advice(text) or bool(re.match(
         r"^(?:whats?|wheres?|whens?|whos?|which|why|hows?|is|are|do|does|did|can|could|"
         r"would|should|will|have|has|explain|tell me|i (?:want|need) to know)\b",
@@ -53,7 +63,7 @@ def is_question(text: str) -> bool:
 
 
 def wants_advice(text: str) -> bool:
-    words = normalize(text).removeprefix("please ")
+    words = without_lead_in(normalize(text))
     return bool(re.match(
         r"^(?:(?:(?:can|could|would) you |give me |i (?:want|need) )?"
         r"(?:some |any )?(?:advice|advise|recommend(?:ation)?|suggest(?:ion)?|help me (?:decide|choose))"

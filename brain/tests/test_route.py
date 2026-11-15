@@ -123,3 +123,13 @@ def test_question_chained_to_later_action_clause(utterance):
 )
 def test_action_words_in_noun_position_stay_questions(utterance):
     assert classify(utterance) == QUESTION
+
+
+def test_spoken_lead_ins_do_not_hide_a_screen_summary():
+    from beacon_brain import fastpath
+
+    for text in ["Yeah, what's on my screen?", "OK so what is on the page", "Hey Beacon, describe my screen",
+                 "Tell me what's on my screen."]:
+        assert fastpath.wants_screen_summary(text), text
+    assert not fastpath.wants_screen_summary("Yeah, click submit")
+    assert fastpath.wants_advice("So what should I do?") == fastpath.wants_advice("What should I do?")
