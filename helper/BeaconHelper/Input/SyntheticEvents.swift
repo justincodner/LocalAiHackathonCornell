@@ -13,20 +13,30 @@ enum SyntheticEvents {
             .post(tap: .cghidEventTap)
     }
 
-    static func click(at p: CGPoint, right: Bool = false) throws {
+    /// A real click. `restoreCursor` puts the pointer back afterwards, so the user's mouse does
+    /// not stay parked on whatever Beacon pressed.
+    static func click(at p: CGPoint, right: Bool = false, restoreCursor: Bool = false) throws {
         let (down, up, button): (CGEventType, CGEventType, CGMouseButton) =
             right ? (.rightMouseDown, .rightMouseUp, .right) : (.leftMouseDown, .leftMouseUp, .left)
         guard let d = CGEvent(mouseEventSource: source(), mouseType: down, mouseCursorPosition: p, mouseButton: button),
               let u = CGEvent(mouseEventSource: source(), mouseType: up, mouseCursorPosition: p, mouseButton: button) else {
             throw HelperError(.actionFailed, "could not create a mouse event")
         }
+        let original = restoreCursor ? CGEvent(source: nil)?.location : nil
         moveMouse(to: p)
         pause(15)
         d.flags = []
         u.flags = []
+        // Without a click count some apps treat the pair as a drag, not a click.
+        d.setIntegerValueField(.mouseEventClickState, value: 1)
+        u.setIntegerValueField(.mouseEventClickState, value: 1)
         d.post(tap: .cghidEventTap)
         pause(30)
         u.post(tap: .cghidEventTap)
+        if let original {
+            pause(40)
+            moveMouse(to: original)
+        }
     }
 
     static func key(code: CGKeyCode, flags: CGEventFlags) throws {

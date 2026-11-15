@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beacon Poker Table</title>
+<style>
+  body { font: 18px -apple-system, system-ui, sans-serif; background: #0d3b26; color: #f4f4f4; margin: 0; padding: 32px; }
+  h1 { font-size: 26px; margin: 0 0 12px; }
+  .table { background: #145c3b; border-radius: 120px; padding: 32px 48px; max-width: 760px; }
+  .cards span { display: inline-block; background: #fff; color: #111; border-radius: 6px; padding: 8px 12px; margin-right: 6px; font-weight: 600; }
+  .red { color: #c0262d !important; }
+  .row { margin: 14px 0; }
+  .actions { margin-top: 24px; display: flex; gap: 14px; }
+  /* Styled divs that only listen to pointer events, like many web poker clients. */
+  .act { background: #f2c94c; color: #222; border-radius: 10px; padding: 14px 26px; font-weight: 700; cursor: pointer; user-select: none; }
+  .act.fold { background: #d9534f; color: #fff; }
+  #status { margin-top: 20px; font-size: 20px; }
+</style>
+</head>
+<body>
+<h1>Beacon Poker Table</h1>
+<div class="table">
+  <div class="row">Your hand: <span class="cards"><span>K&#9824;</span><span class="red">K&#9829;</span></span></div>
+  <div class="row">Board: <span class="cards"><span class="red">7&#9830;</span><span>2&#9827;</span><span>9&#9824;</span></span></div>
+  <div class="row">Pot: $24. To call: $4. Your stack: $180.</div>
+  <div class="row">Opponent (Jake) bet $4 on the flop.</div>
+  <div class="actions" role="group" aria-label="Your move">
+    <div class="act fold" role="button" tabindex="0" data-move="Fold">Fold</div>
+    <div class="act" role="button" tabindex="0" data-move="Call $4">Call $4</div>
+    <div class="act" role="button" tabindex="0" data-move="Raise to $11">Raise to $11</div>
+  </div>
+  <div id="status" role="status" aria-live="polite">Waiting for your move.</div>
+</div>
+<script>
+  // Moves fire only on a real pointer press (pointerdown then pointerup on the same button),
+  // so an accessibility "press" that only sends a synthetic click does nothing here.
+  let downOn = null;
+  document.querySelectorAll('.act').forEach((el) => {
+    el.addEventListener('pointerdown', () => { downOn = el; });
+    el.addEventListener('pointerup', () => {
+      if (downOn === el) document.getElementById('status').textContent = 'You chose: ' + el.dataset.move + '.';
+      downOn = null;
+    });
+  });
+</script>
+</body>
+</html>

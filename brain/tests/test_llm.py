@@ -114,3 +114,17 @@ def test_snapshot_asks_for_the_configured_element_cap():
 
     asyncio.run(run())
     assert requests == [{"scope": "window", "max_elements": 80}]
+
+
+def test_plain_text_answer_becomes_say_when_say_is_offered():
+    looping = 'The capital of France is Paris.\n\nsay "The capital of France is Paris."\n'
+    transport, seen = server(lambda body, n: httpx.Response(200, json={"choices": [{"message": {"content": looping}}]}))
+    say_only = [tool for tool in TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport) as client:
+            return await client.next_tool_call([{"role": "user", "content": "x"}], say_only)
+
+    call = asyncio.run(run())
+    assert (call.name, call.arguments) == ("say", {"text": "The capital of France is Paris."})
+    assert len(seen) == 1 and seen[0]["stop"] == ["</think>"]

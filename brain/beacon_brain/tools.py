@@ -52,6 +52,14 @@ def validate(call, snapshot: dict) -> str | None:
             return f"Element {call.arguments['id']} is absent from the latest SCREEN"
         if "disabled" in element["states"]:
             return f"Element {element['id']} is disabled"
+        if (call.name == "read_element" and element["role"] in {"textfield", "textarea"}
+                and not (element.get("value") or "").strip()):
+            readable = sorted((item for item in snapshot["elements"] if item["role"] in {"text", "row", "cell"}
+                               and (item.get("label") or "").strip()),
+                              key=lambda item: -len(item.get("label") or ""))[:2]
+            hint = " or ".join(f"[{item['id']}]" for item in readable)
+            return (f"Element {element['id']} is an empty field; read the element that holds the content"
+                    + (f", such as {hint}" if hint else ""))
     return None
 
 

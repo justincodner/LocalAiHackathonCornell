@@ -127,7 +127,42 @@ def check_click(call: ToolCall, snapshot: dict, utterance: str) -> ToolCall:
     if matches:
         return ask(call, choice_question("one", matches))
     spoken_target = " ".join(word for word in target_words if word not in {"the", "a", "an", "on"})
+    unlabeled = [item for item in elements if item["role"] in PRESSABLE and "disabled" not in item["states"]
+                 and (item.get("label") or "").startswith("unlabeled")]
+    if len(unlabeled) == 1:
+        # An icon-only button (the checkout's pay button) has no name to match: offer it.
+        return ask(call, f"I don't see {spoken_target} by name. Do you mean {spoken_label(unlabeled[0])}?")
     return ask(call, f"I don't see {spoken_target} on this screen. What should I click instead?")
+
+
+KEY_WORDS = {
+    "enter", "return", "tab", "escape", "esc", "space", "spacebar", "delete", "backspace", "up", "down", "left",
+    "right", "arrow", "command", "cmd", "control", "ctrl", "shift", "option", "alt", "fn", "home", "end",
+    "page", "key", "keys", "plus",
+}
+
+
+def check_key_press(call: ToolCall, snapshot: dict, utterance: str) -> ToolCall:
+    """ "Press call" names a button, but the model may send a shortcut (cmd+shift+c) instead.
+
+    When the user named no key and exactly one control on screen carries the words they
+    said, press that control.
+    """
+    command = CLICK_COMMAND.match(" ".join(words(utterance)))
+    if command is None:
+        return call
+    target_words = words(command.group("target"))
+    if any(word in KEY_WORDS or re.fullmatch(r"[a-z]|f\d{1,2}", word) for word in target_words):
+        return call  # "press enter", "press command c", "press f5": a real key
+    content = [word for word in target_words if word not in GENERIC and word not in CONTEXT_WORDS]
+    if not content:
+        return call
+    matches = [item for item in snapshot["elements"] if item["role"] in PRESSABLE
+               and "disabled" not in item["states"]
+               and all(word_matches(word, own_label_words(item)) for word in content)]
+    if len(matches) != 1 or CONFIRM_LABEL.search(matches[0].get("label") or ""):
+        return call
+    return ToolCall(call.id, "click", {"id": matches[0]["id"]}, call.stray_text)
 
 
 def check_typing(call: ToolCall, said: str) -> ToolCall:
@@ -154,6 +189,8 @@ def check(call: ToolCall, snapshot: dict, utterance: str, *, fresh_request: bool
     """
     if call.name == "type_text":
         return check_typing(call, said or utterance)
+    if call.name == "press_key" and fresh_request:
+        call = check_key_press(call, snapshot, utterance)
     if call.name == "click" and fresh_request:
         return check_click(call, snapshot, utterance)
     return call

@@ -184,6 +184,20 @@ enum Labels {
     /// Label rule of spec 5.3: title, description, linked title element, help, first static-text child.
     /// Returns the untrimmed label and its source.
     static func label(for node: AXNode, role: String) -> (String, String)? {
+        guard let (label, source) = rawLabel(for: node, role: role) else { return nil }
+        return (role == "tab" ? withoutTabNoise(label) : label, source)
+    }
+
+    /// Chrome appends "- Memory usage - 165 MB" to tab titles: tokens the model pays for and
+    /// words Beacon would read aloud, with nothing the user asked about.
+    static func withoutTabNoise(_ label: String) -> String {
+        let cleaned = label.replacingOccurrences(
+            of: #"\s+-\s+(?:high\s+)?memory usage\s+-\s+[0-9.,]+\s*[KMGT]B\b"#,
+            with: "", options: [.regularExpression, .caseInsensitive])
+        return cleaned.isEmpty ? label : cleaned
+    }
+
+    private static func rawLabel(for node: AXNode, role: String) -> (String, String)? {
         if role == "text" {
             if let v = clean(node.value?.text) ?? clean(node.title) ?? clean(node.desc) { return (v, "title") }
             return nil

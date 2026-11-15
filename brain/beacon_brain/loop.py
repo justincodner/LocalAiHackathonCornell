@@ -242,12 +242,15 @@ class Brain:
         last_action = ""  # name of the latest screen action that ran
         last_typed = ""  # text of the latest type_text that ran
         # "Send hello to Emmett", "decide and do it": a say/done before any action is not the end.
+        # "Make the best move for me" hands Beacon the choice and the action in one go.
         must_act = not (screen_question or screen_summary) and (
-            fastpath.wants_send(text) or fastpath.wants_follow_through(text))
+            fastpath.wants_send(text) or fastpath.wants_follow_through(text)
+            or (fastpath.wants_decision(text) and not fastpath.is_question(text)))
         early_stops = 0
         decide_first = must_act and fastpath.wants_decision(text)
         said_decision = False
         tried_action = False  # a screen action was attempted, even if it failed
+        last_success: tuple | None = None  # (name, arguments) of the latest screen action that worked
         # Route once per task from the user's own words: questions to the accurate model,
         # actions to the fast one. Without a question model everything uses the one model.
         if self.question_model is None:
@@ -287,6 +290,12 @@ class Brain:
             acted_at = time.perf_counter()
             screen = snapshot
             call = tools.normalize(call, snapshot)
+            if (call.name in tools.SCREEN_ACTIONS and last_success == (call.name, call.arguments)
+                    and not fastpath.wants_repeat(memory.all_words)):
+                # The 2B model often repeats the step it just took (types the number again, scrolls
+                # or clicks Fold again) instead of calling done: the request is already done.
+                LOGGER.info("Repeated %s %s: finishing instead", call.name, call.arguments)
+                call = ToolCall(call.id, "done", {"summary": narrate.did(actions_taken)}, call.stray_text)
             if fastpath.wants_send(text) and committed and call.name == "type_text":
                 # Already sent: typing again would start a duplicate message.
                 call = ToolCall(call.id, "done", {"summary": f"Sent: {last_typed}"}, call.stray_text)
@@ -342,6 +351,7 @@ class Brain:
             )
             request_for_model = memory.request
             confirmed_screen = None
+            was_fresh = fresh_request
             try:
                 if error:
                     consecutive_invalid += 1
@@ -397,6 +407,8 @@ class Brain:
 
             act_ms = round((time.perf_counter() - acted_at) * 1000)
             tried_action = tried_action or (error is None and call.name in tools.SCREEN_ACTIONS)
+            if call.name in tools.SCREEN_ACTIONS or call.name in TERMINALS:
+                last_success = (call.name, call.arguments) if result["ok"] else None
             if result["ok"] and call.name in tools.SCREEN_ACTIONS:
                 actions_taken.append(narrate.past_action(call, screen))
                 last_action = call.name
@@ -406,6 +418,11 @@ class Brain:
                     call.name == "press_key" and risk.normal_keys(call.arguments["keys"]).split("+")[-1] in {"return", "enter"}
                 )  # Return sends in many chat apps, so don't claim "nothing has been sent"
                 fresh_request = False
+            target = tools.element_for(call, screen) if "id" in call.arguments else None
+            finished = self.finished_summary(call, result, text, target, was_fresh=was_fresh,
+                                             decide_first=decide_first, committed=committed, typed=last_typed)
+            if result["ok"] and call.name in tools.SCREEN_ACTIONS and not finished:
+                # Only a step the model continues from needs the settled, fresh screen.
                 await asyncio.sleep(self.config.settle_ms / 1000)
                 generation = self.screen_generation
                 previous_snapshot, snapshot = snapshot, await self.helper.snapshot()
@@ -421,9 +438,14 @@ class Brain:
                 grounded=grounded or None, route=task_route, model=self.last_answered_by,
                 ms={"stt": stt_ms, "snapshot": screen.get("build_ms", 0), "llm": llm_ms, "act": act_ms},
             )
-            target = tools.element_for(call, screen) if "id" in call.arguments else None
             memory.add(call, result, screen["snapshot_id"], request_for_model,
                        json.dumps(target["label"]) if target else "")
+            if finished:
+                # The request was this one step: say so instead of asking the model again just
+                # to hear "done" (1 to 4 s on the M1, and small models misreport the choice).
+                task_summary = finished
+                await self.say(task_summary)
+                break
             if consecutive_invalid >= 2:
                 task_summary = "I couldn't find a valid action for that request."
                 await self.say(task_summary)
@@ -443,6 +465,23 @@ class Brain:
             task_summary = "I couldn't finish that. Here is where I stopped."
             await self.say(task_summary)
         self.previous_result = memory.summarize(task_summary or "The previous task stopped.")
+
+    @staticmethod
+    def finished_summary(call, result: dict, text: str, target: dict | None, *, was_fresh: bool,
+                         decide_first: bool, committed: bool, typed: str) -> str:
+        """What to say when this successful step completes the whole request, else ""."""
+        if not result.get("ok") or call.name not in tools.SCREEN_ACTIONS:
+            return ""
+        label = grounding.spoken_label(target) if target else ""
+        if call.name == "click" and (decide_first or (was_fresh and fastpath.single_click(text))):
+            return f"I pressed {label or 'that option'}."
+        if call.name == "scroll" and was_fresh and fastpath.single_scroll(text):
+            return f"I scrolled {call.arguments['direction']}."
+        if fastpath.wants_send(text) and committed and typed and call.name in {"click", "press_key"}:
+            name = compose.recipient(text)
+            body = typed.strip() if typed.strip()[-1:] in {".", "!", "?"} else typed.strip() + "."
+            return f"Sent to {name}: {body}" if name else f"Sent: {body}"
+        return ""
 
     @staticmethod
     def send_typed(call, last_action: str, committed: bool, said: str, snapshot: dict) -> ToolCall | None:

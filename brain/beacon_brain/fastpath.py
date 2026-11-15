@@ -109,3 +109,26 @@ DECIDE = re.compile(r"\b(?:decide|you (?:choose|pick|decide)|your call|up to you
 def wants_decision(text: str) -> bool:
     """The user handed the choice to Beacon, so asking them which option is not an answer."""
     return bool(DECIDE.search(normalize(text)))
+
+
+REPEAT = re.compile(r"\b(?:again|twice|thrice|times|more|repeatedly|keep|until|each|every|all)\b")
+
+
+def wants_repeat(text: str) -> bool:
+    """The user asked for the same step more than once ("scroll down twice", "press tab 3 times")."""
+    return bool(REPEAT.search(normalize(text)))
+
+
+SINGLE_CLICK = re.compile(r"^(?:can you |could you |would you )?(?:click|press|tap|hit|push|select|choose)\b")
+MORE_STEPS = re.compile(r"\b(?:and|then|after|before|also|next)\b|,")
+
+
+def single_click(text: str) -> bool:
+    """ "Press call", "click the Reply button": one click is the whole request."""
+    words = normalize(text).removeprefix("please ")
+    return bool(SINGLE_CLICK.match(words)) and not MORE_STEPS.search(text.casefold()) and not wants_repeat(text)
+
+
+def single_scroll(text: str) -> bool:
+    words = normalize(text).removeprefix("please ").removesuffix(" please")
+    return bool(re.fullmatch(r"(?:can you |could you )?scroll(?: the page)? (?:up|down|left|right)(?: a bit)?", words))

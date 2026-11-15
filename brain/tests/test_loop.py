@@ -447,7 +447,7 @@ def test_stale_snapshot_retries_the_same_call_once(tmp_path):
         await brain.on_event({"type": "stt.final", "text": "click reply"})
         await brain.active
         assert [path for path, _ in helper.actions] == ["/ax/act", "/ax/act"]
-        assert helper.spoken[-1] == "Reply opened."
+        assert helper.spoken[-1] == "I pressed Reply."
 
     asyncio.run(run())
 
@@ -619,7 +619,7 @@ def test_send_request_types_and_sends_in_one_go(tmp_path, model_after_typing):
         assert [path for path, _ in helper.actions] == ["/ax/act", "/input/type", "/input/key"]
         assert helper.actions[-1][1] == {"keys": "return"}
         assert not any("Say yes" in text or "Hold the talk key" in text for text in helper.spoken)
-        assert helper.spoken[-1] == "Sent hello to Emmett."
+        assert helper.spoken[-1] == "Sent to Emmett: hello."
 
     asyncio.run(run())
 
@@ -681,7 +681,7 @@ def test_decide_then_act_does_both(tmp_path):
         model = ScriptedModel(
             ToolCall("a", "say", {"text": "Raise: a pair of kings is strong."}),  # not offered: retried
             ToolCall("b", "click", {"id": 6}),
-            ToolCall("c", "done", {"summary": "Raised with a pair of kings."}),
+            ToolCall("c", "done", {"summary": "Folded the hand to 11."}),  # never asked for
         )
         brain = helper.brain = Brain(helper, model, Config(log_path=tmp_path / "s.jsonl", settle_ms=0), "x")
         await brain.on_event({"type": "stt.final", "text": "Should I fold, call or raise? Decide and then do it"})
@@ -689,7 +689,8 @@ def test_decide_then_act_does_both(tmp_path):
 
         assert helper.actions == [("/ax/act", {"snapshot_id": "s_poker", "element_id": 6, "action": "press"})]
         assert model.tools[1] == ["click", "set_value"]
-        assert helper.spoken[-1] == "Raised with a pair of kings."
+        assert helper.spoken[-1] == "I pressed Raise."
+        assert len(model.requests) == 2  # no extra model call just to say what was pressed
 
     asyncio.run(run())
 

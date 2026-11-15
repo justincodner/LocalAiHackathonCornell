@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -66,6 +67,9 @@ class BonsaiClient:
             "max_tokens": max_tokens,
             "chat_template_kwargs": {"enable_thinking": False},
             "cache_prompt": cache_prompt,
+            # With no tool call, the 2B can loop "answer / say "answer" / </think>" until
+            # max_tokens (about 6 s). Nothing valid ever contains </think> with thinking off.
+            "stop": ["</think>"],
         }
         self._model: str | None = None
         self._required_tool_choice = True
@@ -139,6 +143,7 @@ class BonsaiClient:
         tools: Sequence[Mapping[str, Any]],
     ) -> Completion:
         model = self._model or await self.discover_model()
+        can_say = any(tool.get("function", {}).get("name") == "say" for tool in tools)
         payload = {
             **self._sampling,
             "model": model,
@@ -148,6 +153,8 @@ class BonsaiClient:
         for attempt in range(self._attempts):
             try:
                 response, allow_text = await self._request_completion(payload)
+                # A plain-text answer when say is on offer is that answer, not a failure.
+                allow_text = allow_text or can_say
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
                 status = exc.response.status_code
@@ -214,9 +221,9 @@ def _parse_tool_call(body: Any, *, allow_text: bool) -> ToolCall:
         raise _InvalidToolCall("Completion had no message")
     calls = message.get("tool_calls")
     if allow_text and (calls is None or calls == []):
-        content = message.get("content")
-        if isinstance(content, str) and content.strip():
-            return ToolCall(f"call_{uuid4().hex}", "say", {"text": content.strip()})
+        text = _spoken_text(message.get("content"))
+        if text:
+            return ToolCall(f"call_{uuid4().hex}", "say", {"text": text})
     if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
         raise _InvalidToolCall("Expected exactly one tool call")
 
@@ -235,6 +242,15 @@ def _parse_tool_call(body: Any, *, allow_text: bool) -> ToolCall:
     content = message.get("content")
     stray = content.strip() if isinstance(content, str) else ""
     return ToolCall(call_id, name, arguments, stray)
+
+
+def _spoken_text(content: Any) -> str:
+    """The answer in a plain-text reply: its first paragraph, without a written-out say call."""
+    if not isinstance(content, str):
+        return ""
+    first = content.split("</think>", 1)[0].strip().split("\n\n", 1)[0].strip()
+    match = re.fullmatch(r'say\s*[:(]?\s*"(.+)"\s*\)?', first, re.DOTALL)
+    return (match.group(1) if match else first).strip()
 
 
 def _reject_json_constant(value: str) -> None:
