@@ -37,6 +37,8 @@ struct SnapshotElement {
 enum SnapshotLine {
     case element(SnapshotElement)
     case moreRows(depth: Int, count: Int)
+    /// A container `SnapshotBuilder.fit` collapsed to keep the window under the element cap.
+    case moreItems(depth: Int, count: Int)
 }
 
 struct BuiltSnapshot {
@@ -66,6 +68,8 @@ enum SnapshotBuilder {
         var children: [Out] = []
         var rowCount: Int?
         var moreRows = 0
+        /// Descendants `fit` left out to keep the snapshot under the element cap.
+        var collapsed = 0
 
         var isInteractive: Bool { RoleMap.interactive.contains(role) }
         var count: Int { 1 + children.reduce(0) { $0 + $1.count } }
@@ -74,13 +78,113 @@ enum SnapshotBuilder {
     /// Builds the snapshot of `root`. When `includeRoot` is false (window, sheet, menu), the root's children are
     /// the top level at depth 0; when true (focused scope), the root itself is element 1.
     static func build(root: AXNode, includeRoot: Bool, maxElements: Int, walkTruncated: Bool = false) -> BuiltSnapshot {
-        let top = includeRoot ? finishSiblings(transform(root)) : transformChildren(root.children)
+        var top = includeRoot ? finishSiblings(transform(root)) : transformChildren(root.children)
+        let total = top.reduce(0) { $0 + $1.count }
+        let cap = max(1, maxElements)
+        // Chrome lists its tabs at the window's top level, after the page: keep room for them so a
+        // capped snapshot still lets "switch to my Discord tab" work.
+        let reserve = min(top.filter { $0.role == "tab" }.count, tabReserve, cap / 3)
+        top = fit(top, maxElements: cap)
         var elements: [SnapshotElement] = []
         var lines: [SnapshotLine] = []
         var truncated = walkTruncated
-        flatten(top, depth: 0, maxElements: max(1, maxElements), elements: &elements, lines: &lines, truncated: &truncated)
-        let total = top.reduce(0) { $0 + $1.count }
-        return BuiltSnapshot(elements: elements, lines: lines, truncated: truncated, totalElements: total)
+        flatten(top, depth: 0, maxElements: cap - reserve, tabLimit: cap, elements: &elements, lines: &lines,
+                truncated: &truncated)
+        return BuiltSnapshot(elements: elements, lines: lines, truncated: truncated || elements.count < total,
+                             totalElements: total)
+    }
+
+    // MARK: Fit (window chrome before content)
+
+    // Elements are kept in reading order, so a plain cut keeps a window's chrome (caption buttons, the browser
+    // toolbar, sidebars, tab strips) and drops the content after it. `fit` first removes controls that carry
+    // nothing, then collapses chrome containers, largest first and tab strips last, until the window fits. A
+    // collapsed container stays (its children are listed as "N more items"), anything holding keyboard focus is
+    // never collapsed, and /ax/find still searches the whole window. Ported from win_helper/snapshot.py.
+
+    static let tabReserve = 20
+    static let captionButtons: Set<String> = ["close window", "minimize window", "full screen", "zoom", "close",
+                                              "minimize", "exit full screen"]
+    static let noiseButton = try! NSRegularExpression(pattern: "^(?:more options for|show message actions for)\\b",
+                                                      options: [.caseInsensitive])
+    // Whole-label matches only: a web page's own group is named after its title ("New Tab"), and a chat header
+    // toolbar after the chat ("Kingsnipeshot"); collapsing either would hide the page itself.
+    static let chromeLabel = try! NSRegularExpression(
+        pattern: "^(?:(?:main|primary|left|right|browser) )?(?:side ?bar|navigation|nav|bookmarks(?: toolbar| bar)?"
+            + "|tabs|tab ?strip|tab ?bar|menu ?bar|title ?bar|status ?bar|session tools|message actions)$",
+        options: [.caseInsensitive])
+    static let containers: Set<String> = ["group", "list", "toolbar", "window", "menu"]
+
+    static func matches(_ re: NSRegularExpression, _ s: String) -> Bool {
+        re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil
+    }
+
+    static func hasFocus(_ o: Out) -> Bool { o.states.contains("focused") || o.children.contains(where: hasFocus) }
+
+    static func dropNoise(_ outs: [Out], depth: Int) -> [Out] {
+        outs.compactMap { o in
+            let label = o.fullLabel.trimmingCharacters(in: .whitespaces)
+            if o.role == "button", o.children.isEmpty, !o.states.contains("focused"),
+               (depth <= 1 && captionButtons.contains(label.lowercased())) || matches(noiseButton, label) {
+                return nil
+            }
+            var kept = o
+            kept.children = dropNoise(o.children, depth: depth + 1)
+            return kept
+        }
+    }
+
+    /// The browser's own unlabelled toolbar and menus, or a container named like chrome ("Sidebar", "Tabs").
+    /// A labelled toolbar is page content (a chat's header with its name and call buttons) and is kept.
+    static func isChrome(_ o: Out) -> Bool {
+        let label = o.fullLabel.trimmingCharacters(in: .whitespaces)
+        if o.role == "toolbar" || o.role == "menu" { return label.isEmpty || matches(chromeLabel, label) }
+        return containers.contains(o.role) && !label.isEmpty && matches(chromeLabel, label)
+    }
+
+    /// Index paths of collapsible chrome containers (outermost only: their own chrome goes with them).
+    static func chromePaths(_ outs: [Out], prefix: [Int] = []) -> [[Int]] {
+        var found: [[Int]] = []
+        for (i, o) in outs.enumerated() {
+            if !o.children.isEmpty, isChrome(o), !hasFocus(o) {
+                found.append(prefix + [i])
+            } else {
+                found += chromePaths(o.children, prefix: prefix + [i])
+            }
+        }
+        return found
+    }
+
+    static func node(_ outs: [Out], _ path: [Int]) -> Out {
+        var o = outs[path[0]]
+        for i in path.dropFirst() { o = o.children[i] }
+        return o
+    }
+
+    static func collapse(_ outs: inout [Out], _ path: [Int]) {
+        if path.count == 1 {
+            outs[path[0]].collapsed = outs[path[0]].count - 1
+            outs[path[0]].children = []
+            outs[path[0]].moreRows = 0
+        } else {
+            collapse(&outs[path[0]].children, Array(path.dropFirst()))
+        }
+    }
+
+    static func fit(_ top: [Out], maxElements: Int) -> [Out] {
+        guard top.reduce(0, { $0 + $1.count }) > maxElements else { return top }
+        var top = dropNoise(top, depth: 0)
+        var total = top.reduce(0) { $0 + $1.count }
+        let ranked = chromePaths(top).map { (path: $0, out: node(top, $0)) }.sorted {
+            let tabsA = $0.out.children.contains { $0.role == "tab" }, tabsB = $1.out.children.contains { $0.role == "tab" }
+            return tabsA != tabsB ? !tabsA : $0.out.count > $1.out.count
+        }
+        for (path, out) in ranked {
+            if total <= maxElements { break }
+            collapse(&top, path)
+            total -= out.count - 1
+        }
+        return top
     }
 
     // MARK: Transform
@@ -267,11 +371,16 @@ enum SnapshotBuilder {
 
     // MARK: Flatten
 
-    static func flatten(_ outs: [Out], depth: Int, maxElements: Int, elements: inout [SnapshotElement],
-                        lines: inout [SnapshotLine], truncated: inout Bool) {
+    /// Lists elements in reading order until `maxElements`; top-level tabs may go on up to `tabLimit`.
+    static func flatten(_ outs: [Out], depth: Int, maxElements: Int, tabLimit: Int? = nil,
+                        elements: inout [SnapshotElement], lines: inout [SnapshotLine], truncated: inout Bool) {
         for o in outs {
             if depth > maxDepth { truncated = true; return }
-            if elements.count >= maxElements { truncated = true; return }
+            if elements.count >= maxElements {
+                truncated = true
+                guard depth == 0, let tabLimit else { return }
+                if o.role != "tab" || elements.count >= tabLimit { continue }
+            }
             let el = SnapshotElement(id: elements.count + 1, depth: depth, role: o.role, label: o.label,
                                      labelSource: o.label.isEmpty ? "none" : o.labelSource, value: o.value,
                                      states: stateOrder.filter { o.states.contains($0) }, frame: o.frame, ref: o.ref,
@@ -282,6 +391,9 @@ enum SnapshotBuilder {
                     truncated: &truncated)
             if o.moreRows > 0 {
                 lines.append(.moreRows(depth: min(depth + 1, maxDepth), count: o.moreRows))
+            }
+            if o.collapsed > 0 {
+                lines.append(.moreItems(depth: min(depth + 1, maxDepth), count: o.collapsed))
             }
         }
     }
@@ -314,6 +426,8 @@ enum TextBlock {
             case .element(let e): out.append(line(e))
             case .moreRows(let depth, let count):
                 out.append(String(repeating: "  ", count: depth) + "... \(count) more row\(count == 1 ? "" : "s") (scroll or use find)")
+            case .moreItems(let depth, let count):
+                out.append(String(repeating: "  ", count: depth) + "... \(count) more item\(count == 1 ? "" : "s") (use find)")
             }
         }
         return out.joined(separator: "\n")

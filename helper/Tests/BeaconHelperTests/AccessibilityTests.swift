@@ -311,3 +311,69 @@ final class TabLabelTests: XCTestCase {
         XCTAssertEqual(Labels.label(for: button, role: "button")?.0, "Discord | @Kingsnipeshot")
     }
 }
+
+/// SnapshotBuilder.fit: a large window loses its chrome before its content (port of win_helper's fit).
+final class SnapshotFitTests: XCTestCase {
+    func f(_ i: Int) -> CGRect { CGRect(x: 10, y: CGFloat(i * 30), width: 100, height: 20) }
+    func button(_ title: String, _ i: Int = 0) -> AXNode { AXNode("AXButton", title: title, frame: f(i)) }
+    func tab(_ title: String) -> AXNode { AXNode("AXRadioButton", subrole: "AXTabButton", title: title, frame: f(0)) }
+
+    /// A Chrome-like window: caption buttons, the browser toolbar, a sidebar, a chat with a labelled header
+    /// toolbar, and the browser's tabs at the top level after the page.
+    func chromeWindow(tabs: Int = 5, focusInSidebar: Bool = false) -> BuiltSnapshot {
+        var sessions = (0..<30).map { button("Session \($0)", $0) }
+        if focusInSidebar { sessions[0].focused = true }
+        let page = AXNode("AXGroup", desc: "Discord", frame: f(0), children: [
+            AXNode("AXGroup", desc: "Sidebar", frame: f(0), children: sessions),
+            AXNode("AXToolbar", desc: "Kingsnipeshot", frame: f(0), children: [button("Start Voice Call")]),
+            AXNode("AXList", desc: "Messages", frame: f(0), children: (0..<20).map {
+                AXNode("AXRow", frame: f($0), children: [AXNode("AXStaticText", value: .string("Message \($0) says something"))])
+            }),
+            button("Reply"),
+        ])
+        let window = AXNode("AXWindow", frame: CGRect(x: 0, y: 0, width: 800, height: 600), children: [
+            button("close window"), button("minimize window"), button("full screen"),
+            AXNode("AXToolbar", frame: f(0), children: [button("Back"), button("Forward"), button("Reload")]),
+            page,
+        ] + (0..<tabs).map { tab("Tab \($0)") })
+        return SnapshotBuilder.build(root: window, includeRoot: false, maxElements: 40)
+    }
+
+    func text(_ b: BuiltSnapshot) -> [String] {
+        TextBlock.render(app: "Google Chrome", window: "Discord", focusedID: b.focusedID, lines: b.lines)
+            .split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+    }
+
+    func testChromeCollapsesBeforeContent() {
+        let b = chromeWindow()
+        let labels = Set(b.elements.map(\.label))
+        XCTAssertTrue(labels.isSuperset(of: ["Message 19 says something", "Reply", "Sidebar", "Kingsnipeshot",
+                                             "Start Voice Call"]))
+        XCTAssertTrue(labels.isDisjoint(with: ["close window", "minimize window", "Session 0"]))
+        XCTAssertTrue(labels.contains("Back"))  // the window fit once the sidebar collapsed
+        XCTAssertLessThanOrEqual(b.elements.count, 40)
+        XCTAssertTrue(b.truncated)
+        XCTAssertTrue(text(b).contains("... 30 more items (use find)"))
+    }
+
+    func testTabsAtTheTopLevelKeepTheirRoom() {
+        let b = chromeWindow(tabs: 12)
+        XCTAssertEqual(b.elements.filter { $0.role == "tab" }.map(\.label), (0..<12).map { "Tab \($0)" })
+        XCTAssertLessThanOrEqual(b.elements.count, 40)
+        XCTAssertEqual(b.elements.map(\.id), Array(1...b.elements.count))
+    }
+
+    func testFocusedChromeIsNeverCollapsed() {
+        let b = chromeWindow(focusInSidebar: true)
+        XCTAssertTrue(b.elements.contains { $0.label == "Session 0" })
+        XCTAssertNotNil(b.focusedID)
+    }
+
+    func testWindowUnderTheCapIsUntouched() {
+        let w = AXNode("AXWindow", children: [button("close window"),
+                                              AXNode("AXToolbar", frame: f(0), children: [button("Bold")])])
+        let b = SnapshotBuilder.build(root: w, includeRoot: false, maxElements: 120)
+        XCTAssertEqual(b.elements.map(\.label), ["close window", "", "Bold"])
+        XCTAssertFalse(b.truncated)
+    }
+}
