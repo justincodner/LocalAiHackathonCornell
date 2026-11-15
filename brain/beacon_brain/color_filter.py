@@ -70,6 +70,11 @@ BARE_OTHER = re.compile(r"^(?:(?:ok(?:ay)?|now|then|can\s+you|could\s+you|let'?s
                         r"(?:\s+(?:instead|please|then|now))*$")
 STATUS = re.compile(r"^(?:is|are)\s+(?:the\s+|my\s+|a\s+|any\s+)?(?:\w+\s+){0,2}filters?\s+"
                     rf"(?:on|enabled|active|turned\s+on)\b|^(?:which|what)\s+{COLOR}\s+filter\s+(?:is|am\s+i)")
+OTHER_TASK = re.compile(r"^(?:(?:can|could|would)\s+you\s+)?(?:search|google|look\s+up|find|read|open|type|write|"
+                        r"send|text|email|message|reply|summarize|tell\s+me\s+about)\b")
+COLOR_TROUBLE = re.compile(rf"\b(?:see|tell|distinguish|seeing|telling)\s+(?:the\s+)?{COLOR}s\b"
+                           rf"|\btrouble\s+(?:with|seeing)\s+(?:the\s+)?{COLOR}s\b")
+REQUEST_WORDS = re.compile(r"\b(?:help|filters?|settings?|modes?|easier|fix|turn|make|adjust|change|way\s+to)\b")
 QUESTION = re.compile(r"^(?:what|whats|what's|how|why|who|does|do|is|are|explain|tell\s+me|define|describe)\b")
 
 
@@ -123,11 +128,21 @@ def parse(text: str, *, recent: bool = False) -> Intent | None:
         return Intent("enable", name)  # a named filter wins: "switch to protanopia instead"; "what is X?" doesn't
     if about_filter and OTHER_WORDS.search(t):
         return Intent("other")
-    if red_green and re.search(rf"\b(?:{HELP_WORDS})\b", t):
+    # "How common is red-green color blindness?" asks for facts; "is there a way to make red and green
+    # easier to see?" asks for help.
+    asks_facts = bool(QUESTION.match(t) and not REQUEST_WORDS.search(t))
+    if red_green and re.search(rf"\b(?:{HELP_WORDS})\b", t) and not asks_facts:
         return Intent("choose")
     if re.search(rf"\b(?:i'?m|i\s+am)\s+{COLOR}\s?blind\b", t):
         return Intent("choose", red_green=False)
     if color_filter and re.search(rf"\b(?:{ON_WORDS})\b", t):
+        return Intent("choose", red_green=False)
+    # "Adjust my computer's colors for color blindness", "make the screen colorblind friendly": left to the
+    # model, these become a refusal (it may not touch System Settings), so they are handled here too.
+    # "What is color blindness?" and "search for color blindness tests" are not requests to change the screen.
+    if re.search(rf"\b{COLOR}\s?blind\w*", t) and not asks_facts and not OTHER_TASK.match(t):
+        return Intent("choose", red_green=red_green)
+    if COLOR_TROUBLE.search(t) and not OTHER_TASK.match(t):
         return Intent("choose", red_green=False)
     return None
 
