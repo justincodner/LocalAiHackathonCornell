@@ -31,6 +31,7 @@ final class PromptCoordinator {
     func start() {
         hud.typePrompt = { [weak self] in self?.openTypedPrompt() }
         hud.askAboutRegion = { [weak self] in self?.beginRegionSelection() }
+        hud.clearSelection = { [weak self] in self?.removeSelectionAndReset() }
         typed.onSubmit = { [weak self] text in self?.submitTyped(text) }
         typed.onCancel = { [weak self] in self?.notify("Typing cancelled.", speak: false) }
         shortcuts.willFire = { [weak self] in self?.cancelTalkKeyRecording() }
@@ -158,6 +159,17 @@ final class PromptCoordinator {
             Log.info("selection dropped after \(Int(Self.selectionTimeout)) s without a question")
             self.notify("No question came, so I cleared the selection.", speak: false)
         }
+    }
+
+    /// The thumbnail's X: drop the screenshot and its pending focus, and tell the Brain to start a fresh
+    /// conversation (it stops any task in progress and forgets earlier exchanges).
+    func removeSelectionAndReset() {
+        services.events.clearPendingFocus()
+        selectionConsumed()
+        services.speechOut.stop()
+        services.events.emit("conversation.reset", ["reason": "selection_removed"])
+        hud.update(state: .idle, transcript: "", caption: "", latencyMS: nil)
+        notify("Screenshot removed. Starting a new conversation.", speak: false)
     }
 
     private func selectionConsumed() {

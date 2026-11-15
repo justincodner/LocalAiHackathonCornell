@@ -367,7 +367,7 @@ final class HUDTests: XCTestCase {
             : PillPanel.replyHeight(for: model.replyText, width: size.width, available: 300,
                                     question: model.replyLabel != nil)
         let bounds = NSRect(x: 0, y: 0, width: size.width, height: size.height + replyHeight)
-        let host = NSHostingView(rootView: PillView(model: model, minimize: {}, turnOff: {}, typePrompt: {}, askAboutRegion: {})
+        let host = NSHostingView(rootView: PillView(model: model, minimize: {}, turnOff: {}, typePrompt: {}, askAboutRegion: {}, clearSelection: {})
             .frame(width: bounds.width, height: bounds.height))
         let window = OverlayPanel(contentRect: bounds)
         window.contentView = host

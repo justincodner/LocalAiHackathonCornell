@@ -189,7 +189,22 @@ final class PromptHUDTests: XCTestCase {
         XCTAssertNil(model.replyLabel)
     }
 
-    func testSelectionOverridesAnOlderQuestion() {
+    @MainActor
+    func testRemovingTheScreenshotClearsThumbnailAndText() {
+        let hud = HUDController()
+        let image = HUDTests.sampleInvoiceImage().cgImage(forProposedRect: nil, context: nil, hints: nil)
+        hud.setSelection(preview: "Invoice 42", image: image)
+        XCTAssertTrue(hud.model.showsSelectionThumbnail)
+        var removed = false
+        hud.clearSelection = { removed = true; hud.setSelection(preview: nil) }
+        hud.clearSelection()
+        XCTAssertTrue(removed)
+        XCTAssertNil(hud.model.selectionImage)
+        XCTAssertFalse(hud.model.showsSelection)
+        XCTAssertEqual(hud.model.replyText, "")
+    }
+
+        func testSelectionOverridesAnOlderQuestion() {
         let model = HUDModel()
         model.state = .asking
         model.pendingQuestion = "Which Sarah?"

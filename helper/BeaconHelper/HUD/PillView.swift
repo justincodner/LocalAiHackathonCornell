@@ -9,6 +9,8 @@ struct PillView: View {
     var turnOff: (() -> Void)?
     var typePrompt: (() -> Void)?
     var askAboutRegion: (() -> Void)?
+    /// The X on a selection thumbnail: drops the screenshot and starts a fresh conversation.
+    var clearSelection: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -94,6 +96,7 @@ struct PillView: View {
     }
 
     static let buttonSize: CGFloat = 28
+    static let removeButtonSize: CGFloat = 24
 
     private func headerButton(symbol: String, label: String, help: String, action: @escaping () -> Void) -> some View {
         HUDButton(symbol: symbol, label: label, help: help, action: action)
@@ -172,6 +175,17 @@ struct PillView: View {
                         .frame(width: size.width, height: size.height)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(0.35), lineWidth: 1))
+                        .overlay(alignment: .topTrailing) {
+                            if let clearSelection {
+                                HUDButton(symbol: "xmark", label: "Remove screenshot",
+                                          help: "Remove this screenshot and start a new conversation",
+                                          action: clearSelection)
+                                    .frame(width: Self.removeButtonSize, height: Self.removeButtonSize)
+                                    .background(Circle().fill(Color.black.opacity(0.85)))
+                                    .overlay(Circle().strokeBorder(.white.opacity(0.6), lineWidth: 1))
+                                    .padding(5)
+                            }
+                        }
                         .accessibilityLabel("Your selection: \(model.replyText)")
                 } else {
                 Text(verbatim: model.replyText)

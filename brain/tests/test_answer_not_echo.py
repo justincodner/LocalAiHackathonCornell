@@ -82,3 +82,17 @@ def test_echoed_ask_user_on_action_route_becomes_an_answer(tmp_path):
         assert answer in helper.spoken
 
     asyncio.run(run())
+
+
+@pytest.mark.loop
+def test_conversation_reset_event_forgets_and_goes_idle(tmp_path):
+    async def run():
+        helper = ReplayHelper(fixture("safari_form"))
+        brain = helper.brain = Brain(helper, ScriptedModel(), Config(log_path=tmp_path / "s.jsonl"), "Test instruction")
+        brain.remember("What is the total?", "The total is $118.", "Safari")
+        assert brain.conversation.last is not None
+        await brain.on_event({"type": "conversation.reset", "reason": "selection_removed"})
+        assert brain.conversation.last is None
+        assert helper.hud_states[-1] == "idle"
+
+    asyncio.run(run())

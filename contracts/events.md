@@ -10,6 +10,7 @@ Every message is one JSON text frame: `{"type": "...", "ts": <unix ms>, ...extra
 | `stt.final` | `utterance_id` (`u_0001`), `text`, `audio_ms`, `stt_ms`; optional `input`, `focus` (see below) | Final transcript ready. Also sent by `POST /debug/utterance` with `audio_ms` and `stt_ms` = 0, and for a typed request (`input: "typed"`, ids `u_typed_0001`, `audio_ms` and `stt_ms` = 0) |
 | `listen.cancelled` | `reason` (`too_short`, `empty`, `cancelled`, `stt_model_missing`, `shortcut`, ...) | Utterance under 300 ms, empty transcript, or cancelled |
 | `barge_in` | none | Talk key pressed, or a typed request submitted, while speech was playing. The Helper has already stopped audio; the Brain should cancel the task |
+| `conversation.reset` | `reason` | The user pressed the X on a screenshot in the HUD. The Helper has dropped the screenshot; the Brain should cancel any task and forget the conversation |
 | `tts.started` | `speech_id` (`sp_0001`) | First audio sample played |
 | `tts.finished` | `speech_id`, `interrupted` (bool) | Speech ended or was stopped |
 | `app.changed` | `app`, `window` | Frontmost app changed (the Helper's own process is never reported) |

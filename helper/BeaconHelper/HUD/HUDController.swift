@@ -33,6 +33,8 @@ final class HUDController: HUDProviding {
     /// Keyboard and viewfinder buttons. Set by PromptCoordinator.
     var typePrompt: () -> Void = {}
     var askAboutRegion: () -> Void = {}
+    /// The X on the selection thumbnail. Set by PromptCoordinator.
+    var clearSelection: () -> Void = {}
     /// Number of thinking ticks played so far (for tests and logs).
     private(set) var ticksPlayed = 0
     var pillPanel: PillPanel { pill }
@@ -48,7 +50,8 @@ final class HUDController: HUDProviding {
             minimize: { [weak self] in self?.minimize() },
             turnOff: { [weak self] in self?.turnOff() },
             typePrompt: { [weak self] in self?.typePrompt() },
-            askAboutRegion: { [weak self] in self?.askAboutRegion() }
+            askAboutRegion: { [weak self] in self?.askAboutRegion() },
+            clearSelection: { [weak self] in self?.clearSelection() }
         ))
         host.sizingOptions = []
         host.frame = NSRect(origin: .zero, size: PillPanel.size)
