@@ -13,7 +13,7 @@ from . import (browser, chats, commands, compose, fastpath, followup, grounding,
                risk, route, screen_words, tools)
 from .config import Config
 from .helper_client import HelperError
-from .llm import BonsaiError, ToolCall
+from .llm import BonsaiError, ToolCall, has_tool_markup, strip_tool_markup
 from .log import append_step
 from .memory import Conversation, TaskMemory
 from . import drafts  # Mail replies and "send it" on a draft, run in code
@@ -79,6 +79,20 @@ def snapshot_summary(snapshot: dict) -> ToolCall:
     title = snapshot["window"].strip()
     answer = f'The active window in {app} is titled "{title}".' if title else f"{app} is open."
     return ToolCall("screen-summary", "say", {"text": answer})
+
+
+def screen_evidence(snapshot: dict) -> list[str]:
+    """Every label and value in a snapshot, with its window and app: what an answer may name."""
+    return [snapshot.get("window") or "", snapshot.get("app") or "", *(
+        f"{item.get('label') or ''} {item.get('value') or ''}" for item in snapshot.get("elements", []))]
+
+
+def spoken_form(text: str) -> str:
+    """Speech and captions never carry tool-call syntax the model wrote as text."""
+    if not has_tool_markup(text):
+        return text
+    LOGGER.warning("Removed tool-call syntax from speech")
+    return strip_tool_markup(text) or "Sorry, I didn't get that. Try asking again."
 
 
 class Brain:
@@ -206,6 +220,7 @@ class Brain:
                     or commands.app_request(text) and len(text.split()) <= 6 and not fastpath.classify(text))
 
     async def speak(self, text: str, *, wait: bool = True) -> bool:
+        text = spoken_form(text)
         self.last_speech = text
         speech_id = await self.helper.speak(text, self.rate)
         if not wait:
@@ -220,6 +235,7 @@ class Brain:
             self.speech_events.pop(speech_id, None)
 
     async def say(self, text: str) -> None:
+        text = spoken_form(text)
         await self.set_state("speaking", caption=text)
         await self.speak(text)
 
@@ -329,6 +345,16 @@ class Brain:
         LOGGER.info("Follow-up %r -> %r", text, rewritten)
         return rewritten, context
 
+    async def mentions_screen(self, text: str) -> bool:
+        """Whether a word of the question is in the front window (one quick window read)."""
+        try:
+            snapshot = await self.helper.snapshot()
+        except (HelperError, *CONNECTION_ERRORS):
+            return False
+        shown = [snapshot.get("window") or ""] + [
+            f"{item.get('label') or ''} {item.get('value') or ''}" for item in snapshot.get("elements", [])]
+        return questions.overlaps_screen(text, shown)
+
     def remember(self, request: str, reply: str, app: str = "") -> None:
         self.conversation.remember(request, reply, app)
 
@@ -344,6 +370,12 @@ class Brain:
         last = self.conversation.last
         if fastpath.needs_screen(text) or (context and last is not None and last.app):
             # A follow-up to an exchange about the screen ("And the tax?") is about it too.
+            await self.run_task(text, stt_ms, screen_question=True, context=context)
+            return
+        if questions.looks_up_screen(text) or (questions.about_user_or_now(text) and await self.mentions_screen(text)):
+            # "Is there anything about space?", "Do I need to buy coffee?" (coffee is in the open
+            # note): the answer is on screen. The router model tends to answer these from general
+            # knowledge instead.
             await self.run_task(text, stt_ms, screen_question=True, context=context)
             return
 
@@ -648,6 +680,14 @@ class Brain:
                 # back is the model misreading it. Only who-to-send-to is worth asking about.
                 LOGGER.info("ask_user on a send whose message is given; treating it as a failed step")
                 error = "The user gave the message: type it into the message field and send it"
+            if (error is None and call.name == "say" and not tried_action and not screen_question
+                    and consecutive_invalid == 0  # once: a general answer may name things too
+                    and isinstance(call.arguments.get("text"), str)
+                    and questions.unsupported_names(call.arguments["text"], screen_evidence(snapshot), memory.all_words)):
+                # A spoken answer about things that are not on SCREEN ("The latest email is from
+                # Sarah Chen" on a video page) is made up: ask the model again.
+                LOGGER.warning("say named things absent from the screen: %r", call.arguments["text"])
+                error = "Only describe what is on the latest SCREEN; never name a person or title it doesn't show"
             if (error is None and must_act and call.name == "done" and early_stops < 2
                     and (not tried_action or (sending and not last_typed and not committed
                                              and compose.message_for(text, memory.answers)))):
@@ -1002,6 +1042,10 @@ class Brain:
         else:
             messages = TaskMemory(prompt, request).messages(snapshot)
             evidence = [f"{item.get('label') or ''} {item.get('value') or ''}" for item in snapshot["elements"]]
+        hint = "" if advisory else questions.answer_hints(request, snapshot)
+        if hint:
+            messages[-1] = {**messages[-1], "content": messages[-1]["content"] + hint}
+        shown = [*evidence, snapshot.get("window") or "", snapshot.get("app") or ""]
         allowed_numbers = None if advisory else questions.reference_numbers(request, evidence)
         missing_context = questions.missing_betting_context(request, evidence) if advisory else None
         if missing_context:
@@ -1024,9 +1068,22 @@ class Brain:
                     text = answer.arguments["text"].strip()
                     if (text and not questions.is_question_only(text)
                             and fastpath.normalize(text) != fastpath.normalize(request)):
-                        if allowed_numbers is None or questions.numbers(text) <= allowed_numbers:
-                            return answer
-                        break
+                        if allowed_numbers is not None and not questions.numbers(text) <= allowed_numbers:
+                            break
+                        invented = [] if advisory else questions.unsupported_names(text, shown, request)
+                        if invented:
+                            # "The latest email is from Sarah Chen" on a YouTube page: not on screen.
+                            LOGGER.warning("Screen answer named %s, which is not on screen", invented)
+                            continue
+                        if questions.contradicts_itself(request, text):
+                            # "Yes, there are 0 open pull requests": ask again; a second try that
+                            # still contradicts keeps only its facts.
+                            LOGGER.info("Screen answer contradicted itself: %r", text)
+                            if attempt_messages is messages:
+                                continue
+                            facts = re.sub(r"^yes\b[\s,.!]*", "", text, flags=re.I)
+                            return replace(answer, arguments={"text": facts[:1].upper() + facts[1:]})
+                        return answer
         except BonsaiError:
             LOGGER.warning("Could not answer from the active screen", exc_info=True)
         return unavailable
@@ -1041,7 +1098,9 @@ class Brain:
                 LOGGER.warning("Using the available page content after Bonsai failed", exc_info=True)
             else:
                 if (call.name == "say" and not tools.validate(call, snapshot)
-                        and page_summary.mentions_content(call.arguments["text"], snapshot, content)):
+                        and page_summary.mentions_content(call.arguments["text"], snapshot, content)
+                        and not questions.unsupported_names(call.arguments["text"],
+                                                            [*content, snapshot["window"], snapshot["app"]], request)):
                     return call
         return ToolCall("page-summary", "say", {"text": page_summary.fallback(snapshot, content)})
 

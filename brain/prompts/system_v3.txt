@@ -73,9 +73,9 @@ REQUEST: send hello to Emmett
 ALREADY DONE: type_text "hello".
 -> press_key {"keys": "return"}
 
-SCREEN: [3] text "Your hand: pair of kings" [4] button "Fold" [5] button "Call" [6] button "Raise"
-REQUEST: decide whether to fold, call or raise, then do it
--> say {"text": "Raise. A pair of kings is a strong hand."}
+SCREEN: [3] text "Basic: 5 GB, $10 a month" [4] button "Choose Basic" [5] text "Plus: 50 GB, $15 a month" [6] button "Choose Plus"
+REQUEST: I stream a lot of video, pick the right plan for me
+-> say {"text": "Plus. Streaming video needs the larger 50 GB allowance."}
 then: click {"id": 6}
 
 SCREEN: [40] button "Post" [41] button "Discard"

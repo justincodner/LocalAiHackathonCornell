@@ -63,16 +63,34 @@ def visible_content(snapshot: dict, *, include_display_values: bool = False) -> 
             toolbar_depth = depth
             continue
         label = " ".join((element.get("label") or "").split())
-        if include_display_values and role == "slider" and element.get("value"):
-            label = f"{label} {element['value']}".strip()
         key = label.casefold()
         readable_image = include_display_values and role == "image" and key not in UNLABELED_IMAGES
         if ((role not in PAGE_ROLES and not readable_image) or not label or (role == "button" and key in WINDOW_BUTTONS)
                 or key == snapshot["window"].strip().casefold() or element.get("label_source") == "inferred"):
             continue
+        if include_display_values:
+            # A question about the screen needs its state: what is chosen, on, or filled in.
+            label = displayed_state(element, label)
+            key = label.casefold()
         if key not in labels or labels[key][1] == "text":
             labels[key] = (label, role)
     return dict(labels.values())
+
+
+VALUE_ROLES = {"slider", "checkbox", "radio", "popup", "textfield", "textarea"}
+SHOWN_STATES = ("selected", "checked", "expanded", "disabled")
+PRIVATE_LABEL = re.compile(r"password|passcode|card\s+number|security code|cvv|\bpin\b", re.IGNORECASE)
+
+
+def displayed_state(element: dict, label: str) -> str:
+    """The label plus the value and states a question may hinge on: 'Shuffle: off', 'Express (selected)'."""
+    value = element.get("value")
+    if (element["role"] in VALUE_ROLES and value not in (None, "") and not PRIVATE_LABEL.search(label)
+            and len(str(value)) <= 200):
+        shown = " ".join(str(value).split())
+        label = f"{label} {shown}" if element["role"] == "slider" else f"{label}: {shown}"
+    states = [state for state in SHOWN_STATES if state in element.get("states", [])]
+    return f"{label} ({', '.join(states)})" if states else label
 
 
 def messages(snapshot: dict, content: dict[str, str], request: str, *, prompt: str = PROMPT) -> list[dict]:

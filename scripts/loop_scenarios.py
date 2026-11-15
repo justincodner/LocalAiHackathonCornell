@@ -7,6 +7,7 @@ sends) after a prompt or loop change.
 
     brain/.venv/bin/python scripts/loop_scenarios.py            # every scenario
     brain/.venv/bin/python scripts/loop_scenarios.py poker send  # names containing these words
+    brain/.venv/bin/python scripts/loop_scenarios.py qa --repeat 3  # screen questions, 3 runs each
 
 Env: BEACON_LLM_URL (http://127.0.0.1:8080/v1), BEACON_LLM_QUESTION_URL (optional 4B).
 """
@@ -81,6 +82,154 @@ def discord_screen() -> dict:
             {"id": 12, "role": "textarea", "label": "Message @Kingsnipeshot", "value": "", "states": ["focused"]},
         ],
     }
+
+
+def screen(app: str, window: str, items: list[tuple], focused: int | None = None) -> dict:
+    """A snapshot from (depth, role, label[, value[, states]]) rows, ids numbered from 1 in reading order."""
+    elements, lines = [], [f'APP {app} | WINDOW "{window}" | FOCUS ' + (f"[{focused}]" if focused else "none")]
+    for number, (depth, role, label, *rest) in enumerate(items, start=1):
+        value = rest[0] if rest else None
+        states = list(rest[1]) if len(rest) > 1 else []
+        states += ["focused"] if number == focused else []
+        elements.append({"id": number, "depth": depth, "role": role, "label": label, "label_source": "title",
+                         "value": value, "states": states, "bounds": [0, 0, 10, 10]})
+        line = f'{"  " * depth}[{number}] {role}' + (f' "{label}"' if label else "")
+        line += f' value="{value}"' if value is not None else ""
+        lines.append(line + (f" ({', '.join(states)})" if states else ""))
+    return {"snapshot_id": f"s_{app[:3].lower()}", "app": app, "window": window, "focused_id": focused,
+            "text": "\n".join(lines), "elements": elements, "ok": True, "truncated": False,
+            "total_elements": len(elements)}
+
+
+def chrome_page(title: str, url: str, content: list[tuple]) -> dict:
+    """A Chrome window: toolbar, then the page group holding `content` (rows at depth >= 2)."""
+    window = f"{title} - Google Chrome"
+    rows = [(0, "group", window), (1, "toolbar", ""), (2, "button", "Back"), (2, "button", "Forward"),
+            (2, "button", "Reload"), (2, "textfield", "Address and search bar", url),
+            (1, "group", title), *content, (1, "tab", title)]
+    return screen("Google Chrome", window, rows)
+
+
+def youtube_home() -> dict:
+    return chrome_page("YouTube", "youtube.com", [
+        (2, "link", "YouTube Home"), (2, "textfield", "Search", ""), (2, "button", "Search"),
+        (2, "link", "Home"), (2, "link", "Shorts"), (2, "link", "Subscriptions"),
+        (2, "button", "All"), (2, "button", "Music"), (2, "button", "Gaming"), (2, "button", "Live"),
+        (2, "link", "How Volcanoes Form: A Visual Guide by Science Explained 1.2M views 3 weeks ago 12:41"),
+        (2, "link", "Lo-fi beats to study to by Chill Hop Radio 8.4K watching LIVE"),
+        (2, "link", "I Built a Tiny House in 30 Days by Maker Mike 640K views 5 days ago 18:02"),
+        (2, "link", "Top 10 Goals of the Season by Football Weekly 2.1M views 1 month ago 9:15"),
+    ])
+
+
+def youtube_loading() -> dict:
+    """Just after typing youtube.com: the page has not drawn any videos yet."""
+    return chrome_page("YouTube", "youtube.com", [(2, "link", "YouTube Home"), (2, "textfield", "Search", "")])
+
+
+def news_front_page() -> dict:
+    return chrome_page("World News Today", "worldnewstoday.example", [
+        (2, "link", "World"), (2, "link", "Business"), (2, "link", "Science"), (2, "link", "Sport"),
+        (2, "heading", "Storm Elena makes landfall on the Gulf Coast"),
+        (2, "text", "Forecasters expect heavy rain through Tuesday as more than 200,000 homes lose power."),
+        (2, "heading", "Central bank holds interest rates steady"),
+        (2, "heading", "New telescope images show a galaxy 13 billion years old"),
+        (2, "button", "Subscribe"),
+    ])
+
+
+def finder_window() -> dict:
+    return screen("Finder", "Downloads", [
+        (0, "toolbar", ""), (1, "button", "Back"), (1, "button", "Forward"), (1, "textfield", "Search", ""),
+        (0, "list", "Sidebar"), (1, "row", "Recents"), (1, "row", "Applications"), (1, "row", "Desktop"),
+        (1, "row", "Documents"), (1, "row", "Downloads"),
+        (0, "list", "Downloads"), (1, "row", "tax-return-2025.pdf"), (1, "row", "vacation-photos.zip"),
+        (1, "row", "Resume_Final.docx"), (1, "row", "budget.xlsx"),
+        (0, "text", "4 items, 120 GB available"),
+    ])
+
+
+def notes_note() -> dict:
+    return screen("Notes", "Groceries", [
+        (0, "list", "Notes"), (1, "row", "Groceries Today Eggs, spinach, oat milk"),
+        (1, "row", "Book club Last Thursday"),
+        (0, "textarea", "Note", "Groceries\nEggs\nSpinach\nOat milk\nCoffee beans"),
+    ], focused=5)
+
+
+def github_pulls(open_titles: list[str], closed: int) -> dict:
+    """A GitHub pull requests list filtered to open ones."""
+    rows = [(2, "link", "Code"), (2, "link", "Issues"), (2, "link", f"Pull requests {len(open_titles)}"),
+            (2, "link", "Actions"), (2, "textfield", "Search all pull requests", "is:pr is:open"),
+            (2, "link", "Labels"), (2, "link", "Milestones"), (2, "button", "New pull request"),
+            (2, "link", f"{len(open_titles)} Open"), (2, "link", f"{closed} Closed"),
+            (2, "button", "Author"), (2, "button", "Label"), (2, "button", "Sort")]
+    if open_titles:
+        rows += [(2, "link", title) for title in open_titles]
+    else:
+        rows += [(2, "heading", "There aren't any open pull requests."),
+                 (2, "text", "You could search all of GitHub or try an advanced search.")]
+    return chrome_page("Pull requests · acme/widgets", "github.com/acme/widgets/pulls", rows)
+
+
+def settings_wifi() -> dict:
+    return screen("System Settings", "Wi-Fi", [
+        (0, "list", "Sidebar"), (1, "row", "Wi-Fi", None, ["selected"]), (1, "row", "Bluetooth"),
+        (1, "row", "Network"), (1, "row", "Battery"), (0, "heading", "Wi-Fi"),
+        (0, "checkbox", "Wi-Fi", "on"), (0, "text", "Connected"), (0, "text", "HomeNet-5G"),
+        (0, "heading", "Known Networks"), (1, "row", "CoffeeShop Guest"), (1, "row", "Office"),
+        (0, "checkbox", "Ask to join networks", "off"),
+    ])
+
+
+def calendar_day() -> dict:
+    return screen("Calendar", "Calendar", [
+        (0, "button", "Day", None, ["selected"]), (0, "button", "Week"), (0, "button", "Month"),
+        (0, "heading", "Tuesday, March 4"),
+        (0, "button", "Dentist appointment, 9:00 AM to 10:00 AM"),
+        (0, "button", "Team standup, 11:30 AM to 11:45 AM"),
+        (0, "button", "Lunch with Priya, 1:00 PM to 2:00 PM"),
+        (0, "button", "Physics lecture, 3:00 PM to 4:30 PM"),
+    ])
+
+
+def music_player() -> dict:
+    return screen("Music", "Music", [
+        (0, "list", "Sidebar"), (1, "row", "Listen Now"), (1, "row", "Library"), (1, "row", "Road Trip Mix"),
+        (0, "text", "Here Comes the Sun"), (0, "text", "The Beatles — Abbey Road"),
+        (0, "button", "Previous"), (0, "button", "Pause"), (0, "button", "Next"),
+        (0, "checkbox", "Shuffle", "off"), (0, "checkbox", "Repeat", "on"),
+        (0, "slider", "Volume", "60"),
+    ])
+
+
+def shop_cart() -> dict:
+    return chrome_page("Shopping Cart", "shop.example/cart", [
+        (2, "heading", "Shopping Cart"),
+        (2, "link", "Wireless Mouse"), (2, "text", "$24.99"), (2, "popup", "Quantity", "1"),
+        (2, "link", "USB-C Charging Cable, 2 pack"), (2, "text", "$12.49"), (2, "popup", "Quantity", "2"),
+        (2, "link", "Noise Cancelling Headphones"), (2, "text", "$149.00"), (2, "popup", "Quantity", "1"),
+        (2, "text", "Subtotal (4 items): $198.97"), (2, "button", "Proceed to checkout"),
+    ])
+
+
+def shipping_choice() -> dict:
+    return chrome_page("Delivery options", "shop.example/delivery", [
+        (2, "heading", "Choose a delivery speed"),
+        (2, "radio", "Standard, 5 to 7 days, free"), (2, "radio", "Express, 2 days, $9.99", None, ["selected"]),
+        (2, "radio", "Overnight, $24.99"), (2, "button", "Continue"),
+    ])
+
+
+def chrome_tabs() -> dict:
+    page = chrome_page("Weather for Ithaca, NY", "weather.example/ithaca", [
+        (2, "heading", "Ithaca, NY"), (2, "text", "Light snow, 28°F"), (2, "text", "High 31° Low 19°"),
+    ])
+    for label in ("Inbox (3) - Mail", "Recipes: Easy Pancakes"):
+        page["elements"].append({"id": len(page["elements"]) + 1, "depth": 1, "role": "tab", "label": label,
+                                 "label_source": "title", "value": None, "states": [], "bounds": [0, 0, 10, 10]})
+        page["text"] += f'\n  [{len(page["elements"])}] tab "{label}"'
+    return page
 
 
 class FakeHelper:
@@ -427,6 +576,71 @@ SCENARIOS = [
 ]
 
 
+WORDS = re.compile(r"[a-z0-9$.]+")
+
+
+def answered(any_of: tuple[str, ...], none_of: tuple[str, ...] = ()) -> Callable[[FakeHelper], str | None]:
+    """A spoken answer, no actions and no question back: it names one of `any_of` and none of `none_of`
+    (lowercase words or phrases, matched on word boundaries)."""
+    def check(h: FakeHelper) -> str | None:
+        said = " " + " ".join(WORDS.findall(h.said().replace(",", ""))) + " "
+        hit = [w for w in any_of if f" {w} " in said]
+        bad = [w for w in none_of if f" {w} " in said]
+        return (no_actions(h) or expect(h.asked == 0, f"asked back: {h.spoken}")
+                or expect(bool(hit), f"none of {any_of} in {h.spoken}") or expect(not bad, f"said {bad}: {h.spoken}"))
+    return check
+
+
+NO = ("no", "none", "zero", "0", "not", "aren't", "isn't", "don't", "couldn't", "can't", "cannot")
+NOT_ON_SCREEN = ("couldn't", "can't", "cannot", "don't", "not", "no", "isn't")
+# Screen questions on everyday apps and sites (none of them the demo screens).
+SCREEN_QA = [
+    Scenario("qa youtube what video", youtube_home, "What video is on screen right now?",
+             answered(("volcanoes", "lo-fi", "lo", "tiny", "goals", "volcano"), ("email", "sarah"))),
+    Scenario("qa youtube is anything live", youtube_home, "Is anything live right now?",
+             answered(("lo-fi", "lo", "chill", "hop", "beats"), ("email",))),
+    Scenario("qa youtube loading no video", youtube_loading, "What video is on screen right now?",
+             answered(NOT_ON_SCREEN, ("email", "sarah", "volcano"))),
+    Scenario("qa youtube absent email", youtube_home, "Who is the latest email from?",
+             answered(NOT_ON_SCREEN, ("sarah",))),
+    Scenario("qa github any open prs none", lambda: github_pulls([], 28), "Are there any open pull requests?",
+             answered(NO, ("yes",))),
+    Scenario("qa github how many open", lambda: github_pulls(["Fix login redirect", "Add dark mode", "Bump httpx"], 25),
+             "How many open pull requests are there?", answered(("3", "three"), ("25", "28"))),
+    Scenario("qa github top pr", lambda: github_pulls(["Fix login redirect", "Add dark mode", "Bump httpx"], 25),
+             "Which pull request is at the top?", answered(("login",), ("dark",))),
+    Scenario("qa news top story", news_front_page, "What's the top story?",
+             answered(("storm", "elena"))),
+    Scenario("qa news anything about space", news_front_page, "Is there anything about space?",
+             answered(("telescope", "galaxy"))),
+    Scenario("qa finder how many files", finder_window, "How many files are in this folder?",
+             answered(("4", "four"))),
+    Scenario("qa finder is resume here", finder_window, "Is my resume in here?",
+             answered(("yes", "resume_final.docx", "resume"), ("no",))),
+    Scenario("qa notes grocery list", notes_note, "What's on my grocery list?",
+             answered(("eggs", "spinach", "oat"))),
+    Scenario("qa notes do I need coffee", notes_note, "Do I need to buy coffee?",
+             answered(("yes", "coffee"), ("no",))),
+    Scenario("qa settings is wifi on", settings_wifi, "Is Wi-Fi on?", answered(("yes", "on", "connected"), ("off",))),
+    Scenario("qa settings which network", settings_wifi, "Which network am I connected to?",
+             answered(("homenet-5g", "homenet"), ("coffeeshop", "office"))),
+    Scenario("qa calendar after lunch", calendar_day, "What do I have after lunch?",
+             answered(("physics", "lecture"))),
+    Scenario("qa calendar how many events", calendar_day, "How many events do I have today?",
+             answered(("4", "four"))),
+    Scenario("qa music what song", music_player, "What song is playing?", answered(("sun",))),
+    Scenario("qa music is shuffle on", music_player, "Is shuffle on?", answered(NO + ("off",), ("yes",))),
+    Scenario("qa cart how many items", shop_cart, "How many items are in my cart?",
+             answered(("4", "four", "3", "three"))),
+    Scenario("qa cart most expensive", shop_cart, "What's the most expensive thing in my cart?",
+             answered(("headphones",))),
+    Scenario("qa shipping which selected", shipping_choice, "Which delivery option is selected?",
+             answered(("express",), ("standard", "overnight"))),
+    Scenario("qa tabs which tab", chrome_tabs, "What's the weather right now?",
+             answered(("snow", "28"))),
+]
+
+
 async def run_one(scenario: Scenario, config: Config, prompt: str, model, question_model) -> tuple[str | None, float, FakeHelper]:
     helper = FakeHelper(scenario.screen(), scenario.replies, scenario.after_press)
     brain = helper.brain = Brain(helper, model, config, prompt, question_model)
@@ -453,6 +667,9 @@ async def run_one(scenario: Scenario, config: Config, prompt: str, model, questi
         await hear(scenario.utterance)
     except TimeoutError:
         return "timed out", time.perf_counter() - started, helper
+    leaked = [text for text in helper.spoken if re.search(r"<\s*/?\s*(?:tool_call|function|parameter)", text)]
+    if leaked:
+        return f"spoke tool-call syntax: {leaked}", time.perf_counter() - started, helper
     return scenario.check(helper), time.perf_counter() - started, helper
 
 
@@ -464,7 +681,13 @@ async def main(filters: list[str]) -> int:
     prompt = config.prompt_path.read_text(encoding="utf-8").strip()
     model = make_client(config, config.llm_url)
     question_model = make_client(config, config.llm_question_url, question=True) if config.llm_question_url else None
-    chosen = [s for s in SCENARIOS if not filters or any(f.casefold() in s.name for f in filters)]
+    repeat = 1
+    if "--repeat" in filters:  # --repeat N: run each scenario N times (the model samples at temperature 0.7)
+        at = filters.index("--repeat")
+        repeat = int(filters[at + 1])
+        filters = filters[:at] + filters[at + 2:]
+    chosen = [s for s in SCENARIOS + SCREEN_QA if not filters or any(f.casefold() in s.name for f in filters)]
+    chosen = [s for s in chosen for _ in range(repeat)]
     failures = 0
     total = 0.0
     for scenario in chosen:
