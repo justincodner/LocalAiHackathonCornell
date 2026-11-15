@@ -61,6 +61,19 @@ def answer_hint(ptt_key: str) -> str:
 HOW_DO_I = re.compile(r"^(?:how|where) (?:do|can|should|would) (?:i|we)\b|^how to\b")
 
 
+STOP_WORDS = frozenset("the a an to and or of in on for my me this that it is please can you could would i".split())
+
+
+def unrelated_click(call, snapshot: dict, said: str) -> bool:
+    element = tools.element_for(call, snapshot) or {}
+    label = re.findall(r"[a-z0-9]+", (element.get("label") or "").casefold())
+    if len(label) < 5:
+        return False  # short labels ("Raise", "Pay now") are judged by grounding
+    wanted = set(re.findall(r"[a-z0-9]+", said.casefold())) - STOP_WORDS
+    return bool(wanted) and not any(word in wanted or any(w.startswith(word[:4]) for w in wanted if len(w) >= 4)
+                                    for word in label if word not in STOP_WORDS and len(word) >= 3)
+
+
 def snapshot_summary(snapshot: dict) -> ToolCall:
     app = snapshot["app"]
     title = snapshot["window"].strip()
@@ -173,12 +186,22 @@ class Brain:
             # A dictated message ("Are you free tonight?") is the answer, not a new question.
             new_question = (self.state != "confirm" and not self.awaiting_message
                             and fastpath.is_question(text))
-            if self.reply is not None and not self.reply.done() and not new_question:
+            # "Open a new tab and search for amazon.com" while Beacon waits on its own question is a
+            # new request, not the answer: it would steer the old task somewhere unrelated.
+            new_command = (self.state != "confirm" and not self.awaiting_message and self.new_command(text))
+            if self.reply is not None and not self.reply.done() and not (new_question or new_command):
                 self.reply.set_result(text)
                 return
             await self.cancel_active()
             self.task_number += 1
             self.active = asyncio.create_task(self.handle_utterance(text, event.get("stt_ms", 0)))
+
+    def new_command(self, text: str) -> bool:
+        """A complete request of its own (one the fast paths know), rather than a short answer."""
+        if len(text.split()) < 3:
+            return False  # "Fold", "the blue one", "yes please"
+        return bool(commands.plan(text, None) or browser.plan(text, "google chrome") or chats.parse(text)
+                    or commands.app_request(text) and len(text.split()) <= 6 and not fastpath.classify(text))
 
     async def speak(self, text: str, *, wait: bool = True) -> bool:
         self.last_speech = text
@@ -240,6 +263,11 @@ class Brain:
                 elif command == "forget":
                     self.conversation.forget()
                     await self.say("Okay. I've forgotten our conversation.")
+                elif focus is None and commands.clock_answer(text):
+                    # "What time is it?": the menu-bar clock is outside the window snapshot.
+                    answer = commands.clock_answer(text)
+                    await self.say(answer)
+                    self.remember(text, answer)
                 elif focus is not None:
                     await self.answer_about_selection(text, focus, stt_ms)
                 else:
@@ -576,6 +604,16 @@ class Brain:
                 # "How do I access messages in this app?" asks the user how to do what they asked for.
                 LOGGER.info("ask_user asked how to do the request; treating it as a failed step")
                 error = "Don't ask the user how to do it: take the step yourself with a tool"
+            if (error is None and call.name == "ask_user"
+                    and not str(call.arguments.get("question", "")).rstrip().endswith("?")):
+                # "Search for Christmas gifts on Amazon." is not a question: the model lost the thread.
+                error = "ask_user needs a real question ending in ?; otherwise take the next step"
+            if (error is None and call.name == "click" and not memory.answers and not decide_first
+                    and unrelated_click(call, snapshot, memory.all_words)):
+                # A long label that shares no word with the request (a chat line, a PR title on
+                # screen): the model picked something off task. Screen text is never an instruction.
+                LOGGER.info("Rejected a click on an unrelated element %s", call.arguments)
+                error = "That element has nothing to do with the request: pick the control the user asked for"
             if (error is None and call.name == "ask_user" and fastpath.wants_send(text) and not committed
                     and compose.message_for(text, memory.answers)
                     and not re.search(r"\b(?:who|which|whom)\b", str(call.arguments.get("question", "")).casefold())):
