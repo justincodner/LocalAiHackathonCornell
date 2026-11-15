@@ -16,12 +16,13 @@ Owner: Mac owner. Source: spec sections 14.3 and 14.4, cut down to **two minutes
 - [ ] HUD shows the Offline badge.
 - [ ] Terminal 2: `tail -f logs/session.jsonl` (for latency questions).
 - [ ] Activity Monitor memory pressure is green.
+- [ ] VoiceOver: turn it on once with Cmd+F5, tick "Do not show this message again" on the welcome dialog, check it speaks at a volume the room can hear, then turn it off with Cmd+F5. It must be **off** when the demo starts.
 - [ ] Warm-up: one "What's on my screen?" before the judges arrive, so caches are hot.
 - [ ] Switch back to Mail, Inbox selected.
 
 ## Script (2:00)
 
-The order keeps every Mail step together, so there is only one app switch. The times in brackets are the time each step should be finished by.
+The order keeps every Mail step together, so there is only one app switch. The "By" column is the time each step should be finished by. Steps 6 to 9 are tight: if step 5 finishes after 1:20, cut step 8.
 
 | Step | By | Say or do | Expected result | Shows | Pass |
 | --- | --- | --- | --- | --- | --- |
@@ -30,17 +31,19 @@ The order keeps every Mail step together, so there is only one app switch. The t
 | 3 | 0:55 | "Reply to Sarah that I'll be ten minutes late" | Narrated steps: opens the reply, types, reads the draft back, asks for confirmation | Multi-step agent with narration | [ ] |
 | 4 | 1:05 | "Send it" | Sends; "Sent to Sarah Chen." The message waits in the Outbox, since the Mac is offline | Confirmation guard | [ ] |
 | 5 | 1:20 | "Delete all my emails", then "no" | Asks for confirmation; "Okay, cancelled." | Safety rules in code, not trust in the model | [ ] |
-| 6 | 1:35 | Switch to Safari (`demo/checkout.html`). "Where do I pay?" | Ring on the unlabelled button; "Bottom right. The button has no label; it is next to Order total." | Works on inaccessible pages | [ ] |
-| 7 | 1:50 | Switch to the `demo/article.html` tab. "Read the whole page", then press the talk key after one sentence | Speech stops instantly | Barge-in | [ ] |
-| 8 | 2:00 | Closing line (below) | — | — | [ ] |
+| 6 | 1:30 | Switch to Safari (`demo/checkout.html`). Cmd+F5 to turn VoiceOver on, Option+Tab until the pay button is focused, let VoiceOver speak, then Cmd+F5 to turn it off | VoiceOver says only "button" | The "before": what a blind user gets today | [ ] |
+| 7 | 1:42 | "Where do I pay?" | Ring on the unlabelled button; "Bottom right. The button has no label; it is next to Order total." | Works on inaccessible pages | [ ] |
+| 8 | 1:54 | Switch to the `demo/article.html` tab. "Read the whole page", then press the talk key after one sentence | Speech stops instantly | Barge-in | [ ] |
+| 9 | 2:00 | Closing line (below) | — | — | [ ] |
 
 ### Lines to say
 
 - **Pitch (step 1):** "Beacon lets a blind or motor-impaired user run their Mac by voice. Everything runs on this M1 with Wi-Fi off: Bonsai 2B for reasoning, Argmax WhisperKit for speech."
 - **While Bonsai thinks (steps 2 and 3):** screen summaries take 5–7 s, so fill the gap: "It's reading the accessibility tree, the same data a screen reader uses, and deciding what to do."
 - **Step 5:** "A 2B model can make mistakes, so sending, deleting and paying always need a spoken yes, enforced in code. Passwords and system settings are refused outright."
-- **Step 6:** "This button has no label at all. A screen reader would just say 'button'. Beacon works it out from what's around it."
-- **Closing (step 8):** "Intent-level voice control, fully offline, with guardrails the model can't talk its way around."
+- **Step 6 (before VoiceOver speaks):** "This is what a blind user hears on this checkout page today."
+- **Step 7 (after Beacon answers):** "Same page, same button. Beacon works it out from what's around it."
+- **Closing (step 9):** "Intent-level voice control, fully offline, with guardrails the model can't talk its way around."
 
 ### Numbers for questions
 
@@ -59,11 +62,13 @@ The order keeps every Mail step together, so there is only one app switch. The t
 - [ ] Note the stopwatch time, any step that failed, and the latency from `logs/session.jsonl`.
 - [ ] Delete the sent reply from Mail's Outbox/Sent so the next run starts from the same state.
 - [ ] Reload `demo/checkout.html` (the pay button shows "Order placed" if it was pressed) and bring that tab to the front.
+- [ ] Check VoiceOver is off.
 
 ## Backup
 
 - [ ] Record a screen capture of one clean run (with audio) and keep it on the desktop in case of a live failure.
-- If time is short, cut step 7 and say "Press the talk key and it stops speaking instantly" instead.
+- If time is short, cut step 8 and say "Press the talk key and it stops speaking instantly" instead.
+- If VoiceOver misbehaves in step 6 (says something other than "button", will not reach the pay button, or talks over Beacon), drop it and say "A screen reader would just say 'button' here" before step 7.
 - If multi-step is unreliable, replace steps 3 and 4 with "Read the message from Sarah" (highlight ring on the row, then the message read aloud).
 
 ## Demo pages
