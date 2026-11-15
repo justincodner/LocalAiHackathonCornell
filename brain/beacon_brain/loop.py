@@ -1138,6 +1138,13 @@ class Brain:
         spoken, go_to = commands.app_request(text)
         try:
             front = await self.helper.frontmost()
+        except HelperError as error:
+            if go_to or error.code != "element_not_found":
+                LOGGER.info("Could not identify the front app for an open request: %s", error.code)
+                return False
+            # An explicit app launch can proceed when there is no focused window.
+            front = {"app": "", "elements": [], "snapshot_id": None}
+        try:
             apps = await self.helper.apps()
         except HelperError as error:
             LOGGER.info("Could not list apps for an open request: %s", error.code)
