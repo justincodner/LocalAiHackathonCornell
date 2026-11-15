@@ -140,7 +140,8 @@ def test_startup_prewarms_every_prompt_family_and_survives_a_failure():
     warmed = []
 
     class Model:
-        slot_count = 8
+        slot_count = len(prompt_families("MAIN"))  # one slot per family, so every family gets warmed
+        slot_ids = list(range(slot_count))
 
         async def prewarm(self, system, family_tools):
             warmed.append((system, [tool["function"]["name"] for tool in family_tools]))
@@ -342,3 +343,84 @@ def test_a_one_slot_server_warms_only_the_action_prompt():
 
     asyncio.run(prewarm(Config(), Model(), "MAIN"))
     assert warmed == ["MAIN"]
+
+
+ALL_TOOLS = tuple(tool["function"]["name"] for tool in TOOL_DEFINITIONS)
+
+
+def test_xml_written_say_is_read_as_the_say_call_not_spoken_as_markup():
+    # Seen live: the 2B wrote its call as text and the HUD showed "<tool_call> <function=say> ...".
+    content = "<tool_call>\n<function=say>\n<parameter=text>\nThe page lists four videos.\n</parameter>\n</function>\n</tool_call>"
+    call, seen = ask_once(text_reply(content, "stop"), names=ALL_TOOLS)
+    assert (call.name, call.arguments) == ("say", {"text": "The page lists four videos."})
+    assert len(seen) == 1
+
+
+def test_unclosed_xml_say_keeps_only_its_text():
+    content = "<tool_call>\n<function=say>\n<parameter=text>\nThe first video is about volcanoes."
+    call, _ = ask_once(text_reply(content, "stop"), names=ALL_TOOLS)
+    assert call.arguments == {"text": "The first video is about volcanoes."}
+
+
+def test_xml_written_action_gets_schema_typed_arguments():
+    content = "<tool_call>\n<function=click>\n<parameter=id>\n6\n</parameter>\n</function>\n</tool_call>"
+    call, _ = ask_once(text_reply(content, "stop"), names=ALL_TOOLS)
+    assert (call.name, call.arguments) == ("click", {"id": 6})
+
+
+def test_xml_naming_a_tool_not_offered_is_asked_again():
+    transport, seen = server(lambda body, n: text_reply(
+        "<tool_call><function=click><parameter=id>6</parameter></function></tool_call>", "stop") if n == 1
+        else tool_reply("say", {"text": "Four videos are listed."}))
+
+    async def run():
+        async with BonsaiClient("http://127.0.0.1:8080/v1", transport=transport) as client:
+            return await client.next_tool_call([{"role": "user", "content": "x"}], tools_named("say"))
+
+    assert asyncio.run(run()).arguments == {"text": "Four videos are listed."}
+    assert len(seen) == 2
+
+
+def test_tool_markup_is_stripped_from_any_speech():
+    from beacon_brain.loop import spoken_form
+    assert spoken_form("<tool_call> <function=say> <parameter=text> Hello there.") == "Hello there."
+    assert spoken_form("Plain answer.") == "Plain answer."
+def test_slot_choice_keeps_live_and_scenario_brains_apart():
+    for choice, expected in [("", [0, 1, 2, 3]), ("rest", [0, 1, 2]), ("last", [3]), ("1, 2", [1, 2]), ("9", [0, 1, 2, 3])]:
+        client = BonsaiClient("http://bonsai.test/v1", slots=choice)
+        client._slot_count = 4
+        assert client.slot_ids == expected, choice
+    one = BonsaiClient("http://bonsai.test/v1", slots="rest")
+    assert one.slot_ids == [0]  # a one-slot server is never left with none
+
+
+def test_a_last_slot_client_pins_every_family_to_the_last_slot_only():
+    transport, seen = server(lambda body, n: tool_reply("say", {"text": "hi"}), slots=4)
+    client = BonsaiClient("http://bonsai.test/v1", transport=transport, slots="last")
+
+    async def run():
+        await client.discover_model()
+        for system in ("A", "B"):
+            await client.next_tool_call([{"role": "system", "content": system}, {"role": "user", "content": "x"}],
+                                         TOOL_DEFINITIONS)
+
+    asyncio.run(run())
+    assert [body.get("id_slot") for body in seen if "messages" in body] == [3, 3]
+
+
+def test_prewarm_warms_only_as_many_families_as_the_brain_may_pin():
+    from beacon_brain.config import Config
+    from beacon_brain.main import prewarm
+
+    warmed = []
+
+    class Model:
+        slot_count = 4
+        slot_ids = [0, 1, 2]
+
+        async def prewarm(self, system, family_tools):
+            warmed.append(system)
+            return 1.0
+
+    asyncio.run(prewarm(Config(), Model(), "MAIN"))
+    assert len(warmed) == 3 and warmed[0] == "MAIN"

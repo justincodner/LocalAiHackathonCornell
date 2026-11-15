@@ -10,10 +10,10 @@ from dataclasses import replace
 import httpx
 
 from . import (browser, chats, commands, compose, document, fastpath, followup, grounding, locate, narrate,
-               page_summary, questions, risk, route, screen_words, tools)
+               page_summary, questions, risk, route, screen_words, steps, tools)
 from .config import Config
 from .helper_client import HelperError
-from .llm import BonsaiError, ToolCall
+from .llm import BonsaiError, ToolCall, has_tool_markup, strip_tool_markup
 from .log import append_step
 from .memory import Conversation, TaskMemory
 from . import drafts  # Mail replies and "send it" on a draft, run in code
@@ -25,6 +25,7 @@ TERMINALS = {"say", "done", "read_element"}
 QUESTION_PAUSE_S = 60
 CONNECTION_ERRORS = (HelperError, httpx.HTTPError, OSError, TimeoutError, ValueError, KeyError)
 DECIDE_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] in {"click", "set_value"}]
+FIND_FIELD_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "click"]  # steps.py
 # Focus on one of these means Return would press it, not send the typed message.
 PRESSABLE = {"button", "link", "checkbox", "radio", "menuitem", "tab", "row", "cell", "popup", "slider", "menu", "list"}
 SCREEN_SUMMARY_TOOLS = [tool for tool in tools.TOOL_DEFINITIONS if tool["function"]["name"] == "say"]
@@ -48,6 +49,7 @@ def prompt_families(prompt: str) -> list[tuple[str, list[dict]]]:
         (page_summary.PROMPT, SCREEN_SUMMARY_TOOLS),  # "What's on my screen?" in a browser
         (document.PROMPT, DOCUMENT_TOOLS),
         (followup.PROMPT, followup.REWRITE_TOOLS),  # follow-up rewrites
+        (prompt, FIND_FIELD_TOOLS),  # "which field is the search bar?" (steps.py)
     ]
 
 
@@ -63,11 +65,38 @@ def answer_hint(ptt_key: str) -> str:
 HOW_DO_I = re.compile(r"^(?:how|where) (?:do|can|should|would) (?:i|we)\b|^how to\b")
 
 
+STOP_WORDS = frozenset("the a an to and or of in on for my me this that it is please can you could would i".split())
+
+
+def unrelated_click(call, snapshot: dict, said: str) -> bool:
+    element = tools.element_for(call, snapshot) or {}
+    label = re.findall(r"[a-z0-9]+", (element.get("label") or "").casefold())
+    if len(label) < 5:
+        return False  # short labels ("Raise", "Pay now") are judged by grounding
+    wanted = set(re.findall(r"[a-z0-9]+", said.casefold())) - STOP_WORDS
+    return bool(wanted) and not any(word in wanted or any(w.startswith(word[:4]) for w in wanted if len(w) >= 4)
+                                    for word in label if word not in STOP_WORDS and len(word) >= 3)
+
+
 def snapshot_summary(snapshot: dict) -> ToolCall:
     app = snapshot["app"]
     title = snapshot["window"].strip()
     answer = f'The active window in {app} is titled "{title}".' if title else f"{app} is open."
     return ToolCall("screen-summary", "say", {"text": answer})
+
+
+def screen_evidence(snapshot: dict) -> list[str]:
+    """Every label and value in a snapshot, with its window and app: what an answer may name."""
+    return [snapshot.get("window") or "", snapshot.get("app") or "", *(
+        f"{item.get('label') or ''} {item.get('value') or ''}" for item in snapshot.get("elements", []))]
+
+
+def spoken_form(text: str) -> str:
+    """Speech and captions never carry tool-call syntax the model wrote as text."""
+    if not has_tool_markup(text):
+        return text
+    LOGGER.warning("Removed tool-call syntax from speech")
+    return strip_tool_markup(text) or "Sorry, I didn't get that. Try asking again."
 
 
 class Brain:
@@ -80,6 +109,8 @@ class Brain:
         self.switching: asyncio.Task | None = None
         self.last_answered_by: str | None = None  # which model answered the latest call, for the log
         self.config = config
+        self.task_deadline: asyncio.Timeout | None = None  # the running task's timeout (handle_utterance)
+        self.task_started = 0.0
         self.prompt = prompt
         self.state = "idle"
         self.active: asyncio.Task | None = None
@@ -178,14 +209,25 @@ class Brain:
             # A dictated message ("Are you free tonight?") is the answer, not a new question.
             new_question = (self.state != "confirm" and not self.awaiting_message
                             and (fastpath.is_question(text) or document.intent(text) is not None))
-            if self.reply is not None and not self.reply.done() and not new_question:
+            # "Open a new tab and search for amazon.com" while Beacon waits on its own question is a
+            # new request, not the answer: it would steer the old task somewhere unrelated.
+            new_command = (self.state != "confirm" and not self.awaiting_message and self.new_command(text))
+            if self.reply is not None and not self.reply.done() and not (new_question or new_command):
                 self.reply.set_result(text)
                 return
             await self.cancel_active()
             self.task_number += 1
             self.active = asyncio.create_task(self.handle_utterance(text, event.get("stt_ms", 0)))
 
+    def new_command(self, text: str) -> bool:
+        """A complete request of its own (one the fast paths know), rather than a short answer."""
+        if len(text.split()) < 3:
+            return False  # "Fold", "the blue one", "yes please"
+        return bool(commands.plan(text, None) or browser.plan(text, "google chrome") or chats.parse(text)
+                    or commands.app_request(text) and len(text.split()) <= 6 and not fastpath.classify(text))
+
     async def speak(self, text: str, *, wait: bool = True) -> bool:
+        text = spoken_form(text)
         self.last_speech = text
         speech_id = await self.helper.speak(text, self.rate)
         if not wait:
@@ -200,6 +242,7 @@ class Brain:
             self.speech_events.pop(speech_id, None)
 
     async def say(self, text: str) -> None:
+        text = spoken_form(text)
         await self.set_state("speaking", caption=text)
         await self.speak(text)
 
@@ -237,7 +280,8 @@ class Brain:
         if reading_intent in {"read", "continue"}:
             timeout = max(timeout, 150)  # a full passage can take longer to speak than an action task
         try:
-            async with asyncio.timeout(timeout):
+            self.task_started = asyncio.get_running_loop().time()
+            async with asyncio.timeout(timeout) as self.task_deadline:
                 if command == "stop":
                     await self.helper.stop_speech()
                 elif command == "repeat":
@@ -250,6 +294,11 @@ class Brain:
                     self.conversation.forget()
                     self.reading = None
                     await self.say("Okay. I've forgotten our conversation.")
+                elif focus is None and commands.clock_answer(text):
+                    # "What time is it?": the menu-bar clock is outside the window snapshot.
+                    answer = commands.clock_answer(text)
+                    await self.say(answer)
+                    self.remember(text, answer)
                 elif focus is not None:
                     await self.answer_about_selection(text, focus, stt_ms)
                 elif reading_intent in {"read", "continue"}:
@@ -259,7 +308,7 @@ class Brain:
                     request, context = await self.resolve(text)
                     await self.route_request(request, stt_ms, context=context)
         except (TimeoutError, BonsaiError) as error:
-            LOGGER.warning("Task ended: %s", error)
+            LOGGER.warning("Task ended: %s", error or type(error).__name__)
             apology = (
                 "I'm having trouble thinking. Please try again." if isinstance(error, BonsaiError)
                 else "That took too long, so I stopped. Please try again."
@@ -272,7 +321,19 @@ class Brain:
         except CONNECTION_ERRORS:
             LOGGER.warning("Helper interaction failed", exc_info=True)
         finally:
+            self.task_deadline = None
             await self.set_state("idle")
+
+    def keep_going(self) -> None:
+        """A task step finished: give the next one a fresh task_timeout_s, up to task_max_s in all."""
+        if self.task_deadline is None:
+            return
+        now = asyncio.get_running_loop().time()
+        deadline = min(now + self.config.task_timeout_s,
+                       self.task_started + max(self.config.task_max_s, self.config.task_timeout_s))
+        current = self.task_deadline.when()
+        if current is None or deadline > current:  # never cut short a longer window, such as reading a page
+            self.task_deadline.reschedule(deadline)
 
     async def resolve(self, text: str) -> tuple[str, str]:
         """Return (the request to carry out, the earlier conversation it still depends on).
@@ -301,6 +362,16 @@ class Brain:
         LOGGER.info("Follow-up %r -> %r", text, rewritten)
         return rewritten, context
 
+    async def mentions_screen(self, text: str) -> bool:
+        """Whether a word of the question is in the front window (one quick window read)."""
+        try:
+            snapshot = await self.helper.snapshot()
+        except (HelperError, *CONNECTION_ERRORS):
+            return False
+        shown = [snapshot.get("window") or ""] + [
+            f"{item.get('label') or ''} {item.get('value') or ''}" for item in snapshot.get("elements", [])]
+        return questions.overlaps_screen(text, shown)
+
     def remember(self, request: str, reply: str, app: str = "") -> None:
         self.conversation.remember(request, reply, app)
 
@@ -319,6 +390,12 @@ class Brain:
         last = self.conversation.last
         if fastpath.needs_screen(text) or (context and last is not None and last.app):
             # A follow-up to an exchange about the screen ("And the tax?") is about it too.
+            await self.run_task(text, stt_ms, screen_question=True, context=context)
+            return
+        if questions.looks_up_screen(text) or (questions.about_user_or_now(text) and await self.mentions_screen(text)):
+            # "Is there anything about space?", "Do I need to buy coffee?" (coffee is in the open
+            # note): the answer is on screen. The router model tends to answer these from general
+            # knowledge instead.
             await self.run_task(text, stt_ms, screen_question=True, context=context)
             return
 
@@ -421,6 +498,16 @@ class Brain:
             # "Open messages", "switch to chrome": open or bring the app to the front.
             if await self.run_open_app(text, stt_ms):
                 return
+        bare = None if screen_question or screen_summary or chat else chats.bare_switch(text)
+        if bare is not None:
+            # "Switch to Clav" with Messages in front: the chat, through the same search path.
+            try:
+                front = await self.helper.frontmost()
+            except HelperError:
+                front = {}
+            if chats.in_chat_app(front):
+                await self.run_chat(bare, text, stt_ms)
+                return
         try:
             snapshot = await self.helper.snapshot()
         except HelperError as error:
@@ -442,6 +529,11 @@ class Brain:
                 await self.run_browser_plan(browser.Plan([click], f"Pressing {label}", f"I pressed {label}."), text,
                                             snapshot, stt_ms, kind="command")
                 return
+        if not (screen_question or screen_summary) and await steps.run(
+                self, text, snapshot, stt_ms, task_route=route.classify(text) if self.question_model else "single"):
+            # "In the Amazon search bar search for X": find the field (code, else the model), then
+            # type, Return and check the page in code. The model never has to press Return.
+            return
         quick = None if screen_question or screen_summary else (
             browser.named_tab(text, snapshot) or browser.plan(text, snapshot["app"]))
         if quick is not None:
@@ -488,6 +580,8 @@ class Brain:
         else:
             task_route = route.QUESTION if screen_question or screen_summary else route.classify(text)
         for step in range(1, self.config.max_steps + 1):
+            if step > 1:
+                self.keep_going()
             if generation != self.screen_generation:
                 generation = self.screen_generation
                 previous_snapshot, snapshot = snapshot, await self.helper.snapshot()
@@ -569,6 +663,12 @@ class Brain:
                     if planned is not None:
                         LOGGER.info("Send request: %s %s instead of %s", planned.name, planned.arguments, call.name)
                         call = planned
+            if (last_action == "type_text" and not sending and call.name in {"confirm", "done", "ask_user", "say"}
+                    and steps.wants_submit(text)):
+                # "Search for X in the search bar": the words are typed and the model stops or
+                # confirms (seven times on Amazon) instead of pressing Return. Press it in code.
+                LOGGER.info("Pressing Return after typing a search instead of %s", call.name)
+                call = ToolCall(call.id, "press_key", {"keys": "return"}, call.stray_text)
             send_call = self.send_typed(call, last_action, committed, memory.all_words, snapshot, typed_field)
             if send_call is not None:
                 # "Send hello to Emmett": the 2B model types, then stops or asks. Finish the
@@ -586,11 +686,28 @@ class Brain:
                     LOGGER.warning("Replaced a done summary that claimed an action Beacon did not take")
                     call = replace(call, arguments={**call.arguments, "summary": honest})
             error = tools.validate(call, snapshot)
+            if error is None and call.name == "confirm" and len(memory.turns) >= 2 and any(
+                    tc["function"]["name"] == "confirm" for tc in memory.turns[-2].get("tool_calls", [])):
+                # The 2B confirms the same thing again and again (7 times, to the 45 s timeout).
+                error = "Already approved: take the action itself now, do not confirm again"
             if (error is None and call.name == "ask_user" and not (screen_question or screen_summary)
                     and HOW_DO_I.match(fastpath.normalize(str(call.arguments.get("question", ""))))):
                 # "How do I access messages in this app?" asks the user how to do what they asked for.
                 LOGGER.info("ask_user asked how to do the request; treating it as a failed step")
                 error = "Don't ask the user how to do it: take the step yourself with a tool"
+            if (error is None and call.name == "ask_user"
+                    and not str(call.arguments.get("question", "")).rstrip().endswith("?")):
+                # "Search for Christmas gifts on Amazon." is not a question: the model lost the thread.
+                error = "ask_user needs a real question ending in ?; otherwise take the next step"
+            if error is None and call.name == "click" and chats.is_conversation_list(tools.element_for(call, snapshot)):
+                # Clicking the whole Messages chat list opens nothing in particular: say which chat instead.
+                error = "That is the whole conversation list, not one chat: ask which chat, or say you couldn't find it"
+            if (error is None and call.name == "click" and not memory.answers and not decide_first
+                    and unrelated_click(call, snapshot, memory.all_words)):
+                # A long label that shares no word with the request (a chat line, a PR title on
+                # screen): the model picked something off task. Screen text is never an instruction.
+                LOGGER.info("Rejected a click on an unrelated element %s", call.arguments)
+                error = "That element has nothing to do with the request: pick the control the user asked for"
             if (error is None and call.name == "ask_user" and fastpath.wants_send(text) and not committed
                     and compose.message_for(text, memory.answers)
                     and not re.search(r"\b(?:who|which|whom)\b", str(call.arguments.get("question", "")).casefold())):
@@ -598,6 +715,14 @@ class Brain:
                 # back is the model misreading it. Only who-to-send-to is worth asking about.
                 LOGGER.info("ask_user on a send whose message is given; treating it as a failed step")
                 error = "The user gave the message: type it into the message field and send it"
+            if (error is None and call.name == "say" and not tried_action and not screen_question
+                    and consecutive_invalid == 0  # once: a general answer may name things too
+                    and isinstance(call.arguments.get("text"), str)
+                    and questions.unsupported_names(call.arguments["text"], screen_evidence(snapshot), memory.all_words)):
+                # A spoken answer about things that are not on SCREEN ("The latest email is from
+                # Sarah Chen" on a video page) is made up: ask the model again.
+                LOGGER.warning("say named things absent from the screen: %r", call.arguments["text"])
+                error = "Only describe what is on the latest SCREEN; never name a person or title it doesn't show"
             if (error is None and must_act and call.name == "done" and early_stops < 2
                     and (not tried_action or (sending and not last_typed and not committed
                                              and compose.message_for(text, memory.answers)))):
@@ -887,6 +1012,9 @@ class Brain:
             return f"I pressed {label or 'that option'}."
         if call.name == "scroll" and was_fresh and fastpath.single_scroll(text):
             return f"I scrolled {call.arguments['direction']}."
+        if (call.name == "press_key" and call.arguments.get("keys") == "return" and typed.strip()
+                and not fastpath.wants_send(text) and steps.wants_submit(text)):
+            return f"I searched for {typed.strip()}."  # no extra model call just to hear "done"
         if fastpath.wants_send(text) and committed and typed and call.name in {"click", "press_key"}:
             name = compose.recipient(text)
             name = compose.shown_name(name, screen) if name else name
@@ -959,6 +1087,10 @@ class Brain:
         else:
             messages = TaskMemory(prompt, request).messages(snapshot)
             evidence = [f"{item.get('label') or ''} {item.get('value') or ''}" for item in snapshot["elements"]]
+        hint = "" if advisory else questions.answer_hints(request, snapshot)
+        if hint:
+            messages[-1] = {**messages[-1], "content": messages[-1]["content"] + hint}
+        shown = [*evidence, snapshot.get("window") or "", snapshot.get("app") or ""]
         allowed_numbers = None if advisory else questions.reference_numbers(request, evidence)
         missing_context = questions.missing_betting_context(request, evidence) if advisory else None
         if missing_context:
@@ -981,9 +1113,22 @@ class Brain:
                     text = answer.arguments["text"].strip()
                     if (text and not questions.is_question_only(text)
                             and fastpath.normalize(text) != fastpath.normalize(request)):
-                        if allowed_numbers is None or questions.numbers(text) <= allowed_numbers:
-                            return answer
-                        break
+                        if allowed_numbers is not None and not questions.numbers(text) <= allowed_numbers:
+                            break
+                        invented = [] if advisory else questions.unsupported_names(text, shown, request)
+                        if invented:
+                            # "The latest email is from Sarah Chen" on a YouTube page: not on screen.
+                            LOGGER.warning("Screen answer named %s, which is not on screen", invented)
+                            continue
+                        if questions.contradicts_itself(request, text):
+                            # "Yes, there are 0 open pull requests": ask again; a second try that
+                            # still contradicts keeps only its facts.
+                            LOGGER.info("Screen answer contradicted itself: %r", text)
+                            if attempt_messages is messages:
+                                continue
+                            facts = re.sub(r"^yes\b[\s,.!]*", "", text, flags=re.I)
+                            return replace(answer, arguments={"text": facts[:1].upper() + facts[1:]})
+                        return answer
         except BonsaiError:
             LOGGER.warning("Could not answer from the active screen", exc_info=True)
         return unavailable
@@ -1128,7 +1273,9 @@ class Brain:
                 LOGGER.warning("Using the available page content after Bonsai failed", exc_info=True)
             else:
                 if (call.name == "say" and not tools.validate(call, snapshot)
-                        and page_summary.mentions_content(call.arguments["text"], snapshot, content)):
+                        and page_summary.mentions_content(call.arguments["text"], snapshot, content)
+                        and not questions.unsupported_names(call.arguments["text"],
+                                                            [*content, snapshot["window"], snapshot["app"]], request)):
                     return call
         return ToolCall("page-summary", "say", {"text": page_summary.fallback(snapshot, content)})
 

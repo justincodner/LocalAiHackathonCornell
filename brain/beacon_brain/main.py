@@ -23,7 +23,7 @@ def make_client(config: Config, url: str, *, question: bool = False) -> BonsaiCl
         url, config.llm_question_timeout_s if question else config.llm_timeout_s,
         temperature=config.temperature, top_p=config.top_p,
         top_k=config.top_k, presence_penalty=config.presence_penalty, max_tokens=config.max_tokens,
-        cache_prompt=config.cache_prompt, attempts=1 if question else 2,
+        cache_prompt=config.cache_prompt, attempts=1 if question else 2, slots=config.llm_slots,
     )
 
 
@@ -33,8 +33,8 @@ async def prewarm(config: Config, model: BonsaiClient, prompt: str) -> None:
         return
     total = 0.0
     families = prompt_families(prompt)
-    if model.slot_count <= 1:  # one slot holds one warm prefix: warming the rest would only evict it
-        families = families[:1]
+    # Each warm family keeps a slot of its own; warming more families than slots would only evict them.
+    families = families[:1] if model.slot_count <= 1 else families[:len(model.slot_ids)]
     for system, family_tools in families:
         try:
             total += await model.prewarm(system, family_tools)

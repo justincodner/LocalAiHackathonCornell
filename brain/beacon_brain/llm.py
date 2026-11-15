@@ -80,6 +80,7 @@ class BonsaiClient:
         cache_prompt: bool = True,
         transport: httpx.AsyncBaseTransport | None = None,
         attempts: int = 2,
+        slots: str = "",
     ) -> None:
         self._http = httpx.AsyncClient(
             base_url=f"{base_url.rstrip('/')}/",
@@ -109,6 +110,7 @@ class BonsaiClient:
         # a slot of its own (see _slot_for); other families share whatever slots are left.
         self._root_url = re.sub(r"/v1/?$", "", base_url.rstrip("/")) + "/"
         self._slot_count = 1
+        self._slot_choice = slots.strip().casefold()  # BEACON_LLM_SLOTS; see slot_ids
         self._slots: OrderedDict[tuple[str, tuple[str, ...]], int] = OrderedDict()
         self._warm_families: set[tuple[str, tuple[str, ...]]] = set()
 
@@ -145,6 +147,27 @@ class BonsaiClient:
         """Server slots read by discover_model() (1 until then, or when the server doesn't say)."""
         return self._slot_count
 
+    @property
+    def slot_ids(self) -> list[int]:
+        """The server slots this client may pin (BEACON_LLM_SLOTS).
+
+        "" = all of them; "rest" = all but the last; "last" = only the last; or ids such as "0,1".
+        Two Brains on one Bonsai (the live one and a scenario run from scripts/) used to pin
+        their families to the same slot ids, so each evicted the other's cached prefix and every
+        live step re-read ~3,500 tokens (10 s) and hit its timeout. The live Brain takes "rest",
+        the scripts take "last", and neither touches the other's cache.
+        """
+        every = list(range(self._slot_count))
+        choice = self._slot_choice
+        if self._slot_count <= 1 or choice in {"", "all"}:
+            return every
+        if choice == "rest":
+            return every[:-1]
+        if choice == "last":
+            return every[-1:]
+        picked = [int(part) for part in re.split(r"[,\s]+", choice) if part.isdigit() and int(part) < self._slot_count]
+        return picked or every
+
     async def _discover_slots(self) -> None:
         """Read the server's slot count; without it, requests stay unpinned."""
         try:
@@ -167,6 +190,7 @@ class BonsaiClient:
         the Windows laptop). A family is its system prompt plus tool names. Prewarmed families
         keep their slot for good; the others take turns on the rest, least recently used first.
         """
+        ids = self.slot_ids
         if self._slot_count <= 1:
             return None
         system = messages[0].get("content") if messages and messages[0].get("role") == "system" else ""
@@ -174,8 +198,8 @@ class BonsaiClient:
         family = (system if isinstance(system, str) else json.dumps(system), names)
         if family in self._slots:
             self._slots.move_to_end(family)
-        elif len(self._slots) < self._slot_count:
-            self._slots[family] = len(self._slots)
+        elif len(self._slots) < len(ids):
+            self._slots[family] = ids[len(self._slots)]
         else:
             oldest = next((key for key in self._slots if key not in self._warm_families), None)
             if oldest is None:
@@ -262,7 +286,7 @@ class BonsaiClient:
             body = None
             try:
                 body = response.json()
-                call = _parse_tool_call(body, allow_text=allow_text)
+                call = _parse_tool_call(body, allow_text=allow_text, tools=tools)
             except (ValueError, _InvalidToolCall) as exc:
                 if attempt == self._attempts - 1:
                     raise BonsaiError("Bonsai did not return one valid tool call") from exc
@@ -307,7 +331,7 @@ def _rejects_required_tool_choice(response: httpx.Response) -> bool:
     return "tool_choice" in explanation and "required" in explanation
 
 
-def _parse_tool_call(body: Any, *, allow_text: bool) -> ToolCall:
+def _parse_tool_call(body: Any, *, allow_text: bool, tools: Sequence[Mapping[str, Any]] = ()) -> ToolCall:
     choices = body.get("choices") if isinstance(body, dict) else None
     if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
         raise _InvalidToolCall("Expected one completion choice")
@@ -316,8 +340,16 @@ def _parse_tool_call(body: Any, *, allow_text: bool) -> ToolCall:
         raise _InvalidToolCall("Completion had no message")
     calls = message.get("tool_calls")
     truncated = choices[0].get("finish_reason") == "length"
-    if allow_text and (calls is None or calls == []):
+    if calls is None or calls == []:
         content = message.get("content")
+        if has_tool_markup(content):
+            # llama-server could not parse a tool call the model wrote in its own syntax
+            # ("<tool_call><function=say><parameter=text>..."): read it here, never speak it.
+            written = _written_tool_call(content, tools, truncated=truncated)
+            if written is not None:
+                return written
+            raise _InvalidToolCall("The reply held tool-call syntax that did not parse")
+    if allow_text and (calls is None or calls == []):
         text = _truncated_answer(content) if truncated else _spoken_text(content)
         if text:
             return ToolCall(f"call_{uuid4().hex}", "say", {"text": text})
@@ -344,6 +376,88 @@ def _parse_tool_call(body: Any, *, allow_text: bool) -> ToolCall:
     content = message.get("content")
     stray = content.strip() if isinstance(content, str) else ""
     return ToolCall(call_id, name, arguments, stray)
+
+
+# Tool-call syntax the model sometimes writes as plain text instead of a real tool call:
+# Qwen-style XML (<tool_call><function=say><parameter=text>...</parameter></function></tool_call>)
+# or <tool_call>{"name": ..., "arguments": {...}}</tool_call>.
+_TOOL_MARKUP = re.compile(r"</?tool_call>|<function=[^>]*>|</function>|<parameter=[^>]*>|</parameter>", re.I)
+
+
+def has_tool_markup(text: Any) -> bool:
+    return isinstance(text, str) and _TOOL_MARKUP.search(text) is not None
+
+
+def strip_tool_markup(text: str) -> str:
+    """Text with any tool-call tags removed; a last guard so tool syntax is never shown or spoken."""
+    cleaned = _TOOL_MARKUP.sub(" ", text)
+    cleaned = re.sub(r"<function=[^\s]*|<parameter=[^\s]*|</?tool_call\b", " ", cleaned)
+    return " ".join(cleaned.split())
+
+
+def _schema_types(tools: Sequence[Mapping[str, Any]], name: str) -> dict[str, str]:
+    for tool in tools:
+        function = tool.get("function", {})
+        if function.get("name") == name:
+            properties = function.get("parameters", {}).get("properties", {})
+            return {key: str(spec.get("type", "")) for key, spec in properties.items() if isinstance(spec, dict)}
+    return {}
+
+
+def _coerce(value: str, kind: str) -> Any:
+    """A written-out parameter value as the type its schema asks for (ids are integers)."""
+    if kind == "integer" and re.fullmatch(r"-?\d+", value):
+        return int(value)
+    if kind == "number" and re.fullmatch(r"-?\d+(?:\.\d+)?", value):
+        return float(value)
+    if kind == "boolean" and value.casefold() in {"true", "false"}:
+        return value.casefold() == "true"
+    if kind in {"object", "array"}:
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
+
+
+def _written_tool_call(content: str, tools: Sequence[Mapping[str, Any]], *, truncated: bool) -> ToolCall | None:
+    """The one tool call written out as text in `content`, if it names an offered tool."""
+    body = content.split("</think>", 1)[0]
+    offered = {str(tool.get("function", {}).get("name", "")) for tool in tools}
+    name, arguments = None, {}
+    xml = re.search(r"<function=\s*([\w.-]+)\s*>(.*?)(?:</function>|</tool_call>|$)", body, re.S)
+    if xml:
+        name = xml.group(1)
+        types = _schema_types(tools, name)
+        for parameter in re.finditer(
+                r"<parameter=\s*([\w.-]+)\s*>(.*?)(?=</parameter>|<parameter=|</function>|</tool_call>|$)",
+                xml.group(2), re.S):
+            key = parameter.group(1)
+            arguments[key] = _coerce(parameter.group(2).strip(), types.get(key, "string"))
+    else:
+        start = re.search(r"<tool_call>\s*", body)
+        if start is None:
+            return None
+        raw = body[start.end():].split("</tool_call>", 1)[0].strip()
+        try:
+            parsed = json.loads(raw, parse_constant=_reject_json_constant)
+        except ValueError:
+            match = re.search(r'"name"\s*:\s*"([\w.-]+)".*?"text"\s*:\s*"(.*)', raw, re.S) if truncated else None
+            if match is None:
+                return None
+            parsed = {"name": match.group(1), "arguments": {"text": _unescape_partial_json(match.group(2))}}
+        if not isinstance(parsed, dict) or not isinstance(parsed.get("arguments", {}), dict):
+            return None
+        name, arguments = parsed.get("name"), dict(parsed.get("arguments") or {})
+    if not isinstance(name, str) or (offered and name not in offered):
+        return None
+    for key, value in list(arguments.items()):
+        if isinstance(value, str):
+            value = strip_tool_markup(value)
+            arguments[key] = _complete_sentences(value) if truncated and key == "text" else value
+    if name == "say" and not str(arguments.get("text", "")).strip():
+        return None
+    return ToolCall(f"call_{uuid4().hex}", name, arguments)
 
 
 def _spoken_text(content: Any) -> str:
