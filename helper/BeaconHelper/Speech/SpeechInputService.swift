@@ -99,6 +99,19 @@ final class SpeechInputService: SpeechInputProviding, @unchecked Sendable {
         events.emit("listen.cancelled", ["reason": reason])
     }
 
+    /// What to tell the user for a cancel that repeats on every press (a missing model, no microphone); nil for
+    /// one-off cancels (too short, nothing heard), which keep the plain error tone.
+    static func cancelMessage(reason: String?) -> String? {
+        switch reason {
+        case "stt_model_missing":
+            return "I can't hear requests: the Whisper speech model isn't installed where I'm looking. Typed requests still work."
+        case "microphone_unavailable":
+            return "I can't open the microphone. Check Beacon Helper's microphone permission. Typed requests still work."
+        default:
+            return nil
+        }
+    }
+
     // MARK: Transcription
 
     /// Outcome of processing one recording, before it is turned into an event.

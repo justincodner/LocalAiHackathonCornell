@@ -246,6 +246,7 @@ class FakeHelper:
         self.brain: Brain | None = None
         self.focus = screen.get("focused_id")
         self.press_labels: list[str] = []
+        self.sent_messages: list[str] = []
 
     async def snapshot(self):
         self.snapshots += 1
@@ -309,6 +310,12 @@ class FakeHelper:
             element = self._element(self.focus)
             if element is not None:
                 self._set(self.focus, (element.get("value") or "") + payload["text"])
+        if (path == "/input/key" and payload.get("keys") == "return" and self.screen.get("app") == "Messages"
+                and self.focus is not None and (self._element(self.focus) or {}).get("role") == "textarea"):
+            box = self._element(self.focus)
+            if box.get("value"):
+                self.sent_messages.append(box["value"])  # Return sends in Messages and empties the box
+                self._set(self.focus, "")
         return {"ok": True, "performed_via": "ax"}
 
     def _focus_screen(self, element_id):
@@ -366,6 +373,7 @@ class Scenario:
     replies: list[str] = field(default_factory=list)
     after_press: dict[str, Callable[[], dict]] = field(default_factory=dict)
     before: list[str] = field(default_factory=list)  # earlier requests in the same conversation; not checked
+    during: list[tuple[float, dict]] = field(default_factory=list)  # (seconds after the request, Helper event)
 
 
 def expect(condition: bool, message: str) -> str | None:
@@ -401,6 +409,16 @@ def browsed(h: FakeHelper, first_key: str, typed: str | None) -> str | None:
           and (typed is None or keys[-1:] == ["return"]))
     return expect(ok, f"asked {h.asked}, keys {keys}, typed {h.typed()!r}, said {h.spoken}")
 
+
+
+def glided(h: FakeHelper, direction: str, stopped: bool) -> str | None:
+    """Many small scrolls one way, nothing else; "Done scrolling." only when the limit ended it."""
+    steps = [p for path, p in h.actions if path == "/input/scroll"]
+    others = [a for a in h.actions if a[0] != "/input/scroll"]
+    small = all(p["direction"] == direction and isinstance(p["amount"], int) and p["amount"] <= 60 for p in steps)
+    done = "done scrolling" in h.said()
+    return expect(len(steps) >= 5 and small and not others and done != stopped and h.asked == 0,
+                  f"{len(steps)} scrolls {steps[:3]}, other actions {others}, said {h.spoken}")
 
 
 def keys_only(h: FakeHelper, expected: list[str]) -> str | None:
@@ -536,6 +554,15 @@ SCENARIOS = [
     Scenario("command scroll down", lambda: load("chrome_article"), "Scroll down.",
              lambda h: expect([a[0] for a in h.actions] == ["/input/scroll"] and h.asked == 0,
                               f"actions {h.actions}, said {h.spoken}")),
+    # Continuous scrolling (commands.continuous_scroll): small steady scrolls until stop, the talk key or the limit.
+    Scenario("glide scroll through results", lambda: load("chrome_article"), "Scroll through the results.",
+             lambda h: glided(h, "down", stopped=False)),
+    Scenario("glide keep scrolling stop", lambda: load("chrome_article"), "Keep scrolling.",
+             lambda h: glided(h, "down", stopped=True), during=[(0.6, {"type": "stt.final", "text": "Stop."})]),
+    Scenario("glide slowly talk key", lambda: load("chrome_article"), "Scroll down slowly.",
+             lambda h: glided(h, "down", stopped=True), during=[(0.6, {"type": "listen.started"})]),
+    Scenario("glide up slowly", lambda: load("chrome_article"), "Scroll up slowly.",
+             lambda h: glided(h, "up", stopped=False)),
     Scenario("command press tab twice", lambda: messages_screen(), "Press tab twice.",
              lambda h: keys_only(h, ["tab", "tab"])),
     Scenario("open app messages", lambda: load("chrome_article"), "Open messages.",
@@ -621,6 +648,72 @@ def answered(any_of: tuple[str, ...], none_of: tuple[str, ...] = ()) -> Callable
 NO = ("no", "none", "zero", "0", "not", "aren't", "isn't", "don't", "couldn't", "can't", "cannot")
 NOT_ON_SCREEN = ("couldn't", "can't", "cannot", "don't", "not", "no", "isn't")
 # Screen questions on everyday apps and sites (none of them the demo screens).
+def chat_sent(body: str, chat: str = "Clav", asked: int = 0) -> Callable[[FakeHelper], str | None]:
+    """Exactly this message went out in the open chat (one send), with `asked` questions first."""
+    def check(h: FakeHelper) -> str | None:
+        return (expect(h.sent_messages == [body], f"sent {h.sent_messages}, typed {h.typed()!r}, keys {h.keys()}")
+                or expect(h.asked == asked, f"asked {h.asked} times: {h.spoken}")
+                or expect(any(t.startswith(f"Sent to {chat}") for t in h.spoken), f"said {h.spoken}"))
+    return check
+
+
+def nothing_sent(h: FakeHelper) -> str | None:
+    return expect(not h.sent_messages and "return" not in h.keys(), f"sent {h.sent_messages}, keys {h.keys()}")
+
+
+HACK = "I'm going to the hackathon in the morning"
+clav = lambda: messages_screen("Clav")  # noqa: E731
+# Texting in the open chat, phrased every way Justin says it. Code reads who and what; the model
+# is only consulted for the ones code can't cut ("text him about ...") and for non-sends.
+MESSAGING = [
+    Scenario("msg bare sentence", clav, HACK, chat_sent(HACK)),
+    Scenario("msg bare sentence period", clav, HACK + ".", chat_sent(HACK + ".")),
+    Scenario("msg send this", clav, "Send this: " + HACK, chat_sent(HACK)),
+    Scenario("msg send the following", clav, "Send the following, " + HACK, chat_sent(HACK)),
+    Scenario("msg send the following message", clav, "Send the following message: see you at 8", chat_sent("see you at 8")),
+    Scenario("msg tell him", clav, "Tell him " + HACK, chat_sent(HACK)),
+    Scenario("msg tell her that", clav, "Tell her that the game starts at 8", chat_sent("the game starts at 8")),
+    Scenario("msg tell them", clav, "Tell them I'll be late", chat_sent("I'll be late")),
+    Scenario("msg tell name", clav, "Tell Clav " + HACK, chat_sent(HACK)),
+    Scenario("msg tell name that", clav, "Tell Clav that I'm outside", chat_sent("I'm outside")),
+    Scenario("msg text name", clav, "Text Clav I'm running ten minutes late", chat_sent("I'm running ten minutes late")),
+    Scenario("msg message name", clav, "Message Clav hey what's up", chat_sent("hey what's up")),
+    Scenario("msg reply", clav, "Reply sounds good", chat_sent("sounds good")),
+    Scenario("msg reply with", clav, "Reply with see you there", chat_sent("see you there")),
+    Scenario("msg reply to name", clav, "Reply to Clav, I'm in", chat_sent("I'm in")),
+    Scenario("msg respond saying", clav, "Respond saying I can't make it", chat_sent("I can't make it")),
+    Scenario("msg say", clav, "Say happy birthday", chat_sent("happy birthday")),
+    Scenario("msg say comma", clav, "Say, I'll be there in five", chat_sent("I'll be there in five")),
+    Scenario("msg say to name", clav, "Say good luck to Clav", chat_sent("good luck")),
+    Scenario("msg send to name comma", clav, "Send to Clav, " + HACK, chat_sent(HACK)),
+    Scenario("msg send body to name", clav, "Send see you soon to Clav", chat_sent("see you soon")),
+    Scenario("msg send message saying", clav, "Send a message saying I'm on my way", chat_sent("I'm on my way")),
+    Scenario("msg send name a text", clav, "Send Clav a text saying I'm here", chat_sent("I'm here")),
+    Scenario("msg let him know", clav, "Let him know I'll be there at 8", chat_sent("I'll be there at 8")),
+    Scenario("msg let name know that", clav, "Let Clav know that I'm leaving now", chat_sent("I'm leaving now")),
+    Scenario("msg send bare", clav, "Send on my way", chat_sent("on my way")),
+    Scenario("msg send here", clav, "Send lol here", chat_sent("lol")),
+    Scenario("msg quoted", clav, 'Tell him "see you at 8"', chat_sent("see you at 8")),
+    Scenario("msg polite lead", clav, "Hey Beacon, can you please tell him I'm on my way", chat_sent("I'm on my way")),
+    Scenario("msg tell to", clav, "Tell Clav to call me", chat_sent("Call me")),
+    Scenario("msg question with tell", clav, "Tell him are you coming tonight?", chat_sent("are you coming tonight?")),
+    Scenario("msg send question", clav, "Send, did you find it?", chat_sent("did you find it?")),
+    Scenario("msg chatty bare", clav, "Sounds good, see you then", chat_sent("Sounds good, see you then")),
+    Scenario("msg friend question asks", clav, "Are you coming tonight?", chat_sent("Are you coming tonight?", asked=1),
+             replies=["yes"]),
+    Scenario("msg ambiguous asks no", clav, "Pizza or tacos for dinner", nothing_sent, replies=["no"]),
+    Scenario("msg misheard name asks", clav, "Send the collab, I'm going to hack it on in the morning.",
+             chat_sent("I'm going to hack it on in the morning.", asked=1), replies=["yes"]),
+    Scenario("msg model extracts", clav, "Could you text him about me running late",
+             lambda h: expect(len(h.sent_messages) == 1 and "late" in h.sent_messages[0].casefold(),
+                              f"sent {h.sent_messages}, said {h.spoken}")),
+    # Not messages: must never type into the chat.
+    Scenario("msg not: what did he say", clav, "What did Clav say?", nothing_sent),
+    Scenario("msg not: read last", clav, "Read the last message", nothing_sent),
+    Scenario("msg not: screen", clav, "What's on my screen?", nothing_sent),
+    Scenario("msg not: tell me", clav, "Tell me a joke", nothing_sent),
+]
+
 SCREEN_QA = [
     Scenario("qa youtube what video", youtube_home, "What video is on screen right now?",
              answered(("volcanoes", "lo-fi", "lo", "tiny", "goals", "volcano"), ("email", "sarah"))),
@@ -691,6 +784,8 @@ async def run_one(scenario: Scenario, config: Config, prompt: str, model, questi
             await hear(earlier)
         helper.spoken.clear()
         started = time.perf_counter()
+        for delay, event in scenario.during:
+            asyncio.get_running_loop().call_later(delay, lambda e=event: asyncio.ensure_future(brain.on_event(e)))
         await hear(scenario.utterance)
     except TimeoutError:
         return "timed out", time.perf_counter() - started, helper
@@ -703,7 +798,7 @@ async def run_one(scenario: Scenario, config: Config, prompt: str, model, questi
 async def main(filters: list[str]) -> int:
     base = Config.from_environment()
     log = Path(tempfile.mkdtemp()) / "scenarios.jsonl"
-    config = Config(**{**base.__dict__, "log_path": log, "settle_ms": 0, "reply_timeout_s": 3,
+    config = Config(**{**base.__dict__, "log_path": log, "settle_ms": 0, "reply_timeout_s": 3, "scroll_max_s": 1.5,
                        "thinking_filler_ms": 0})
     prompt = config.prompt_path.read_text(encoding="utf-8").strip()
     model = make_client(config, config.llm_url)
@@ -713,7 +808,7 @@ async def main(filters: list[str]) -> int:
         at = filters.index("--repeat")
         repeat = int(filters[at + 1])
         filters = filters[:at] + filters[at + 2:]
-    chosen = [s for s in SCENARIOS + SCREEN_QA if not filters or any(f.casefold() in s.name for f in filters)]
+    chosen = [s for s in SCENARIOS + MESSAGING + SCREEN_QA if not filters or any(f.casefold() in s.name for f in filters)]
     chosen = [s for s in chosen for _ in range(repeat)]
     failures = 0
     total = 0.0
