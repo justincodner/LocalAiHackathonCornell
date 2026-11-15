@@ -80,6 +80,8 @@ ROLE_BY_TYPE = {
 HEADING_NONE = 80050
 MAX_RAW_NODES = 6000
 SNAPSHOTS_KEPT = 5
+HIDDEN_CONTAINERS = snap.CONTAINERS | {"document"}
+FIND_ROLES = snap.INTERACTIVE | snap.ATOMIC | snap.CONTAINERS | {"text"}
 
 
 @dataclass
@@ -128,6 +130,11 @@ class Reader:
     def cache_request(self, onscreen: bool = True):
         """Onscreen-only control view: Firefox keeps every background tab in the tree (15,000 nodes, 1.3 s);
         filtering in the provider leaves the ~300 a person can see, in under 0.5 s."""
+        cached = getattr(_local, "cache_requests", None)
+        if cached is None:
+            cached = _local.cache_requests = {}
+        if onscreen in cached:
+            return cached[onscreen]  # built once per thread; ~20 COM calls each time otherwise
         auto = automation()
         cr = auto.CreateCacheRequest()
         for pid in P.values():
@@ -137,6 +144,7 @@ class Reader:
         if onscreen:
             cr.TreeFilter = auto.CreateAndCondition(
                 auto.ControlViewCondition, auto.CreatePropertyCondition(U.UIA_IsOffscreenPropertyId, False))
+        cached[onscreen] = cr
         return cr
 
     def target(self) -> Target:
@@ -196,7 +204,7 @@ class Reader:
         if role == "textfield" and (rect and rect[3] > 60) and aria != "textbox":
             role = "textarea" if not g("readonly") else role
         if offscreen and not page:
-            role = "transparent" if role in snap.CONTAINERS | {"document"} else "drop"
+            role = "transparent" if role in HIDDEN_CONTAINERS else "drop"
         password = bool(g("password"))
         value = None if password else g("value")
         if value is None and role == "slider" and g("has_range"):
@@ -371,7 +379,7 @@ class Reader:
         visit(tree)
         entries, results = {}, []
         for i, n in enumerate(hits, start=1):
-            role = n.role if n.role in snap.INTERACTIVE | snap.ATOMIC | snap.CONTAINERS | {"text"} else "group"
+            role = n.role if n.role in FIND_ROLES else "group"
             out = snap.make_out(n, role)
             el = snap.Element(i, 0, role, out.label, out.label_source if out.label else "none", out.value,
                               [s for s in snap.STATE_ORDER if s in out.states], n.rect, n.ref, None, None)

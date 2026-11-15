@@ -2,7 +2,7 @@
 
 Input: a tree of `Node`s read from UI Automation. Output: numbered elements and the SCREEN text block, in exactly
 the shape the Mac Helper produces, so the Brain cannot tell the two apart.
-""",
+"""
 
 import json
 import re
@@ -16,6 +16,8 @@ INTERACTIVE = {"button", "link", "textfield", "textarea", "checkbox", "radio", "
 ATOMIC = INTERACTIVE | {"heading", "row", "cell", "image"}
 VALUED = {"textfield", "textarea", "slider", "checkbox", "radio", "popup"}
 CONTAINERS = {"group", "list", "toolbar", "window", "menu"}
+DISABLE_ROLES = INTERACTIVE | {"row"}
+FOCUS_ROLES = INTERACTIVE | {"row", "cell", "list"}
 
 
 @dataclass
@@ -101,13 +103,14 @@ class Built:
 # --- labels ----------------------------------------------------------------------------------------------------
 
 PRIVATE_USE = re.compile("[-]")
+WHITESPACE = re.compile(r"\s+")
 
 
 def clean(text: str | None) -> str | None:
     if text is None:
         return None
     text = PRIVATE_USE.sub("", str(text))  # icon-font glyphs (Segoe Fluent Icons) are not words
-    text = re.sub(r"\s+", " ", text).strip()
+    text = WHITESPACE.sub(" ", text).strip()
     return text or None
 
 
@@ -131,8 +134,8 @@ def descendant_texts(node: Node, include_fields: bool, limit: int = 12) -> list[
             if t:
                 out.append(t)
             return
-        if include_fields and n.role == "textfield" and not n.password and clean(n.value):
-            out.append(clean(n.value))
+        if include_fields and n.role == "textfield" and not n.password and (v := clean(n.value)):
+            out.append(v)
             return
         for c in n.children:
             visit(c)
@@ -144,8 +147,8 @@ def descendant_texts(node: Node, include_fields: bool, limit: int = 12) -> list[
 
 def first_image_label(node: Node) -> str | None:
     for c in node.children:
-        if c.role == "image" and clean(c.name):
-            return clean(c.name)
+        if c.role == "image" and (name := clean(c.name)):
+            return name
         found = first_image_label(c)
         if found:
             return found
@@ -156,10 +159,10 @@ def raw_label(node: Node, role: str) -> tuple[str, str] | None:
     if role == "text":
         t = clean(node.name) or clean(node.value)
         return (t, "title") if t else None
-    if clean(node.name):
-        return clean(node.name), "title"
-    if clean(node.help):
-        return clean(node.help), "help"
+    if name := clean(node.name):
+        return name, "title"
+    if help_text := clean(node.help):
+        return help_text, "help"
     if role not in ATOMIC:
         return None
     texts = descendant_texts(node, include_fields=role in {"row", "cell"})
@@ -278,9 +281,9 @@ def make_out(n: Node, role: str) -> Out:
             o.states.add("truncated")
     if role == "text" and o.label and len(o.full_label) > MAX_LENGTH:
         o.full_text = o.full_label
-    if not n.enabled and role in INTERACTIVE | {"row"}:
+    if not n.enabled and role in DISABLE_ROLES:
         o.states.add("disabled")
-    if n.focused and role in INTERACTIVE | {"row", "cell", "list"}:
+    if n.focused and role in FOCUS_ROLES:
         # Browsers give keyboard focus to the page itself; marked "focused", small models type into it.
         o.states.add("focused")
     if n.selected and role not in {"radio"}:
@@ -482,15 +485,16 @@ def chrome_containers(outs: list[Out]) -> list[Out]:
     return found
 
 
-def fit(top: list[Out], max_elements: int) -> list[Out]:
-    if sum(o.count() for o in top) <= max_elements:
+def fit(top: list[Out], max_elements: int, total: int | None = None) -> list[Out]:
+    if (sum(o.count() for o in top) if total is None else total) <= max_elements:
         return top
     top = drop_noise(top, 0)
     total = sum(o.count() for o in top)
-    for o in sorted(chrome_containers(top), key=Out.count, reverse=True):
+    sized = sorted(((o.count(), o) for o in chrome_containers(top)), key=lambda pair: pair[0], reverse=True)
+    for size, o in sized:
         if total <= max_elements:
             break
-        hidden = o.count() - 1
+        hidden = size - 1
         o.children, o.collapsed, o.more_rows = [], hidden, 0
         total -= hidden
     return top
@@ -499,7 +503,7 @@ def fit(top: list[Out], max_elements: int) -> list[Out]:
 def build(root: Node, include_root: bool, max_elements: int, walk_truncated: bool = False) -> Built:
     top = finish_siblings(transform(root)) if include_root else transform_children(root.children)
     total = sum(o.count() for o in top)
-    top = fit(top, max(1, max_elements))
+    top = fit(top, max(1, max_elements), total)
     elements: list[Element] = []
     lines: list = []
     state = {"truncated": walk_truncated}
